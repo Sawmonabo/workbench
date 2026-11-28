@@ -20,6 +20,8 @@ type locks struct{ files []*os.File }
 // Lock files are never unlinked: flock releases on close/process death.
 func acquireLocks(c Context) (*locks, error) {
 	if c.ReadOnly {
+		// A command that only reads never asks for a lock: this is
+		// Workbench's own mistake, which no line of the user's clears.
 		return nil, Fail(ExitBlocked, "read_only", "Read-only operations cannot create locks")
 	}
 	if _, err := ReadState(c.Paths); err != nil {
@@ -38,12 +40,7 @@ func acquireLocks(c Context) (*locks, error) {
 		f, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR|syscall.O_NOFOLLOW, 0o600)
 		if err != nil {
 			result.close()
-			return nil, Fail(
-				ExitBlocked,
-				"lock",
-				"Cannot open the lock file "+display.Path(path),
-				Cause(FileReason(path, err).Error()),
-			)
+			return nil, lockOpenRefusal(path, err)
 		}
 		result.files = append(result.files, f)
 		if err := checkPrivateFile(path); err != nil {
@@ -53,6 +50,9 @@ func acquireLocks(c Context) (*locks, error) {
 		if held, err := flockNonBlocking(f); held || err != nil {
 			result.close()
 			if err != nil {
+				// flock fails on an open file only where its file system
+				// keeps no locks (ENOLCK, EOPNOTSUPP), which no command of
+				// the user's changes for that folder: the cause says which.
 				return nil, Fail(
 					ExitBlocked,
 					"lock",
@@ -270,4 +270,50 @@ func (l *locks) close() {
 		_ = v.Close()
 	}
 	l.files = nil
+}
+
+// lockOpenRefusal refuses path, a lock file in Workbench's own locks folder,
+// which it failed with err to open for reading and writing. A lock file is
+// never removed, as flock locks the file a name holds, so the fix keeps it:
+// a lock file of this user's that its mode keeps closed gets 0600, the mode
+// Workbench makes it with; one of another user's, which only root can put in
+// a private folder of this user's (sudo workbench), is given back to this
+// user. A link or a folder at its name is no lock file and is moved aside.
+func lockOpenRefusal(path string, err error) error {
+	headline := "Cannot open the lock file " + display.Path(path)
+	info, statErr := os.Lstat(path)
+	var stat *syscall.Stat_t
+	if statErr == nil {
+		stat, _ = info.Sys().(*syscall.Stat_t)
+	}
+	switch {
+	case stat == nil:
+		return Fail(ExitBlocked, "lock", headline, Cause(FileReason(path, err).Error()))
+	case !info.Mode().IsRegular():
+		return Fail(
+			ExitBlocked,
+			"lock",
+			display.Path(path)+" is "+fileKind(info)+", not a lock file",
+			Cause("Workbench keeps a lock file there"),
+			moveAsideFix(path),
+		)
+	case int(stat.Uid) != os.Geteuid():
+		return Fail(ExitBlocked, "lock", headline,
+			Cause("it belongs to "+userName(stat.Uid)+", not to you"),
+			FixPath(path, "sudo", "chown", userName(uint32(os.Geteuid()))))
+	case errors.Is(err, fs.ErrPermission) && info.Mode().Perm()&0o600 != 0o600:
+		return Fail(
+			ExitBlocked,
+			"lock",
+			headline,
+			Cause(
+				fmt.Sprintf(
+					"it has mode %04o, so you cannot read and write it",
+					info.Mode().Perm(),
+				),
+			),
+			FixPath(path, "chmod", "600"),
+		)
+	}
+	return Fail(ExitBlocked, "lock", headline, Cause(FileReason(path, err).Error()))
 }

@@ -86,7 +86,18 @@ func OthersMaySearch(fd int, path string) (entry int, err error) {
 	return othersMaySearch(fd, path)
 }
 
+// ModeLocks are the flags of path itself, not a link's target, that keep
+// its mode from changing ([LockingFlags]: chmod(2) fails with EPERM on a
+// file whose immutable or append-only flag is set, on macOS by its man page,
+// on Linux by notify_change in fs/attr.c), read without opening it: on
+// macOS the st_flags of lstat; on Linux the STATX_ATTR_IMMUTABLE and
+// STATX_ATTR_APPEND attributes of statx(2) with AT_SYMLINK_NOFOLLOW, as
+// FS_IMMUTABLE_FL and FS_APPEND_FL, which a folder its owner may not open
+// still reports. The error is the call's errno.
+func ModeLocks(path string) (uint32, error) { return modeLocks(path) }
+
 // sameFolder reports whether stat, as fstatat(2) read it, is of the folder
+
 // judged describes: a folder with its device and inode.
 func sameFolder(judged os.FileInfo, stat *unix.Stat_t) bool {
 	sys, ok := judged.Sys().(*syscall.Stat_t)

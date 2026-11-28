@@ -23,6 +23,12 @@ var PackageManager = sync.OnceValue(packageManager)
 // ~/.local/bin on both.
 func RuntimeFolders(home string) [5]string { return runtimeFolders(home) }
 
+// RuntimeBase is the folder Workbench makes to hold the default config, data
+// and state folders together: ~/Library/Application Support/workbench on
+// macOS. It is empty on Linux, where each default is a folder of its own in
+// an XDG folder that is not Workbench's (~/.config, ~/.local/share).
+func RuntimeBase(home string) string { return runtimeBase(home) }
+
 // HomebrewPrefixes are Homebrew's default prefixes: /opt/homebrew, Apple
 // silicon's, then /usr/local on macOS, and /home/linuxbrew/.linuxbrew on
 // Linux.

@@ -170,9 +170,9 @@ const (
 )
 
 // aceDenies reports a KAUTH_ACE_DENY entry with one of rights or a generic
-// right that holds them.
+// right that holds one of them (genericHolding).
 func aceDenies(e ACE, rights uint32) bool {
-	return e.Flags&aceKind == aceDeny && e.Rights&(rights|genericRights) != 0
+	return e.Flags&aceKind == aceDeny && e.Rights&(rights|genericHolding(rights)) != 0
 }
 
 // aceInherited reports an entry with an inherit flag.

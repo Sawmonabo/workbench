@@ -107,3 +107,9 @@ func userUUID(uid uint32) ([16]byte, error) {
 	}
 	return uuid, nil
 }
+
+// modeLocks is the locking flags of lstat's st_flags.
+func modeLocks(path string) (uint32, error) {
+	flags, err := fileFlags(-1, path)
+	return flags & lockingFlags, err
+}

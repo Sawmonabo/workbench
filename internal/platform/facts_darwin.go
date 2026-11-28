@@ -11,10 +11,15 @@ func wsl() bool { return false }
 // packageManager is empty: the Linux scripts do not run on macOS.
 func packageManager() string { return "" }
 
-// runtimeFolders puts the config, data and state folders under Application
-// Support and the cache under Caches.
+// runtimeBase is Workbench's folder in Application Support.
+func runtimeBase(home string) string {
+	return filepath.Join(home, "Library", "Application Support", "workbench")
+}
+
+// runtimeFolders puts the config, data and state folders in runtimeBase and
+// the cache under Caches.
 func runtimeFolders(home string) [5]string {
-	base := filepath.Join(home, "Library", "Application Support", "workbench")
+	base := runtimeBase(home)
 	return [5]string{
 		filepath.Join(base, "config"),
 		filepath.Join(base, "data"),

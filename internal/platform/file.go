@@ -71,8 +71,10 @@ const (
 
 // Denies reports whether e is an entry that denies any of rights, by name or
 // by a generic right that holds it: on macOS a KAUTH_ACE_DENY entry with one
-// of rights, KAUTH_ACE_GENERIC_ALL or KAUTH_ACE_GENERIC_WRITE, whose rights
-// hold each of DeleteRight and ChildRights (KAUTH_VNODE_GENERIC_WRITE_BITS).
+// of rights, KAUTH_ACE_GENERIC_ALL, or KAUTH_ACE_GENERIC_WRITE for
+// DeleteRight and ChildRights (KAUTH_VNODE_GENERIC_WRITE_BITS),
+// KAUTH_ACE_GENERIC_READ for ReadRight and KAUTH_ACE_GENERIC_EXECUTE for
+// SearchRight.
 // Whom the entry names is not read: Allowed says whether the system denies
 // this process the rights, and ACL.Binds whether this entry applies to it.
 func (e ACE) Denies(rights uint32) bool { return aceDenies(e, rights) }

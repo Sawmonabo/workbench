@@ -69,3 +69,19 @@ func othersMayWrite(int, string) (int, error) { return -1, nil }
 
 // othersMaySearch is -1: the mode's group bits hold the ACL's mask.
 func othersMaySearch(int, string) (int, error) { return -1, nil }
+
+// modeLocks reads the two attributes with statx(2).
+func modeLocks(path string) (uint32, error) {
+	var stat unix.Statx_t
+	if err := unix.Statx(unix.AT_FDCWD, path, unix.AT_SYMLINK_NOFOLLOW, 0, &stat); err != nil {
+		return 0, err
+	}
+	var flags uint32
+	if stat.Attributes&unix.STATX_ATTR_IMMUTABLE != 0 {
+		flags |= immutableFlag
+	}
+	if stat.Attributes&unix.STATX_ATTR_APPEND != 0 {
+		flags |= appendFlag
+	}
+	return flags, nil
+}

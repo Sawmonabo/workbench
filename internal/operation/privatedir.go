@@ -34,7 +34,7 @@ func privateDirectory(path string, create bool) error {
 	}
 	if create {
 		if err := os.MkdirAll(path, 0o700); err != nil {
-			return err
+			return makeRefusal(path, err)
 		}
 		return makeOwnFolder("permissions", path)
 	}
@@ -68,8 +68,10 @@ func trustedFolder(category, path string, info os.FileInfo, fd int, at string) e
 	}
 	entry, err := platform.OthersMayWrite(fd, at)
 	if err != nil {
+		// The folder is Workbench's own, which keeps no ACL on it, so the
+		// whole ACL comes off.
 		return Fail(ExitInvalid, "permissions", "Cannot read the ACL of "+display.Path(path),
-			Cause(err.Error()))
+			Cause(err.Error()), FixPath(path, platform.ACLRemoval()...))
 	}
 	if entry >= 0 {
 		return othersWriteRefusal(
@@ -232,6 +234,7 @@ func ensureRoot(root string) error {
 // [Mutation].
 func PrivateDirectory(root, name string) (string, error) {
 	if name != "" && !filepath.IsLocal(name) {
+		// As in CheckPrivateDirectory: Workbench's own mistake.
 		return "", Fail(
 			ExitInvalid,
 			"private_path",
@@ -267,6 +270,8 @@ func PrivateDirectory(root, name string) (string, error) {
 // on a missing folder.
 func CheckPrivateDirectory(root, name string) error {
 	if name != "" && !filepath.IsLocal(name) {
+		// name is a folder of Workbench's own, from its code: a mistake of
+		// Workbench's, which no line of the user's clears.
 		return Fail(ExitInvalid, "private_path", name+" is not a folder inside "+display.Path(root))
 	}
 	directory := root
@@ -302,6 +307,8 @@ func CheckPrivateDirectory(root, name string) error {
 // without creating.
 func PrivateTree(root, target string, create bool) error {
 	if !filepath.IsAbs(root) || !Within(root, target) {
+		// Callers pass a folder of their own inside root: this is
+		// Workbench's own mistake, which no line of the user's clears.
 		return Fail(
 			ExitInvalid,
 			"private_path",
@@ -320,8 +327,11 @@ func PrivateTree(root, target string, create bool) error {
 			// A folder above it that its owner may not search hides it, and
 			// it is judged below once that folder can be searched.
 		case !errors.Is(err, fs.ErrNotExist):
-			return err
+			return lookupRefusal("private_path", current, err)
 		case !create:
+			// Each caller that does not create looks for target first, so
+			// only a folder removed since then reaches this: the next
+			// command finds it missing and says so in its own words.
 			return Fail(ExitBlocked, "private_path", display.Path(current)+" does not exist")
 		}
 		if Within(root, current) {
@@ -338,7 +348,7 @@ func PrivateTree(root, target string, create bool) error {
 		case errors.Is(err, fs.ErrNotExist):
 			return Fail(ExitBlocked, "private_path", display.Path(folder)+" does not exist")
 		case err != nil:
-			return err
+			return lookupRefusal("private_path", folder, err)
 		case create:
 			err = makeOwnFolder("private_path", folder)
 		default:
@@ -383,14 +393,46 @@ func makeParents(root string) error {
 	if config := configHome(); config != "" && Within(config, parent) {
 		if _, err := os.Lstat(config); errors.Is(err, fs.ErrNotExist) {
 			if err = os.MkdirAll(filepath.Dir(config), 0o755); err != nil {
-				return err
+				return makeRefusal(filepath.Dir(config), err)
 			}
 			if err = os.Mkdir(config, 0o700); err != nil && !os.IsExist(err) {
-				return err
+				return makeRefusal(config, err)
 			}
 		}
 	}
-	return os.MkdirAll(parent, 0o755)
+	if err := os.MkdirAll(parent, 0o755); err != nil {
+		return makeRefusal(parent, err)
+	}
+	return nil
+}
+
+// makeRefusal refuses path, a folder Workbench makes for its own files or
+// above them, which it failed with err to make: the nearest folder above it
+// that is there keeps it out, named as [unreachable] names it, or, when its
+// owner may search it but not write in it, with chmod u+rwx, what Workbench
+// needs to make a folder in it.
+func makeRefusal(path string, err error) error {
+	held := filepath.Dir(path)
+	info, statErr := os.Lstat(held)
+	for statErr != nil && held != filepath.Dir(held) {
+		held = filepath.Dir(held)
+		info, statErr = os.Lstat(held)
+	}
+	headline := "Cannot make the folder " + display.Path(path)
+	parts := unreachable(held, true, err)
+	switch {
+	case parts != nil:
+	case statErr == nil && info.IsDir() && ownedByUser(info) &&
+		errors.Is(err, fs.ErrPermission) && info.Mode().Perm()&0o200 == 0:
+		parts = []Part{
+			Cause(fmt.Sprintf("%s has mode %04o, so you cannot write in it",
+				display.Path(held), platform.ModeBits(info.Mode()))),
+			FixPath(held, "chmod", "u+rwx"),
+		}
+	default:
+		parts = []Part{Cause(FileReason(path, err).Error())}
+	}
+	return Fail(ExitInvalid, "permissions", headline, parts...)
 }
 
 // RemovePrivateDirectory deletes directory, a runtime directory below the data
@@ -402,6 +444,8 @@ func (m *Mutation) RemovePrivateDirectory(directory string) error {
 	}
 	data := m.context.Paths.Data
 	if filepath.Clean(directory) != directory || directory == data || !Within(data, directory) {
+		// directory comes from the approved plan, which lists only folders
+		// below data: Workbench's own mistake, which no line clears.
 		return Fail(
 			ExitInvalid,
 			"private_path",
@@ -416,6 +460,9 @@ func (m *Mutation) RemovePrivateDirectory(directory string) error {
 		return err
 	}
 	if !info.IsDir() {
+		// A file at a folder the plan lists for removal is left as it is:
+		// what it is cannot be told, and the plan made with it there lists
+		// it no more.
 		return Fail(ExitInvalid, "private_path", "Only private directories are removed")
 	}
 	id, err := NewID()
@@ -444,7 +491,8 @@ func removeDirectory(directory, trash, name string) error {
 // file above path, a folder another user than this one or root owns, and a
 // folder its group or other users may write in, by its mode (unless sticky,
 // so only an entry's owner may remove it) or by its ACL (see
-// [platform.OthersMayWrite]).
+// [platform.OthersMayWrite]). One it cannot look up is refused as
+// [lookupRefusal] says.
 func safeParents(path string) error {
 	for current := filepath.Clean(path); ; current = filepath.Dir(current) {
 		info, err := os.Lstat(current)
@@ -453,7 +501,7 @@ func safeParents(path string) error {
 				return err
 			}
 		} else if !errors.Is(err, fs.ErrNotExist) {
-			return Fail(ExitInvalid, "path", FileError(current, err).Error())
+			return lookupRefusal("path", current, err)
 		}
 		if current == filepath.Dir(current) {
 			return nil
@@ -461,33 +509,52 @@ func safeParents(path string) error {
 	}
 }
 
+// lookupRefusal refuses path, a folder Workbench reads or writes in or a
+// folder above one, which it failed with err to look up, with category: the
+// cause and fix name what keeps Workbench out (see [unreachable]), a folder
+// above path it cannot search, or a file in the place of one.
+func lookupRefusal(category, path string, err error) error {
+	parts := unreachable(path, true, err)
+	if parts == nil {
+		parts = []Part{Cause(FileReason(path, err).Error())}
+	}
+	return Fail(ExitInvalid, category, "Cannot read the folder "+display.Path(path), parts...)
+}
+
 // safeParent is [safeParents] for current, path or a folder above it, that
 // info describes.
 func safeParent(path, current string, info os.FileInfo) error {
 	shown := display.Path(current)
+	stat, _ := info.Sys().(*syscall.Stat_t)
 	switch {
-	case info.Mode()&os.ModeSymlink != 0 && current == path:
-		return Fail(ExitInvalid, "path", shown+" is a link",
-			Cause("Workbench keeps its own files and folders as real ones"),
-			FixText("put what the link points to in its place"))
 	case info.Mode()&os.ModeSymlink != 0:
-		return Fail(ExitInvalid, "path", shown+" is a link",
-			Cause("Workbench keeps its own files only in real folders"),
-			FixText("make it a folder"))
+		return linkRefusal(current, info)
 	case current != path && !info.IsDir():
 		return Fail(ExitInvalid, "path", shown+" is a file, not a folder",
-			Cause("Workbench cannot keep its files under it"))
+			Cause("Workbench needs a folder there"),
+			moveAsideFix(current))
+	case !ownedByUserOrRoot(info) && stat != nil:
+		return Fail(
+			ExitInvalid,
+			"permissions",
+			shown+" belongs to "+userName(stat.Uid)+", not to you",
+			Cause("Workbench writes only under folders you or root own"),
+			FixPath(current, "sudo", "chown", userName(uint32(os.Geteuid()))),
+		)
 	case !ownedByUserOrRoot(info):
-		return Fail(ExitInvalid, "permissions", shown+" belongs to another user",
-			Cause("Workbench keeps its files only under folders you or root own"))
+		// As in owned: every status carries its owner.
+		return Fail(ExitInvalid, "permissions", "Cannot tell who owns "+shown)
 	case info.Mode().Perm()&0o022 != 0 && info.Mode()&os.ModeSticky == 0:
 		return Fail(ExitInvalid, "permissions", shown+" is writable by other users",
+			Cause("another user could replace what Workbench writes under it"),
 			FixPath(current, "chmod", "go-w"))
 	case !info.IsDir():
 		return nil
 	}
 	// Only the entry is removed, not the whole ACL, which may hold entries
-	// the system put there, such as the deny delete of the home folder.
+	// the system put there, such as the deny delete of the home folder. An
+	// ACL Workbench cannot read gets no line: removing all of it would take
+	// those entries too, and `ls -le` shows it.
 	entry, err := platform.OthersMayWrite(-1, current)
 	switch {
 	case err != nil:
@@ -497,10 +564,42 @@ func safeParent(path, current string, info os.FileInfo) error {
 			ExitInvalid,
 			"permissions",
 			shown+" has an ACL that lets other users write in it",
+			Cause("another user could replace what Workbench writes under it"),
 			FixPath(current, platform.ACLEntryRemoval(entry)...),
 		)
 	}
 	return nil
+}
+
+// linkRefusal refuses current, a link at or above a path Workbench reads or
+// writes, which info describes: a write would go where it points. A link of
+// this user's gets the lines that put the folder it points to in its place:
+// rm of the link (rm(1) removes a link, not what it names), then mv -n of
+// that folder to its path; a link to no folder, or to a folder above it,
+// gets rm alone, and Workbench makes the folder. Another user's link, such
+// as root's /tmp on macOS, gets the path it points to instead, to use in its
+// place.
+func linkRefusal(current string, info os.FileInfo) error {
+	target, err := filepath.EvalSymlinks(current)
+	pointed := err == nil && !Within(target, filepath.Dir(current))
+	if pointed {
+		folder, statErr := os.Stat(target)
+		pointed = statErr == nil && folder.IsDir()
+	}
+	fix := FixPath(current, "rm")
+	switch {
+	case !ownedByUser(info) && err == nil:
+		fix = FixText("use " + shellHomePath(target) + " in its place")
+	case !ownedByUser(info):
+		fix = noFix{}
+	case pointed:
+		fix = fixLines{
+			fix,
+			FixText("mv -n " + shellHomePath(target) + " " + shellHomePath(current)),
+		}
+	}
+	return Fail(ExitInvalid, "path", display.Path(current)+" is a link",
+		Cause("Workbench writes only in real folders, not where a link points"), fix)
 }
 
 func owned(path string, info os.FileInfo) error {
@@ -509,6 +608,7 @@ func owned(path string, info os.FileInfo) error {
 	}
 	stat, ok := info.Sys().(*syscall.Stat_t)
 	if !ok {
+		// Every status on macOS and Linux carries its owner: unreachable.
 		return Fail(ExitInvalid, "permissions", "Cannot tell who owns "+display.Path(path))
 	}
 	return ownerRefusal(ExitInvalid, "permissions", path, stat.Uid, false)
@@ -535,7 +635,7 @@ func notFolderRefusal(category, path string, info os.FileInfo) error {
 		category,
 		display.Path(path)+" is "+fileKind(info)+", not a folder",
 		Cause("Workbench keeps its own files in a folder there"),
-		FixText("move it aside"),
+		moveAsideFix(path),
 	)
 }
 
@@ -575,18 +675,44 @@ func othersWriteRefusal(path, headline, cause string, acl bool) error {
 
 // modeRefusal refuses path, a folder of Workbench's own files whose mode
 // [settleFolder] could not change, as err says: a file system mounted read
-// only, or a flag that locks the folder.
+// only, which has no line, or a flag that locks the folder
+// ([platform.ModeLocks]), named with the command that clears it
+// ([platform.ClearFlags]), after sudo when only root may.
 func modeRefusal(path string, err error) error {
-	return Fail(
-		ExitInvalid,
-		"permissions",
-		"Cannot give "+display.Path(path)+" mode 0700",
-		Cause(FileReason(path, err).Error()),
-	)
+	headline := "Cannot give " + display.Path(path) + " mode 0700"
+	flags, flagErr := platform.ModeLocks(path)
+	switch {
+	case errors.Is(err, syscall.EROFS):
+		// No command of the user's makes a file system writable: mounting it
+		// again for writing is its administrator's.
+		return Fail(ExitInvalid, "permissions", headline,
+			Cause("its file system is mounted read-only, which only its administrator can change"))
+	case !errors.Is(err, syscall.EPERM) || flagErr != nil || flags == 0:
+		return Fail(ExitInvalid, "permissions", headline, Cause(FileReason(path, err).Error()))
+	}
+	names := platform.FlagNames(flags)
+	what, which := "the flag "+names[0], "that flag"
+	if len(names) > 1 {
+		what, which = "the flags "+strings.Join(names, " and "), "those flags"
+	}
+	clear := platform.ClearFlags(flags)
+	cause := "Workbench cannot give it mode 0700 while it has " + which
+	var fix Part = noFix{}
+	switch {
+	case clear == nil:
+		cause += ", and no command of yours clears it"
+	case clear[0] == "sudo":
+		cause += ", which only root can clear"
+		fix = FixPath(path, clear...)
+	default:
+		fix = FixPath(path, clear...)
+	}
+	return Fail(ExitInvalid, "permissions", display.Path(path)+" has "+what, Cause(cause), fix)
 }
 
 // replacedRefusal refuses path, a folder of Workbench's own files that
 // another entry took the place of while [settleFolder] judged and changed it.
+// It has no line: the same command judges what is there then.
 func replacedRefusal(path string) error {
 	return Fail(
 		ExitInvalid,

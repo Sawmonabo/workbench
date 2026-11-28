@@ -28,6 +28,9 @@ func packageManager() string {
 	return ""
 }
 
+// runtimeBase is empty: the XDG defaults share no folder of Workbench's.
+func runtimeBase(string) string { return "" }
+
 // runtimeFolders are the XDG base directory defaults.
 func runtimeFolders(home string) [5]string {
 	return [5]string{

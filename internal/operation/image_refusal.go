@@ -9,8 +9,10 @@ package operation
 import (
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"syscall"
 
@@ -93,6 +95,26 @@ func (h holder) lost(what string) string {
 
 // moveAside is the fix of a file or link whose cause no command clears.
 const moveAside = "move it aside"
+
+// moveAsideFix is the fix line that moves path, a file, link or folder in
+// the place Workbench needs, to a name beside it that nothing has: path with
+// .moved, or .moved-2 and on after it. mv -n replaces nothing, so a name
+// taken after the line was shown leaves path where it is, and the command
+// names it again.
+func moveAsideFix(path string) Part { return moveFix(path, path+".moved") }
+
+// moveFix is the fix line that moves path to name, or, when name is taken,
+// to name with -2 and on after it, the first that nothing has.
+func moveFix(path, name string) Part {
+	free := name
+	for n := 2; ; n++ {
+		if _, err := os.Lstat(free); errors.Is(err, fs.ErrNotExist) {
+			break
+		}
+		free = fmt.Sprintf("%s-%d", name, n)
+	}
+	return FixText("mv -n " + shellHomePath(path) + " " + shellHomePath(free))
+}
 
 // noFix is the fix of a folder whose cause no command clears: no line.
 type noFix struct{}
@@ -278,8 +300,9 @@ func linkReadRefusal(path string, err error) error {
 // folder, the fix moves it aside; when it is another user's, it gives it to
 // you; when it is yours and its mode keeps you out, it gives you back what
 // Workbench needs, reading a file, or reading, writing and searching a
-// folder, as it writes in it. Otherwise they are nil, and the caller's cause
-// is err.
+// folder, as it writes in it; when its mode lets you in, the ACL entries
+// that deny you what it needs are named and removed (see [aclKeepsOut]).
+// Otherwise they are nil, and the caller's cause is err.
 func unreachable(path string, folder bool, err error) []Part {
 	held := path
 	var stat unix.Stat_t
@@ -299,7 +322,7 @@ func unreachable(path string, folder bool, err error) []Part {
 	case format != unix.S_IFDIR && (held != path || folder):
 		return []Part{
 			Cause(shown + " is " + kindName(format) + ", not a folder"),
-			FixText("move " + shellHomePath(held) + " aside"),
+			moveAsideFix(held),
 		}
 	case !errors.Is(err, unix.EACCES):
 		return nil
@@ -325,7 +348,7 @@ func unreachable(path string, folder bool, err error) []Part {
 		cannot = append(cannot, "search")
 	}
 	if cannot == nil {
-		return nil
+		return aclKeepsOut(held, shown, format, needed)
 	}
 	return []Part{
 		Cause(
@@ -338,6 +361,69 @@ func unreachable(path string, folder bool, err error) []Part {
 		),
 		FixPath(held, "chmod", grant),
 	}
+}
+
+// aclKeepsOut is the cause and the fix of being refused needed (0o400 for
+// read, 0o100 for search, or both) on held, shown in a cause as shown, of the
+// type format, whose mode allows it: the ACL entries of held that deny this
+// user a right it needs (platform.ReadRight, platform.SearchRight), when the
+// system denies it that right (platform.Allowed). As the refusals of entries
+// that deny deleting do (see [entryRefusal]), it names those that bind this
+// user, or every denying entry when none resolves as binding, with one
+// chmod -a# each, the highest first (see [entryFixes]). They are nil when the
+// ACL keeps nothing out, or on Linux, which lists no entries.
+func aclKeepsOut(held, shown string, format, needed uint32) []Part {
+	acl, err := platform.FileSecurity(-1, held)
+	if err != nil {
+		return nil
+	}
+	var rights uint32
+	var denied []string
+	for _, right := range []struct {
+		bit  uint32
+		mask uint32
+		verb string
+	}{{0o400, platform.ReadRight, "reading"}, {0o100, platform.SearchRight, "searching"}} {
+		if needed&right.bit == 0 || right.mask == 0 {
+			continue
+		}
+		if ok, err := platform.Allowed(held, right.mask); err == nil && !ok &&
+			len(denyingEntries(acl.Entries, right.mask)) > 0 {
+			rights |= right.mask
+			denied = append(denied, right.verb)
+		}
+	}
+	denying := denyingEntries(acl.Entries, rights)
+	if len(denying) == 0 {
+		return nil
+	}
+	var binding []int
+	for _, i := range denying {
+		if acl.Binds(i) {
+			binding = append(binding, i)
+		}
+	}
+	whose := ""
+	if shown != "it" {
+		whose = " of " + shown
+	}
+	what := denyVerb(len(binding)) + " you " + strings.Join(denied, " and ") + " it"
+	if len(binding) == 0 {
+		binding = denying
+		what = denyVerb(len(binding)) + " " + strings.Join(denied, " and ") + " it"
+		if len(binding) > 1 {
+			what += ", one or more of them to you"
+		}
+	}
+	cause := "an ACL entry" + whose + " " + what
+	if len(binding) > 1 {
+		named := make([]string, len(binding))
+		for i, entry := range binding {
+			named[i] = strconv.Itoa(entry)
+		}
+		cause = "ACL entries " + display.List(named) + whose + " " + what
+	}
+	return []Part{Cause(cause), entryFixes(held, holderOf(format), binding)}
 }
 
 // unreadFailure is the failure of reading path, a folder when folder is set,

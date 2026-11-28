@@ -106,7 +106,7 @@ func ownProgramRefusal(path, canonical, folder string, info os.FileInfo) error {
 		"tool",
 		display.Path(canonical)+" belongs to "+owner+", not to you",
 		Cause("Workbench runs a program in its own folders only when it is yours"),
-		FixText("mv -n "+shellHomePath(moved)+" "+shellHomePath(moved+".moved")),
+		moveAsideFix(moved),
 	)
 }
 
@@ -262,7 +262,7 @@ func foreignToolRefusal(folder, path string, info os.FileInfo, install []Part) e
 // install, the lines that install the tool again.
 func moveToolAside(folder string, install []Part) Part {
 	return append(
-		fixLines{FixText("mv -n " + shellHomePath(folder) + " " + shellHomePath(folder+".moved"))},
+		fixLines{moveAsideFix(folder)},
 		install...)
 }
 

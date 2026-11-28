@@ -273,72 +273,106 @@ func WithinResolved(root, path string) bool {
 // WORKBENCH_NAME_DIR variables do.
 var runtimeNames = []string{"CONFIG", "DATA", "STATE", "CACHE", "BIN"}
 
+// runtimePaths are the five folders of [Paths] for home: each
+// WORKBENCH_NAME_DIR, else the XDG folder for the first four, else the
+// platform's default. Each must be absolute and not the root or home, and
+// the four runtime folders pass the checks of a folder of Workbench's own
+// files (see [ownFolder]) where they exist; the folder Workbench makes to
+// hold the defaults (see [platform.RuntimeBase]) is one too, judged first
+// when a runtime folder in it is used.
 func runtimePaths(home string) (Paths, error) {
-	defaults := platform.RuntimeFolders(home)
+	paths := platform.RuntimeFolders(home)
 	for i, name := range runtimeNames {
-		value := os.Getenv("WORKBENCH_" + name + "_DIR")
-		if value == "" && i < 4 {
-			if base := os.Getenv("XDG_" + name + "_HOME"); filepath.IsAbs(base) {
-				value = filepath.Join(base, "workbench")
-			}
-		}
-		if value == "" {
-			value = defaults[i]
-		}
-		if !filepath.IsAbs(value) {
-			return Paths{}, Fail(
-				ExitInvalid,
-				"runtime_path",
-				"WORKBENCH_"+name+"_DIR must be an absolute path",
-			)
-		}
-		value = filepath.Clean(value)
-		if value == "/" || value == home {
-			what := "the file system root"
-			if value == home {
-				what = "your home folder"
-			}
-			return Paths{}, Fail(
-				ExitInvalid,
-				"runtime_path",
-				display.Path(value)+" cannot be Workbench's "+strings.ToLower(name)+" folder",
-				Cause("it is "+what),
-				FixText("set WORKBENCH_"+name+"_DIR to a folder of its own"),
-			)
-		}
-		if i < 4 {
-			if err := safeOwnFolder("runtime_path", value); err != nil {
-				return Paths{}, err
-			}
-			if err := privateFilesystem(value); err != nil {
-				return Paths{}, err
-			}
-		} else if err := safeParents(value); err != nil {
+		value, err := runtimePath(home, name, paths[i], i < 4)
+		if err != nil {
 			return Paths{}, err
 		}
-		if info, err := os.Lstat(value); err == nil {
-			switch {
-			case i < 4:
-				err = ownFolder("runtime_path", value, info)
-			case !info.IsDir():
-				err = notFolderRefusal("runtime_path", value, info)
-			default:
-				err = owned(value, info)
-			}
-			if err != nil {
-				return Paths{}, err
-			}
-		} else if !errors.Is(err, fs.ErrNotExist) {
-			return Paths{}, Fail(
-				ExitInvalid,
-				"runtime_path",
-				"Cannot read the Workbench folder "+display.Path(value),
-				Cause(causeAt(value, err)),
-			)
-		}
-		defaults[i] = value
+		paths[i] = value
 	}
-	return Paths{defaults[0], defaults[1], defaults[2], defaults[3], defaults[4]}, nil
+	if base := platform.RuntimeBase(home); base != "" &&
+		slices.ContainsFunc(
+			paths[:4],
+			func(path string) bool { return filepath.Dir(path) == base },
+		) {
+		if err := privateDirectory(base, false); err != nil && !errors.Is(err, fs.ErrNotExist) {
+			return Paths{}, err
+		}
+	}
+	for i, path := range paths {
+		if err := checkRuntimePath(path, i < 4); err != nil {
+			return Paths{}, err
+		}
+	}
+	return Paths{paths[0], paths[1], paths[2], paths[3], paths[4]}, nil
+}
+
+// runtimePath is the folder named name (CONFIG, DATA, STATE, CACHE or BIN)
+// for home: WORKBENCH_NAME_DIR, else, for a runtime folder, the workbench
+// folder in XDG_NAME_HOME, else fallback, refused when it is relative, the
+// file system root or home.
+func runtimePath(home, name, fallback string, runtime bool) (string, error) {
+	value := os.Getenv("WORKBENCH_" + name + "_DIR")
+	if value == "" && runtime {
+		if base := os.Getenv("XDG_" + name + "_HOME"); filepath.IsAbs(base) {
+			value = filepath.Join(base, "workbench")
+		}
+	}
+	if value == "" {
+		value = fallback
+	}
+	if !filepath.IsAbs(value) {
+		return "", Fail(
+			ExitInvalid,
+			"runtime_path",
+			"WORKBENCH_"+name+"_DIR must be an absolute path",
+			FixText("set WORKBENCH_"+name+"_DIR to an absolute path"),
+		)
+	}
+	value = filepath.Clean(value)
+	if value == "/" || value == home {
+		what := "the file system root"
+		if value == home {
+			what = "your home folder"
+		}
+		return "", Fail(
+			ExitInvalid,
+			"runtime_path",
+			display.Path(value)+" cannot be Workbench's "+strings.ToLower(name)+" folder",
+			Cause("it is "+what),
+			FixText("set WORKBENCH_"+name+"_DIR to a folder of its own"),
+		)
+	}
+	return value, nil
+}
+
+// checkRuntimePath refuses value, one of the five folders of [Paths], when
+// it is not safe to keep Workbench's files in: a runtime folder must pass
+// the checks of a folder of its own files where it exists (see
+// [ownFolder]), the folder of the entry point only those of the folders
+// above it, and that it is a folder of this user's where it exists.
+func checkRuntimePath(value string, runtime bool) error {
+	if runtime {
+		if err := safeOwnFolder("runtime_path", value); err != nil {
+			return err
+		}
+		if err := privateFilesystem(value); err != nil {
+			return err
+		}
+	} else if err := safeParents(value); err != nil {
+		return err
+	}
+	info, err := os.Lstat(value)
+	switch {
+	case errors.Is(err, fs.ErrNotExist):
+		return nil
+	case err != nil:
+		return lookupRefusal("runtime_path", value, err)
+	case runtime:
+		return ownFolder("runtime_path", value, info)
+	case !info.IsDir():
+		return notFolderRefusal("runtime_path", value, info)
+	}
+	return owned(value, info)
 }
 
 // configHome is the XDG configuration folder: $XDG_CONFIG_HOME when it is
@@ -460,16 +494,24 @@ func overlaps(path, other, noun string) string {
 
 // ownFilesRefusal refuses the target path when it overlaps what Workbench
 // keeps for itself: its source, its config, data, state and cache folders,
-// and its entry point, also under another name.
+// and its entry point, also under another name. Either fix moves the
+// source, a checkout, so that the target lies apart from it: one that holds
+// the source, to its name in the folder that holds the target; one that is
+// the source or lies in it, to a name beside it. A shell's working folder
+// moves with it, so the same command typed again there finds the target
+// apart from the source.
 func (c Context) ownFilesRefusal(path string) error {
-	if c.Native.Source != "" &&
-		(Within(c.Native.Source, path) || Within(path, c.Native.Source)) {
+	if source := c.Native.Source; source != "" && (Within(source, path) || Within(path, source)) {
+		fix := moveFix(source, filepath.Join(filepath.Dir(path), filepath.Base(source)))
+		if Within(source, path) {
+			fix = moveAsideFix(source)
+		}
 		return Fail(
 			ExitInvalid,
 			"scope",
-			display.Path(path)+overlaps(path, c.Native.Source, "the source "),
+			display.Path(path)+overlaps(path, source, "the source "),
 			Cause("Workbench does not write the source it applies"),
-			FixText("move the source out of "+shellHomePath(path)),
+			fix,
 		)
 	}
 	for i, own := range c.Paths.All()[:4] {
