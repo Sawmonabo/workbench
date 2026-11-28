@@ -178,6 +178,67 @@ func aceDenies(e ACE, rights uint32) bool {
 // aceInherited reports an entry with an inherit flag.
 func aceInherited(e ACE) bool { return e.Flags&aceInherits != 0 }
 
+// aceOnlyInherit is KAUTH_ACE_ONLY_INHERIT, an entry that only passes to what
+// is made in a folder and that kauth_acl_evaluate skips.
+const aceOnlyInherit uint32 = 1 << 8
+
+// wellKnown is the 12 bytes every well-known GUID begins with, and the codes
+// of its last four, big-endian, that kauth_wellknown_guid in xnu's
+// kern_credential.c names: everyone, nobody, the file's owner and its group.
+// Any other code is an ordinary GUID, such as a group's whose directory
+// record gives it none and that ends in its group ID instead.
+var wellKnown = [12]byte{0xab, 0xcd, 0xef, 0xab, 0xcd, 0xef, 0xab, 0xcd, 0xef, 0xab, 0xcd, 0xef}
+
+const (
+	everybodyCode uint32 = 0x0000000c
+	nobodyCode    uint32 = 0xfffffffe
+	ownerCode     uint32 = 0x0000000a
+	groupCode     uint32 = 0x00000010
+)
+
+// aclBinds is kauth_acl_evaluate's rule for whether a's entry numbered entry
+// applies to this process, its GUID the entry's first 16 bytes in Data.
+// mbr_uid_to_uuid and mbr_check_membership (membership.h) return 0 or an
+// error code as their value, not -1 and errno, as Go's own getpwnam_r call in
+// internal/syscall/unix/user_darwin.go reads it, so the result is the call's
+// first return.
+func aclBinds(a ACL, entry int) bool {
+	at := filesecHeader + aceSize*entry
+	if entry < 0 || entry >= len(a.Entries) || at+aceSize > len(a.Data) {
+		return true
+	}
+	if a.Entries[entry].Flags&aceOnlyInherit != 0 {
+		return false
+	}
+	holder := [16]byte(a.Data[at : at+16])
+	if [12]byte(holder[:12]) == wellKnown {
+		switch binary.BigEndian.Uint32(holder[12:]) {
+		case everybodyCode, ownerCode, groupCode:
+			return true
+		case nobodyCode:
+			return false
+		}
+	}
+	var user [16]byte
+	if rc, _, _ := libcCall6(
+		mbrUIDToUUID,
+		uintptr(unix.Geteuid()),
+		uintptr(unsafe.Pointer(&user[0])),
+		0, 0, 0, 0,
+	); int32(rc) != 0 || user == holder {
+		return true
+	}
+	var member int32
+	rc, _, _ := libcCall6(
+		mbrCheckMembership,
+		uintptr(unsafe.Pointer(&user[0])),
+		uintptr(unsafe.Pointer(&holder[0])),
+		uintptr(unsafe.Pointer(&member)),
+		0, 0, 0,
+	)
+	return int32(rc) != 0 || member != 0
+}
+
 // aclForMode is data: chmod leaves a macOS ACL as it is.
 func aclForMode(data []byte, _ uint32) []byte { return data }
 

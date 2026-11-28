@@ -58,6 +58,9 @@ func aceDenies(ACE, uint32) bool { return false }
 // aceInherited is false: Linux keeps no ACL entries FileSecurity lists.
 func aceInherited(ACE) bool { return false }
 
+// aclBinds is false: Linux keeps no ACL entries FileSecurity lists.
+func aclBinds(ACL, int) bool { return false }
+
 // allowed fails with errors.ErrUnsupported: no caller has an entry to ask
 // about here.
 func allowed(string, uint32) (bool, error) { return false, errors.ErrUnsupported }

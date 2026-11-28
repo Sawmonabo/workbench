@@ -73,14 +73,30 @@ const (
 // by a generic right that holds it: on macOS a KAUTH_ACE_DENY entry with one
 // of rights, KAUTH_ACE_GENERIC_ALL or KAUTH_ACE_GENERIC_WRITE, whose rights
 // hold each of DeleteRight and ChildRights (KAUTH_VNODE_GENERIC_WRITE_BITS).
-// Which user or group the entry names is not read: Allowed says whether it
-// binds this process.
+// Whom the entry names is not read: Allowed says whether the system denies
+// this process the rights, and ACL.Binds whether this entry applies to it.
 func (e ACE) Denies(rights uint32) bool { return aceDenies(e, rights) }
 
 // Inherited reports whether e passes to the files or folders made in the
 // folder that holds it: on macOS KAUTH_ACE_FILE_INHERIT or
 // KAUTH_ACE_DIRECTORY_INHERIT.
 func (e ACE) Inherited() bool { return aceInherited(e) }
+
+// Binds reports whether the entry of a numbered entry, as Entries and ls -le
+// number it, applies to this process, as kauth_acl_evaluate in xnu's
+// kern_authorization.c decides it, reading whom the entry names, its
+// applicable GUID in Data, which nothing shows: an entry only inherited
+// (KAUTH_ACE_ONLY_INHERIT) never does, one naming everyone always and nobody
+// never; one naming the file's owner or group (owner@, group@), which only
+// the file can say, counts as applying; any other applies when it names this
+// process's effective user, by the GUID mbr_uid_to_uuid(3) gives it, or a
+// group the user is in, directly or through a nested group, as
+// mbr_check_membership(3) answers, which compares no GUID with itself. Where
+// either call fails, or a has no such entry, the entry applies, as the kernel
+// assumes of a deny entry whose membership it cannot resolve. It says which
+// entries a fix takes away; Allowed alone decides whether the system denies a
+// right. On Linux, whose FileSecurity lists no entries, it is false.
+func (a ACL) Binds(entry int) bool { return aclBinds(a, entry) }
 
 // Allowed reports whether this process may take rights on the file or folder
 // at path, or the link itself when path is one, as the system decides it at

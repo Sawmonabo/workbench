@@ -54,3 +54,8 @@ TEXT libc_mbr_uid_to_uuid_trampoline<>(SB),NOSPLIT,$0-0
 	JMP	libc_mbr_uid_to_uuid(SB)
 GLOBL	·mbrUIDToUUID(SB), RODATA, $8
 DATA	·mbrUIDToUUID(SB)/8, $libc_mbr_uid_to_uuid_trampoline<>(SB)
+
+TEXT libc_mbr_check_membership_trampoline<>(SB),NOSPLIT,$0-0
+	JMP	libc_mbr_check_membership(SB)
+GLOBL	·mbrCheckMembership(SB), RODATA, $8
+DATA	·mbrCheckMembership(SB)/8, $libc_mbr_check_membership_trampoline<>(SB)
