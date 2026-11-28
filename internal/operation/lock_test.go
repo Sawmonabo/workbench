@@ -14,7 +14,7 @@ import (
 func TestInheritLockTakesOnlyThePassedLock(t *testing.T) {
 	directory := t.TempDir()
 	path := filepath.Join(directory, "watch.lock")
-	held, isHeld, err := tryLockFile(path)
+	held, isHeld, err := TryLockIn(path)
 	if err != nil || isHeld {
 		t.Fatalf("lock: held %v, %v", isHeld, err)
 	}

@@ -112,26 +112,30 @@ func tryFlock(f *os.File, how int) (held bool, err error) {
 	}
 }
 
-// TryLock takes an exclusive lock on the file at path without waiting, for a
-// background job that must run once at a time (the costs ingest worker). The
-// file and its parent directory are created when missing (the directory 0700)
-// and the file is never removed: the lock ends when release is called or the
-// process dies. held is true, with no error, when another process has it.
-func TryLock(path string) (release func(), held bool, err error) {
-	f, held, err := tryLockFile(path)
+// TryLock takes an exclusive lock on the file at path, in the runtime folder
+// root or a folder below it, without waiting, for a job that must run once at
+// a time (a migration run). The lock's folder and those between it and root
+// are first made private as [PrivateDirectory] makes them, so one others can
+// write in is refused, with nothing made in it, and one of another mode gets
+// 0700. The file is created when missing and never removed: the lock ends
+// when release is called or the process dies. held is true, with no error,
+// when another process has it.
+func TryLock(root, path string) (release func(), held bool, err error) {
+	name, err := filepath.Rel(root, filepath.Dir(path))
+	if err != nil {
+		return nil, false, err
+	}
+	if name == "." {
+		name = ""
+	}
+	if _, err = PrivateDirectory(root, name); err != nil {
+		return nil, false, err
+	}
+	f, held, err := TryLockIn(path)
 	if held || err != nil {
 		return nil, held, err
 	}
 	return func() { _ = f.Close() }, false, nil
-}
-
-// tryLockFile is [TryLock] giving the locked file, whose Close releases the
-// lock, for a holder that hands it to a child it starts (see [InheritLock]).
-func tryLockFile(path string) (f *os.File, held bool, err error) {
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-		return nil, false, err
-	}
-	return TryLockIn(path)
 }
 
 // TryLockIn is [TryLock] giving the locked file, whose Close releases the

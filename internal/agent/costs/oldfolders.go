@@ -3,6 +3,7 @@ package costs
 import (
 	"context"
 	"errors"
+	"io/fs"
 	"os"
 	"slices"
 	"strings"
@@ -281,9 +282,17 @@ func moveFolders(ctx context.Context, old OldPaths, p Paths) (left []string, err
 	return folders.kept, ledgerErr
 }
 
-// lockImports takes the import lock of this release and, when the old state
-// folder is there, the old one, so neither release's worker runs mid-move.
+// lockImports takes the import lock of this release, in the costs state
+// folder made private first (see [Paths.stateFolder]), and, when the old
+// claude-costs state folder is there, the one in it, so neither release's
+// worker runs mid-move. That folder is outside Workbench's runtime folders,
+// may be one the person named (CLAUDE_COSTS_STATE) and holds only the old
+// import log and lock, which the move deletes: nothing is made there, and a
+// folder gone meanwhile has no lock to take.
 func lockImports(old OldPaths, p Paths) (release func(), err error) {
+	if _, err = p.stateFolder(); err != nil {
+		return nil, err
+	}
 	locks := []string{p.lock()}
 	if old.State != "" && exists(old.State) {
 		locks = append(locks, Paths{State: old.State}.lock())
@@ -294,16 +303,19 @@ func lockImports(old OldPaths, p Paths) (release func(), err error) {
 			r()
 		}
 	}
-	for _, lock := range locks {
-		r, held, err := operation.TryLock(lock)
-		if err == nil && held {
+	for i, lock := range locks {
+		f, held, err := operation.TryLockIn(lock)
+		switch {
+		case i > 0 && errors.Is(err, fs.ErrNotExist):
+			continue
+		case err == nil && held:
 			err = busy("Claude Code or Codex usage is being read into the ledger")
 		}
 		if err != nil {
 			release()
 			return nil, err
 		}
-		releases = append(releases, r)
+		releases = append(releases, func() { _ = f.Close() })
 	}
 	return release, nil
 }
@@ -419,7 +431,7 @@ func gate(ctx context.Context, paths Paths, move bool) (Paths, error) {
 	}
 	var moveErr error
 	if check.State != FoldersConflict {
-		release, held, err := operation.TryLock(paths.Runtime.MigrateLock())
+		release, held, err := operation.TryLock(paths.Runtime.State, paths.Runtime.MigrateLock())
 		if err != nil {
 			return paths, err
 		}

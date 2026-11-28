@@ -192,7 +192,11 @@ func Run(ctx context.Context, l Locations, wanted []string, say func(string)) er
 	}
 	findings := Check(l)
 	if slices.ContainsFunc(findings, due) {
-		release, held, err := operation.TryLock(l.Runtime.MigrateLock())
+		release, held, err := operation.TryLock(l.Runtime.State, l.Runtime.MigrateLock())
+		if operation.Category(err) != "" {
+			// The lock's folder is refused, as its own refusal says.
+			return err
+		}
 		if err != nil {
 			return operation.Fail(
 				operation.ExitBlocked,
