@@ -22,6 +22,12 @@ import (
 // repository publishes Workbench releases; install.sh names the same one.
 const repository = "Sawmonabo/workbench"
 
+// InstallCommand is the command, as README gives it, that installs the
+// latest published release: install.sh downloads its bundle, which the
+// bundle's own CLI verifies before it installs anything.
+const InstallCommand = "curl -fsSL https://github.com/" + repository +
+	"/releases/latest/download/install.sh | sh"
+
 // Published is one published release.
 type Published struct {
 	Tag       string    `json:"tag"`

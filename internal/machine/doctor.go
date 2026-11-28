@@ -11,6 +11,7 @@ import (
 	"github.com/Sawmonabo/workbench/internal/display"
 	"github.com/Sawmonabo/workbench/internal/operation"
 	"github.com/Sawmonabo/workbench/internal/platform"
+	"github.com/Sawmonabo/workbench/internal/release"
 	"github.com/pelletier/go-toml/v2"
 )
 
@@ -162,7 +163,7 @@ func installed(c operation.Context, state *operation.State) []operation.Componen
 		Name:    "release",
 		Status:  operation.StatusAbsent,
 		Message: "No release installed",
-		Body:    operation.Explain(operation.FixText("install one with install.sh")),
+		Body:    operation.Explain(operation.FixText(release.InstallCommand)),
 	}
 	if state.ActiveRelease != nil {
 		release = operation.Component{
