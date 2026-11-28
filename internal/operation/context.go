@@ -404,11 +404,15 @@ func (c Context) ValidateTarget(path string) error {
 						FixText("move "+shellHomePath(found)+" aside"),
 					)
 				} else if !errors.Is(err, fs.ErrNotExist) {
+					parts := unreachable(found, false, err)
+					if parts == nil {
+						parts = []Part{Cause(FileError(found, err).Error())}
+					}
 					return Fail(
 						ExitInvalid,
 						"scope",
 						"Cannot tell whether "+display.Path(path)+" is in a project",
-						Cause(FileError(found, err).Error()),
+						parts...,
 					)
 				}
 			}

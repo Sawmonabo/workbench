@@ -258,7 +258,9 @@ func (p *preparation) folderMode(c operation.Context, target string, action byte
 		headline, body := operation.Explained(err)
 		if _, ok := errors.AsType[*operation.Error](err); !ok {
 			headline = "Cannot record " + c.ShowPath(target) + " to undo the mode the plan gives it"
-			body = operation.Explain(operation.Cause(err.Error()))
+			body = operation.Explain(operation.Cause(
+				"it holds Workbench's own files, and Workbench cannot read it: " + err.Error(),
+			))
 		}
 		return operation.FailWith(
 			operation.ExitBlocked,

@@ -223,13 +223,14 @@ func imageParent(c Context, path string) (*os.File, string, error) {
 	if err := c.validateImagePath(path); err != nil {
 		return nil, "", err
 	}
+	folder := c.Scope.Root
 	fd, err := unix.Open(
-		c.Scope.Root,
+		folder,
 		unix.O_RDONLY|unix.O_DIRECTORY|unix.O_NOFOLLOW|unix.O_CLOEXEC,
 		0,
 	)
 	if err != nil {
-		return nil, "", err
+		return nil, "", folderOpenError(folder, err)
 	}
 	relative, err := filepath.Rel(c.Scope.Root, filepath.Dir(path))
 	if err != nil {
@@ -238,6 +239,7 @@ func imageParent(c Context, path string) (*os.File, string, error) {
 	}
 	if relative != "." {
 		for part := range strings.SplitSeq(relative, string(filepath.Separator)) {
+			folder = filepath.Join(folder, part)
 			next, openErr := unix.Openat(
 				fd,
 				part,
@@ -246,7 +248,7 @@ func imageParent(c Context, path string) (*os.File, string, error) {
 			)
 			_ = unix.Close(fd)
 			if openErr != nil {
-				return nil, "", openErr
+				return nil, "", folderOpenError(folder, openErr)
 			}
 			fd = next
 		}
@@ -256,6 +258,16 @@ func imageParent(c Context, path string) (*os.File, string, error) {
 		return nil, "", err
 	}
 	return os.NewFile(uintptr(fd), filepath.Dir(path)), filepath.Base(path), nil
+}
+
+// folderOpenError is err, which opening folder on the way to a target
+// returned: as it is when folder does not exist, which [ReadImage] reads as
+// an absent target, otherwise as [unreadFailure] says.
+func folderOpenError(folder string, err error) error {
+	if errors.Is(err, unix.ENOENT) {
+		return err
+	}
+	return unreadFailure(folder, true, err)
 }
 
 // ReadImage never follows a target link and rejects metadata we cannot preserve.
@@ -281,7 +293,7 @@ func ReadImage(c Context, path string) (Image, error) {
 		return Image{Kind: ImageAbsent}, nil
 	}
 	if err != nil {
-		return Image{}, err
+		return Image{}, unreadFailure(path, false, err)
 	}
 	if int(stat.Uid) != os.Geteuid() || specialBits(uint32(stat.Mode)) != 0 {
 		return Image{}, ownershipRefusal(path, stat.Uid, uint32(stat.Mode))
@@ -315,7 +327,7 @@ func ReadImage(c Context, path string) (Image, error) {
 			0,
 		)
 		if openErr != nil {
-			return Image{}, openErr
+			return Image{}, unreadFailure(path, stat.Mode&unix.S_IFMT == unix.S_IFDIR, openErr)
 		}
 		file := os.NewFile(uintptr(fd), path)
 		defer func() { _ = file.Close() }()

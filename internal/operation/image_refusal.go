@@ -7,8 +7,10 @@ package operation
 // never shown: no value or content reaches a message.
 
 import (
+	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"syscall"
 
@@ -274,6 +276,76 @@ func linkReadRefusal(path string, err error) error {
 		Cause("Workbench keeps at most 4096 bytes of a link"),
 		FixText(moveAside),
 	)
+}
+
+// unreachable is the cause and the fix of failing with err to look up or
+// read path, a folder when folder is set. They name what keeps Workbench
+// out: path itself when it can see path, otherwise the nearest folder above
+// it that it can see, which then keeps it from searching it. When that is no
+// folder, the fix moves it aside; when it is another user's, it gives it to
+// you; when it is yours and its mode keeps you out, it gives you back what
+// Workbench needs, reading a file, or reading, writing and searching a
+// folder, as it writes in it. Otherwise they are nil, and the caller's cause
+// is err.
+func unreachable(path string, folder bool, err error) []Part {
+	held := path
+	var stat unix.Stat_t
+	for unix.Lstat(held, &stat) != nil {
+		up := filepath.Dir(held)
+		if up == held {
+			return nil
+		}
+		held = up
+	}
+	shown := "it"
+	if held != path {
+		shown = display.Path(held)
+	}
+	format := uint32(stat.Mode & unix.S_IFMT)
+	switch {
+	case format != unix.S_IFDIR && (held != path || folder):
+		return []Part{
+			Cause(shown + " is " + kindName(format) + ", not a folder"),
+			FixText("move " + shellHomePath(held) + " aside"),
+		}
+	case !errors.Is(err, unix.EACCES):
+		return nil
+	case int(stat.Uid) != os.Geteuid():
+		return []Part{
+			Cause(shown + " belongs to " + userName(stat.Uid) + ", not to you"),
+			FixPath(held, "sudo", "chown", userName(uint32(os.Geteuid()))),
+		}
+	}
+	needed, cannot, grant := uint32(0o100), "search", "u+rwx"
+	switch {
+	case held == path && folder:
+		needed, cannot = 0o500, "read or search"
+	case held == path:
+		needed, cannot, grant = 0o400, "read", "u+r"
+	}
+	mode := uint32(stat.Mode) & 0o7777
+	if mode&needed == needed {
+		return nil
+	}
+	return []Part{
+		Cause(fmt.Sprintf("%s has mode %04o, so you cannot %s it", shown, mode, cannot)),
+		FixPath(held, "chmod", grant),
+	}
+}
+
+// unreadFailure is the failure of reading path, a folder when folder is set,
+// which the system refused with err (see unreachable). It keeps the exit
+// status and category of a failure Workbench does not explain.
+func unreadFailure(path string, folder bool, err error) error {
+	what := ""
+	if folder {
+		what = "the folder "
+	}
+	parts := unreachable(path, folder, err)
+	if parts == nil {
+		parts = []Part{Cause(err.Error())}
+	}
+	return Fail(ExitFailed, "execution", "Cannot read "+what+display.Path(path), parts...)
 }
 
 // fileShapeRefusal refuses the file at path, with links hard links to it,
