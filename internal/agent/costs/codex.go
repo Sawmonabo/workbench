@@ -52,7 +52,7 @@ func (codex) ServedTier(home string) func(model, tier string) string {
 			FastMode *bool `toml:"fast_mode"`
 		} `toml:"features"`
 	}
-	if raw, err := os.ReadFile(filepath.Join(dir, "config.toml")); err == nil {
+	if raw, err := os.ReadFile(toolconfig.CodexConfig(home)); err == nil {
 		_ = toml.Unmarshal(raw, &config) // an unreadable config keeps the default
 	}
 	fastMode := config.Features.FastMode == nil || *config.Features.FastMode

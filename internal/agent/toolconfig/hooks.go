@@ -21,7 +21,7 @@ const (
 	HookMissing   = "missing"   // not installed as Workbench installs it
 	HookUntrusted = "untrusted" // installed, but the tool has not recorded it as trusted
 	HookDisabled  = "disabled"  // installed and trusted, but turned off in the tool
-	HookSkipped   = "skipped"   // the tool skips the settings file that would hold it
+	HookSkipped   = "skipped"   // the tool cannot use the file that holds it or its trust
 )
 
 // ApplyFixes is what workbench apply does about a tool's hooks in states, as
@@ -200,7 +200,9 @@ func homeAsSpelled(home string) string {
 // key Codex reads ([codexHooksKeyFile]), and does not disable it, HookDisabled
 // when it sets enabled = false, HookUntrusted when it records no trusted_hash
 // or another one (Codex ignores the hook then), and HookMissing without the
-// hook. Of several matching hooks for an event the best state counts.
+// hook; HookSkipped for every hook when config.toml ([CodexConfig]) is there
+// but cannot be parsed, which Codex does not start with and no apply
+// replaces. Of several matching hooks for an event the best state counts.
 func CodexHooks(home string, hooks []HookCommand) []string {
 	dir := CodexDir(home)
 	path := filepath.Join(dir, "hooks.json")
@@ -219,12 +221,16 @@ func CodexHooks(home string, hooks []HookCommand) []string {
 			} `toml:"state"`
 		} `toml:"hooks"`
 	}
-	if raw, err := os.ReadFile(filepath.Join(dir, "config.toml")); err == nil {
-		_ = toml.Unmarshal(raw, &config) // an unreadable config trusts nothing
+	out := make([]string, len(hooks))
+	if raw, err := os.ReadFile(CodexConfig(home)); err == nil &&
+		toml.Unmarshal(raw, &config) != nil {
+		for i := range out {
+			out[i] = HookSkipped
+		}
+		return out
 	}
 	// Better states come first.
 	rank := []string{HookOK, HookDisabled, HookUntrusted, HookMissing}
-	out := make([]string, len(hooks))
 	for i, want := range hooks {
 		event := want.Event
 		best := HookMissing

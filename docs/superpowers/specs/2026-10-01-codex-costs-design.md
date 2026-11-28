@@ -435,7 +435,9 @@ tools' checks use, so any bin folder and its quoting count) and its entry, under
 Codex reads in this environment (`$CODEX_HOME` resolved when set, else
 `$HOME/.codex` as `$HOME` spells it), records the hash computed the same
 way, `disabled` when the entry sets `enabled = false`, `untrusted` when it records no hash or another one (as
-after Codex changed its normalization), and `missing` without the command.
+after Codex changed its normalization), and `missing` without the command; every hook is `skipped` while
+`config.toml` is there but cannot be parsed, which Codex does not start with
+and doctor names.
 `toolconfig.ClaudeHooks` reports `ok` or `missing`, or `skipped` for every
 hook while Claude Code skips the whole `settings.json` for a setting it
 refuses (it skips a file with an error entirely), which doctor names. `costs status` prints the

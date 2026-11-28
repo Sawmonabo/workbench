@@ -69,3 +69,7 @@ func CodexDir(home string) string {
 	}
 	return dir
 }
+
+// CodexConfig is Codex's config.toml, in [CodexDir], which holds the trust of
+// the hooks Workbench installs.
+func CodexConfig(home string) string { return filepath.Join(CodexDir(home), "config.toml") }

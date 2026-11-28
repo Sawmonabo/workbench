@@ -173,10 +173,16 @@ func hookFixes(home string, tool costs.Tool, states []string) string {
 		hint += "; workbench apply " + strings.Join(fixes, " and ") + " them"
 	}
 	// Claude Code skips a settings file with a setting it refuses, hooks
-	// and all, which no apply can fix: the apply keeps the user's settings.
+	// and all, and Codex does not start with a config.toml it cannot parse.
+	// No apply can fix either: the apply keeps the user's settings.
 	if slices.Contains(states, toolconfig.HookSkipped) {
-		hint += "; Claude Code skips " + display.Path(toolconfig.ClaudeUserSettings(home)) +
-			" for a setting it refuses, so fix that setting"
+		if tool.Name == "codex" {
+			hint += "; Codex cannot parse " + display.Path(toolconfig.CodexConfig(home)) +
+				", so fix that file"
+		} else {
+			hint += "; Claude Code skips " + display.Path(toolconfig.ClaudeUserSettings(home)) +
+				" for a setting it refuses, so fix that setting"
+		}
 	}
 	return hint
 }
