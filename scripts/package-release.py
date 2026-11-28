@@ -47,9 +47,10 @@ for base in [root / ".chezmoiroot", root / "home", root / "project"]:
             if any(part in {".git", "__pycache__", ".venv", ".env", ".DS_Store"} for part in relative.parts):
                 raise SystemExit(f"Unexpected private/generated payload: {relative}")
             payload[str(relative)] = item.read_bytes()
-# The machine source digest internal/machine.SourceDigest computes: SHA-256 of
-# one "<sha256>  <path>" line per file, sorted by path. The executable is
-# stamped with it, and it refuses any release source that does not match.
+# The machine source digest sourceDigest (internal/machine/source.go)
+# computes: SHA-256 of one "<sha256>  <path>" line per file, sorted by path.
+# The executable is stamped with it, and it refuses any release source that
+# does not match.
 source_digest = hashlib.sha256("".join(
     f"{hashlib.sha256(data).hexdigest()}  {name}\n"
     for name, data in sorted(payload.items())
