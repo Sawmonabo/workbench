@@ -825,8 +825,7 @@ command that fixes it:
 
 `update` fixes it as well: a tool file that holds exactly the pinned bytes gets
 the mode Workbench installs it with, and one that holds anything else is kept
-and reported (`~/.local/share/workbench/tools/… differs from the tool Workbench
-installs`, with `kept  the file as it is`).
+and reported (`Existing private tool differs; it was retained`).
 
 `apply` and `update` ask nothing about installing Workbench and its pinned
 tools: running the command is the go-ahead, they change only Workbench's own
