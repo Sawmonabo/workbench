@@ -684,7 +684,11 @@ synthetic answers.
     under the home: the apply replaced every link with a file, each linked
     file kept its inode, mode and content, and revert put every link back.
   - The safeguard tests of `internal/operation` passed as the home's user
-    and as root, those that need a fact the container lacks skipped.
+    and as root, those that need a fact the container lacks skipped. A probe
+    run as root, which gave a file chezmoi creates a label by hand in its
+    temporary folder, as an SELinux host gives it that folder's, saw the
+    pass after chezmoi write the file anew in its own folder: a new inode,
+    without that label, since this kernel gives a new file none.
 - At the 20-checkpoint limit, a plan names the oldest settled checkpoint's
   removal as an effect (a fixed step, with a superseded-incomplete checkpoint
   as the fallback when none is settled). A zero-edit apply settles a recorded

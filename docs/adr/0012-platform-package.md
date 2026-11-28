@@ -169,7 +169,7 @@ every caller.
     (`inode_permission`), and `a`, under which none can be renamed or
     removed, a temporary file included (`may_delete`).
   - *Extended attributes.* `ExtendedAttributeNames` lists a file's names.
-    A replacement of the same kind carries every one but
+    A replacement of the same kind carries every one of up to 4 KiB but
     `CapabilityAttribute`, `security.capability`, privilege a user cannot set
     back, which blocks; the access ACL `system.posix_acl_access` among them,
     rewritten as `ACLForMode` says the new mode leaves it. Only a process with

@@ -1164,9 +1164,7 @@ flag. A file or link Workbench or chezmoi writes in place of one of its kind
 gets each of them, set on the new file or link itself, and revert puts each
 back. When chezmoi writes the file, the pass after it writes the approved file
 anew in its own folder with them, and an apply stopped between the two leaves
-chezmoi's file, which revert accepts and puts the earlier file back over. A
-later apply that finds every file's content as planned settles such an apply
-without writing them, so its checkpoint's revert is what puts them back. On
+chezmoi's file, which revert accepts and puts the earlier file back over. On
 Linux the ACL is the one the new mode leaves: `chmod` rewrites an ACL's owner,
 mask and other entries, so `~/.bashrc` with `setfacl -m u:nobody:r` at 0640
 keeps the entry for `nobody` at the configuration's 0600 with a mask of `---`.
@@ -1175,7 +1173,7 @@ SELinux label a file made in its own folder gets.
 
 Some metadata still stops the plan, before any write, with the file, what it
 holds (never a value) and the command that clears it. Hard links, special
-files, a file over 8 MiB and file capabilities (`setcap`, which only root may
+files, a file over 8 MiB, an extended attribute over 4 KiB and file capabilities (`setcap`, which only root may
 set back) stop it, and so do the file flags a new file would not have
 (`chflags`, `chattr`): `~/.zshrc has the flag uchg, under which no file can
 replace it; run chflags nouchg ~/.zshrc and retry`. On macOS an ACL entry
