@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"errors"
+	"path/filepath"
 	"time"
 
 	"github.com/Sawmonabo/workbench/internal/operation"
@@ -180,21 +181,24 @@ func projectApplyCommand(o *options) *cobra.Command {
 				shownAtPrompt(o, &result.Results[0])
 				result.Summary = "Configured the project at " + c.ShowPath(c.Scope.Root)
 				if hooks := proposal.HooksFile(); hooks != "" {
-					result.Summary += "; run lefthook install there once per clone to turn on the Git hooks in " +
-						c.ShowPath(
-							hooks,
-						)
+					result.Body = operation.Explain(
+						operation.Line{
+							Label: "hooks",
+							Text: "lefthook install turns on the Git hooks in " +
+								c.ShowPath(hooks) + ", once per clone",
+						},
+						operation.NextText(
+							"cd "+c.ShellPath(filepath.Dir(hooks))+" && lefthook install",
+						),
+					)
 				}
 			}
-			status := operation.StatusOf(err)
-			result.Results = append(
-				result.Results,
-				operation.Component{
-					Name:    "project-configuration",
-					Status:  status,
-					Message: project.RecoveryInstructions(checkpoint),
-				},
-			)
+			outcome := operation.Component{
+				Name:   "project-configuration",
+				Status: operation.StatusOf(err),
+			}
+			outcome.Message, outcome.Body = project.RecoveryInstructions(c, checkpoint)
+			result.Results = append(result.Results, outcome)
 			return result, err
 		},
 	)

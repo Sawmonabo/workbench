@@ -247,7 +247,7 @@ func (o *options) action(kind actionKind, run handler) func(*cobra.Command, []st
 				// The view showed the outcome, or the failure or the stop with
 				// its reason.
 				if view.shown() {
-					result.Results, result.Summary = nil, ""
+					result.Results, result.Summary, result.Body = nil, "", operation.Body{}
 					viewFailed = err != nil
 				}
 			}
@@ -322,10 +322,9 @@ func render(out, diagnostics io.Writer, asJSON, verbose bool, result operation.R
 		return err
 	}
 	if result.Summary != "" && len(result.Errors) == 0 {
-		if _, err := fmt.Fprintln(
-			out,
-			paint.style(green.Bold(true), glyphs.Check+" "+result.Summary),
-		); err != nil {
+		var summary strings.Builder
+		writeSummary(&summary, lineWidth(out), paint, result.Summary, result.Body)
+		if _, err := lipgloss.Fprint(out, summary.String()); err != nil {
 			return err
 		}
 	}

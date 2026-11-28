@@ -98,7 +98,7 @@ func answersImportCommand(o *options) *cobra.Command {
 						Message: "Saved; apply now uses them",
 					},
 				)
-				result.Summary = brandTag + " Saved your machine answers; run " + c.WorkbenchCommand() + " apply"
+				savedAnswers(c, &result)
 			}
 			return result, err
 		},
@@ -168,6 +168,13 @@ func askAnswers(
 	if _, err := setUp(cmd, c, o, terminal, &result, true, ask); err != nil {
 		return result, err
 	}
-	result.Summary = brandTag + " Saved your machine answers; run " + c.WorkbenchCommand() + " apply"
+	savedAnswers(c, &result)
 	return result, nil
+}
+
+// savedAnswers is the summary of a run that saved the machine answers, with
+// the apply that uses them next.
+func savedAnswers(c operation.Context, result *operation.Result) {
+	result.Summary = brandTag + " Saved your machine answers"
+	result.Body = operation.Explain(operation.NextText(c.WorkbenchCommand() + " apply"))
 }

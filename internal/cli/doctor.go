@@ -61,7 +61,7 @@ func doctorCommand(o *options) *cobra.Command {
 					}
 				}
 				if err == nil {
-					result.Summary = doctorSummary(result.Results)
+					result.Summary, result.Body = doctorSummary(result.Results)
 				}
 				return result, err
 			},
@@ -72,8 +72,9 @@ func doctorCommand(o *options) *cobra.Command {
 }
 
 // doctorSummary is "Every check passed", or, when lines that block nothing
-// still need a look, names them.
-func doctorSummary(components []operation.Component) string {
+// still need a look, that nothing blocks Workbench, with a next line that
+// names them.
+func doctorSummary(components []operation.Component) (string, operation.Body) {
 	var look []string
 	for _, component := range components {
 		switch component.Status {
@@ -83,9 +84,10 @@ func doctorSummary(components []operation.Component) string {
 		}
 	}
 	if len(look) == 0 {
-		return brandTag + " Every check passed"
+		return brandTag + " Every check passed", operation.Body{}
 	}
-	return brandTag + " Nothing blocks Workbench; look at " + strings.Join(look, ", ")
+	return brandTag + " Nothing blocks Workbench",
+		operation.Explain(operation.NextText("look at " + strings.Join(look, ", ")))
 }
 
 // agentHooks is one doctor line per agent: whether Claude Code and Codex run

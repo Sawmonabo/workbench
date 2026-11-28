@@ -16,18 +16,20 @@ type Line struct {
 	Text  string `json:"text"`
 }
 
-// Body is what stands under a headline (an [Error]'s, a [Component]'s or a
-// [Warning]'s message): labeled lines, then the fix lines, each a command to
-// type or, where no command exists, one short instruction. The text view
-// draws it under the headline, the fix lines last; --json carries it as
-// lines and fix, each absent when empty.
+// Body is what stands under a headline (an [Error]'s, a [Component]'s, a
+// [Warning]'s message or a [Result]'s summary): labeled lines, then the fix
+// lines of a refusal or failure and the next lines of a success, each a
+// command to type or, where no command exists, one short instruction. The
+// text view draws it under the headline, the commands last; --json carries
+// it as lines, fix and next, each absent when empty.
 type Body struct {
 	Lines []Line   `json:"lines,omitempty"`
 	Fix   []string `json:"fix,omitempty"`
+	Next  []string `json:"next,omitempty"`
 }
 
-// Part is a labeled line or a fix line, as [Fail], [Explain] and [Warn] take
-// them.
+// Part is a labeled line, a fix line or a next line, as [Fail], [Explain]
+// and [Warn] take them.
 type Part interface{ addTo(b *Body) }
 
 func (l Line) addTo(b *Body) { b.Lines = append(b.Lines, l) }
@@ -36,6 +38,11 @@ func (l Line) addTo(b *Body) { b.Lines = append(b.Lines, l) }
 type fixLine string
 
 func (f fixLine) addTo(b *Body) { b.Fix = append(b.Fix, string(f)) }
+
+// nextLine is one next line of a [Body].
+type nextLine string
+
+func (n nextLine) addTo(b *Body) { b.Next = append(b.Next, string(n)) }
 
 // CauseLabel labels the line that says why, when the headline does not.
 const CauseLabel = "cause"
@@ -70,6 +77,11 @@ func FixPath(path string, words ...string) Part {
 // shell words, such as one led by [Context.WorkbenchCommand], or, where no
 // command exists, one short instruction ("move it aside").
 func FixText(text string) Part { return fixLine(text) }
+
+// NextText is a next line, what to type after a success, written as
+// [FixText] writes a fix line: a command whose words are already shell
+// words, or one short instruction ("open a new terminal").
+func NextText(text string) Part { return nextLine(text) }
 
 func shellWords(words []string) string {
 	quoted := make([]string, len(words))
@@ -136,7 +148,7 @@ func shellQuote(s string) string {
 }
 
 // Explain is the body parts make, in their order: the labeled lines, then
-// the fix lines.
+// the fix lines and the next lines.
 func Explain(parts ...Part) Body {
 	var b Body
 	for _, part := range parts {
@@ -145,22 +157,24 @@ func Explain(parts ...Part) Body {
 	return b
 }
 
-// With is b with the lines and fix lines of more after its own.
+// With is b with the lines, fix lines and next lines of more after its own.
 func (b Body) With(more Body) Body {
 	return Body{
 		Lines: append(append([]Line(nil), b.Lines...), more.Lines...),
 		Fix:   append(append([]string(nil), b.Fix...), more.Fix...),
+		Next:  append(append([]string(nil), b.Next...), more.Next...),
 	}
 }
 
-// Empty reports a body with no line and no fix line.
-func (b Body) Empty() bool { return len(b.Lines) == 0 && len(b.Fix) == 0 }
+// Empty reports a body with no line, no fix line and no next line.
+func (b Body) Empty() bool { return len(b.Lines) == 0 && len(b.Fix) == 0 && len(b.Next) == 0 }
 
 // Sentence is headline and b in one line, for a log, an error that wraps
 // another, a filter's one line on standard error and a probe line: the
 // headline, then after a colon each line (a cause by its text alone, any
-// other line after its label), then "fix:" and the fix lines, each part set
-// off by "; ". With no headline the lines stand alone.
+// other line after its label), then "fix:" and the fix lines and "next:"
+// and the next lines, each part set off by "; ". With no headline the lines
+// stand alone.
 func (b Body) Sentence(headline string) string {
 	var said []string
 	for _, line := range b.Lines {
@@ -172,6 +186,9 @@ func (b Body) Sentence(headline string) string {
 	}
 	if len(b.Fix) > 0 {
 		said = append(said, "fix: "+strings.Join(b.Fix, "; "))
+	}
+	if len(b.Next) > 0 {
+		said = append(said, "next: "+strings.Join(b.Next, "; "))
 	}
 	switch {
 	case len(said) == 0:

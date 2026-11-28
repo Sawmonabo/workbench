@@ -57,11 +57,23 @@ func applyCommand(o *options) *cobra.Command {
 					// finds workbench and the tools; only a new terminal reads it.
 					switch shell := changedShell(c, plan); {
 					case c.RecordsHome() && !c.BinOnPath():
-						result.Summary += "; open a new terminal so your shell finds workbench and the other tools"
+						result.Body = operation.Explain(
+							operation.Line{
+								Label: "shell",
+								Text:  "a new terminal's shell finds workbench and the other tools",
+							},
+							operation.NextText("open a new terminal"),
+						)
 					case shell != "":
 						// A running shell read its startup file when it started.
-						result.Summary += "; open a new terminal, or run exec " + shell +
-							", to use the updated shell setup"
+						result.Body = operation.Explain(
+							operation.Line{
+								Label: "shell",
+								Text:  "a new shell uses the updated shell setup",
+							},
+							operation.NextText("exec "+shell),
+							operation.NextText("or open a new terminal"),
+						)
 					}
 				}
 				return result, err

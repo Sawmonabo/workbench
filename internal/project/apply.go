@@ -5,7 +5,6 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
-	"strings"
 	"time"
 
 	"github.com/Sawmonabo/workbench/internal/operation"
@@ -245,12 +244,13 @@ func (p *Proposal) collectResolution(root, owner string) error {
 	return nil
 }
 
-// RecoveryInstructions tells the user how to revert checkpoint id.
-func RecoveryInstructions(id string) string {
+// RecoveryInstructions is the headline and body of a project apply's
+// outcome in c's scope: that no project file changed, or the checkpoint id
+// it saved and, as the next line, the project revert that restores it.
+func RecoveryInstructions(c operation.Context, id string) (string, operation.Body) {
 	if id == "" {
-		return "No project files changed"
+		return "No project files changed", operation.Body{}
 	}
-	return "Project checkpoint " + id + "; use project revert with the same selected scope and --checkpoint " + strings.TrimSpace(
-		id,
-	)
+	return "checkpoint " + id + " saved to undo this apply",
+		operation.Explain(operation.NextText(c.RevertCommand(id)))
 }
