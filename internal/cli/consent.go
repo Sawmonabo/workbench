@@ -58,7 +58,7 @@ var unplannedFlags = []string{
 // replan is the commands that make and approve a new plan of cmd's run, each
 // a fix line (see [workbenchFix]): the dry run that prints the plan and its
 // digest, then the run that approves the plan by that digest, each with
-// cmd's arguments and every flag it was given that picks the plan (all but
+// cmd's arguments and every flag given to it that picks the plan (all but
 // unplannedFlags, and but one given its default).
 func replan(cmd *cobra.Command, c operation.Context) []operation.Part {
 	words := append(subcommand(cmd), cmd.Flags().Args()...)
@@ -70,8 +70,8 @@ func replan(cmd *cobra.Command, c operation.Context) []operation.Part {
 }
 
 // runAgain is cmd's run as one fix line, without what a refusal names: its
-// command, then args (cmd's own, or nil for none), then every flag it was
-// given but help and those in drop, as [replan] writes them.
+// command, then args (cmd's own, or nil for none), then every flag given
+// to it but help and those in drop, as [replan] writes them.
 func runAgain(
 	cmd *cobra.Command,
 	c operation.Context,
@@ -91,7 +91,7 @@ func subcommand(cmd *cobra.Command) []string {
 	return strings.Fields(cmd.CommandPath())[1:]
 }
 
-// givenFlags are the flags cmd was given, as words to type, but those named
+// givenFlags are the flags given to cmd, as words to type, but those named
 // in skip and one given its default.
 func givenFlags(cmd *cobra.Command, skip []string) []string {
 	var flags []string

@@ -429,8 +429,8 @@ func findAgent(home, nvm string, agent agent) (agentInstall, bool) {
 //   - Homebrew: a Caskroom/CASK/... folder of one of the agent's casks.
 //
 // Anything else returns nothing. A copy in nvm's Node folder or the Codex
-// installer's releases folder whose version cannot be read returns what was
-// found there instead, as a leftWarning cause.
+// installer's releases folder whose version cannot be read returns what
+// Workbench found there instead, as a leftWarning cause.
 func classifyAgent(home, resolved string, agent agent) (method, version, node, cask, found string) {
 	nodes := filepath.Join(nvmRoot(home), "versions", "node") + "/"
 	if rest, ok := strings.CutPrefix(resolved, nodes); ok {
