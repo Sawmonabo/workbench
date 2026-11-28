@@ -626,11 +626,15 @@ placed there. An old `claude-costs` folder that is a link is never removed:
 it is named as a file Workbench didn't write.
 
 **Moving the ledger, after section 5.5:**
-1. **Open it the normal way.** Open the old ledger with the costs package's
-   open (`openLedger`, in `ledger.go`). That verifies it is a costs
-   ledger and upgrades a version 1, 2 or 4 schema in place, the exception
-   AGENTS.md already allows. A database it refuses is reported, and nothing
-   moves. Then checkpoint and close it (section 5.5).
+1. **Open it without upgrading it.** Open the old ledger with the costs
+   package's open (`openLedger`, in `ledger.go`) with its upgrade off
+   (`quiesce`, in `ledgermove.go`). That verifies it is a costs ledger of a
+   schema version this release reads (1, 2, 4, 5, 6 or 7) and leaves its
+   schema and its rows as they are: the first open at the new path upgrades
+   an earlier version, beside the price lists moved there before it, whose
+   prices that upgrade takes in (`fillPrices`, in `prices.go`). A database
+   it refuses is reported, and nothing moves. Then checkpoint and close it
+   (section 5.5).
 2. **Same filesystem:** `rename` `ledger.sqlite` to the new path, then `fsync`
    both folders. It is one atomic step, with nothing in between.
 3. **Different filesystems** (`EXDEV`, for example an `XDG_DATA_HOME` on
