@@ -14,9 +14,11 @@ import (
 // This file is the one rule for where text breaks when it is fitted to a
 // width: only at a space between two words. A word is never broken at a
 // hyphen or anywhere else inside it; a path is one word, with the spaces in
-// its names (see joinPaths); and a fix line is one command, which a person
-// copies or types as one (see fixCommandLines). A word wider than the line
-// is kept whole or broken as the output needs (see longWord).
+// its names (see joinPaths); an arrow is one word with the words on each
+// side of it where they fit a line, so a change such as 1.5.7_1 → 1.6.0
+// stays on one line (see joinArrows); and a fix line is one command, which a
+// person copies or types as one (see fixCommandLines). A word wider than the
+// line is kept whole or broken as the output needs (see longWord).
 
 // longWord is what a wrap does with a word wider than its line.
 type longWord int
@@ -209,13 +211,53 @@ func under(lead string, lines []string) []string {
 }
 
 // proseLines is text in the terminal's glyphs, each of its lines wrapped to
-// room on its own (see fitWords), a path in it kept as one word (joinPaths).
+// room on its own (see fitWords), a path in it kept as one word (joinPaths)
+// and an arrow with the words beside it (joinArrows).
 func proseLines(text string, room int, long longWord) []string {
 	var lines []string
 	for paragraph := range strings.SplitSeq(glyphs.text.Replace(text), "\n") {
-		lines = append(lines, fitWords(joinPaths(spacedWords(paragraph)), room, long)...)
+		words := joinArrows(joinPaths(spacedWords(paragraph)), room)
+		lines = append(lines, fitWords(words, room, long)...)
 	}
 	return lines
+}
+
+// joinArrows joins each arrow in words, → or the -> that stands for it in
+// ASCII, with the words on each side of it where the three fit in room, so
+// a change from one version to another stays on one line. Where they do not,
+// the arrow stays with the word before it, else with the word after it,
+// whichever fits, so a word too wide for the line beside an arrow, such as a
+// long path, still starts a line of its own.
+func joinArrows(words []word, room int) []word {
+	fits := func(text string) bool { return ansi.StringWidth(text) <= room }
+	joined := make([]word, 0, len(words))
+	for i := 0; i < len(words); i++ {
+		arrow := words[i]
+		if arrow.text != "→" && arrow.text != "->" {
+			joined = append(joined, arrow)
+			continue
+		}
+		before, after := "", ""
+		if n := len(joined); n > 0 {
+			before = joined[n-1].text + arrow.space + arrow.text
+		}
+		if i+1 < len(words) {
+			after = arrow.text + words[i+1].space + words[i+1].text
+		}
+		switch {
+		case before != "" && after != "" && fits(before+words[i+1].space+words[i+1].text):
+			joined[len(joined)-1].text = before + words[i+1].space + words[i+1].text
+			i++
+		case before != "" && fits(before):
+			joined[len(joined)-1].text = before
+		case after != "" && fits(after):
+			joined = append(joined, word{space: arrow.space, text: after})
+			i++
+		default:
+			joined = append(joined, arrow)
+		}
+	}
+	return joined
 }
 
 // word is one run of text a wrap never breaks inside, with the spaces before
