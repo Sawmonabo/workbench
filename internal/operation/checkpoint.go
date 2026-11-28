@@ -491,13 +491,17 @@ func checkApproved(c Context, plan Plan, before *SourceIdentity, changes []Targe
 	return preflightDirectories(c, changes, false)
 }
 
-// makeRoom discards leftover failed reservations, then removes the
+// makeRoom discards leftover failed reservations and what a stopped
+// checkpoint staged beside its targets (removeStagedFiles), then removes the
 // plan-approved oldest checkpoint at the limit. Incomplete checkpoints do not
 // block: checkApproved already ties the new plan to the targets' current
 // images, and the older checkpoint keeps its images and stays revertable.
 func makeRoom(c Context, plan Plan) error {
 	existing, err := loadCheckpoints(c)
 	if err != nil {
+		return err
+	}
+	if err = removeStagedFiles(c, existing); err != nil {
 		return err
 	}
 	entries, err := os.ReadDir(checkpointScope(c))

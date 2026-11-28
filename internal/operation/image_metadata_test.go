@@ -78,7 +78,7 @@ func TestFolderModeRestoreKeepsACLAndFlags(t *testing.T) {
 	private := loose
 	private.Mode = 0o700
 	for _, step := range [][2]Image{{loose, private}, {private, loose}} {
-		if err = writeImage(c, folder, step[0], step[1]); err != nil {
+		if err = writeImage(c, folder, step[0], step[1], ".workbench-test"); err != nil {
 			t.Fatal(err)
 		}
 		flags, flagErr := platform.FileFlags(-1, library)
@@ -151,7 +151,7 @@ func TestReplacementCarriesTheLabel(t *testing.T) {
 	}
 	after := before
 	after.Data = []byte("new")
-	if err = writeImage(c, path, before, after); err != nil {
+	if err = writeImage(c, path, before, after, ".workbench-test"); err != nil {
 		t.Fatal(err)
 	}
 	var replaced unix.Stat_t

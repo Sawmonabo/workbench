@@ -103,7 +103,7 @@ func (cp *Checkpoint) restoreNativeMetadata(targets []int, keepGoing bool) ([]in
 		label := nativeLabel(change, current)
 		switch {
 		case missingCarried(change, current) || foreignLabel(change, current):
-			err = restageNative(c, change, current)
+			err = restageNative(c, change, current, cp.stagedName(i))
 		case *current.Group != *change.After.Group || label != nil:
 			err = correctNativeMetadata(c, change, current, label)
 		default:
@@ -198,12 +198,13 @@ func holdsAttributes(held, carried map[string][]byte) bool {
 }
 
 // restageNative writes change's approved image anew over observed, what
-// native wrote, with Workbench's own write (rewriteImage): a new file or link in
-// the target's own folder, with the approved data, group, attributes, mode,
-// hidden flag and ACL, renamed over native's once that is still there. A new
-// file made in its own folder gets the label the system gives a file there.
-func restageNative(c Context, change TargetChange, observed Image) error {
-	err := rewriteImage(c, change.Path, observed, change.After)
+// native wrote, with Workbench's own write (rewriteImage): a new file or link,
+// staged at temporary in the target's own folder, with the approved data,
+// group, attributes, mode, hidden flag and ACL, renamed over native's once that
+// is still there. A new file made in its own folder gets the label the system
+// gives a file there.
+func restageNative(c Context, change TargetChange, observed Image, temporary string) error {
+	err := rewriteImage(c, change.Path, observed, change.After, temporary)
 	if _, ok := errors.AsType[*Error](err); ok {
 		headline, body := Explained(err)
 		return FailWith(ExitPartial, "native_image", headline, body.With(Explain(
@@ -545,7 +546,13 @@ func (cp *Checkpoint) applyImages(ctx context.Context, reverse, keepHeld bool) e
 		if err := cp.saveJournal(); err != nil {
 			return err
 		}
-		if err := writeImage(cp.mutation.context, change.Path, expected, desired); err != nil {
+		if err := writeImage(
+			cp.mutation.context,
+			change.Path,
+			expected,
+			desired,
+			cp.stagedName(i),
+		); err != nil {
 			cp.journal.Status = JournalPartial
 			_ = cp.saveJournal()
 			return writeFailure(change.Path, err)

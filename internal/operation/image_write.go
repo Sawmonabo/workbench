@@ -236,21 +236,22 @@ func carryFailure(path string, h holder, remove bool, what string, err error) er
 }
 
 // writeImage gives path, which must hold expected, the image desired, and
-// leaves a path that already holds desired as it is.
-func writeImage(c Context, path string, expected, desired Image) error {
-	return putImage(c, path, expected, desired, false)
+// leaves a path that already holds desired as it is. A file or link is staged
+// at temporary in path's folder, then renamed over path.
+func writeImage(c Context, path string, expected, desired Image, temporary string) error {
+	return putImage(c, path, expected, desired, false, temporary)
 }
 
 // rewriteImage is writeImage for a file or link that is to be written anew
 // even when it holds desired already, as image comparisons see it: they leave
 // the label out, which a new file made in path's own folder gets from there.
-func rewriteImage(c Context, path string, expected, desired Image) error {
-	return putImage(c, path, expected, desired, true)
+func rewriteImage(c Context, path string, expected, desired Image, temporary string) error {
+	return putImage(c, path, expected, desired, true, temporary)
 }
 
 // putImage is writeImage, and rewriteImage for a file or link when anew is
 // set.
-func putImage(c Context, path string, expected, desired Image, anew bool) error {
+func putImage(c Context, path string, expected, desired Image, anew bool, temporary string) error {
 	if err := validateImageGroup(c, path, desired); err != nil {
 		return err
 	}
@@ -300,11 +301,6 @@ func putImage(c Context, path string, expected, desired Image, anew bool) error 
 				imageKindName(desired.Kind)+"; move it aside and retry",
 		)
 	}
-	id, err := NewID()
-	if err != nil {
-		return err
-	}
-	temporary := ".workbench-" + id
 	defer func() { _ = unix.Unlinkat(fd, temporary, 0) }()
 	stage := stageFileImage
 	if desired.Kind == ImageSymlink {

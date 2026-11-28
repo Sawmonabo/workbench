@@ -163,7 +163,7 @@ func (cp *Checkpoint) settleConfirmed() error {
 		change := cp.changes[i]
 		var err error
 		if missingCarried(change, observed) {
-			err = restageNative(c, change, observed)
+			err = restageNative(c, change, observed, cp.stagedName(i))
 		} else {
 			err = correctNativeMetadata(c, change, observed, nil)
 		}
@@ -383,6 +383,15 @@ func Recover(
 				); err != nil {
 					return err
 				}
+			}
+			// What a stopped writer of the scope staged goes first, before
+			// the journal names this recovery instead.
+			checkpoints, err := loadCheckpoints(c)
+			if err != nil {
+				return err
+			}
+			if err = removeStagedFiles(c, checkpoints); err != nil {
+				return err
 			}
 			if err = cp.settleConfirmed(); err != nil {
 				return err

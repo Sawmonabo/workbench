@@ -61,6 +61,11 @@ func SettleUnfinished(m *Mutation, state *State, changes []TargetChange) (*Settl
 		settled.Gone = true
 		return settled, nil
 	}
+	// What a stopped writer of the scope staged goes first, so the pass below
+	// can stage under the same names.
+	if err = removeStagedFiles(c, checkpoints); err != nil {
+		return nil, err
+	}
 	cp := checkpoints[at]
 	cp.mutation = m
 	if cp.journal.RecoveryCreated || cp.journal.Direction != "forward" {
