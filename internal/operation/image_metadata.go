@@ -28,48 +28,67 @@ func carriedAttributes() []string {
 	}
 }
 
-// fileMetadata refuses metadata a target Workbench replaces cannot carry:
-// file flags, any ACL and, where ACLs are extended attributes, any attribute.
-func fileMetadata(fd int, path string) error { return metadata(fd, path, noACL) }
+// fileMetadata refuses metadata a target Workbench replaces cannot carry: any
+// file flag a replacement would not have (all but platform.KeptFlags), the
+// flags that stop a replace among them, any ACL and, where ACLs are extended
+// attributes, any attribute.
+func fileMetadata(fd int, path string) error {
+	return metadata(fd, path, platform.KeptFlags, targetFlags, noACL)
+}
 
 // containerMetadata is fileMetadata for a folder that holds Workbench's own
 // files. Workbench never removes or replaces it, and writeDirectoryImage sets
-// its mode, group and attributes through a descriptor without touching its ACL,
-// so it may keep the ACL entries folderACL admits. Its flags still block, and
-// so does any attribute where ACLs are extended attributes.
-func containerMetadata(fd int, path string) error { return metadata(fd, path, folderACL) }
-
-func metadata(fd int, path string, acl func([]platform.ACE, bool, error) error) error {
-	if err := privateFilesystem(path); err != nil {
-		return err
-	}
-	if flags, err := platform.FileFlags(fd, ""); err != nil || flags != 0 {
-		return Fail(ExitBlocked, "metadata", "Target filesystem flags cannot be preserved")
-	}
-	if err := attributeACL(fd, "", targetAttributes); err != nil {
-		return err
-	}
-	return acl(targetACL(fd, ""))
+// its mode, group and attributes through a descriptor without touching its ACL
+// or flags, so it may keep the ACL entries folderACL admits and the flags a
+// folder Workbench writes into may keep (platform.FolderFlags) but the hidden
+// flag, which the checkpoint records only on a folder Workbench writes into.
+// Any attribute still blocks where ACLs are extended attributes.
+func containerMetadata(fd int, path string) error {
+	return metadata(fd, path, platform.FolderFlags&^platform.HiddenFlag, targetFlags, folderACL)
 }
 
 // parentMetadata admits the folder a target is written into. Workbench adds,
 // replaces and removes entries there but never changes the folder itself, so
 // the folder may keep an ACL folderACL admits, such as the "group:everyone deny
 // delete" macOS puts on the home folder and its standard folders, and the
-// hidden flag macOS puts on ~/Library, which only hides the folder in Finder.
+// flags platform.FolderFlags names: the hidden flag macOS puts on ~/Library,
+// which only hides the folder in Finder, and on Linux any inode flag but the
+// immutable and append-only ones, under which those entries cannot change.
 // Where ACLs are extended attributes, any attribute there blocks planning, as
 // on a target.
 func parentMetadata(fd int, path string) error {
+	return metadata(
+		fd,
+		path,
+		platform.FolderFlags,
+		"Target folder filesystem flags cannot be preserved",
+		folderACL,
+	)
+}
+
+// targetFlags is metadata's refusal of a target's flags.
+const targetFlags = "Target filesystem flags cannot be preserved"
+
+// metadata refuses fd at path off a native file system, with a flag outside
+// kept, whose refusal is flagRefusal, or with an attribute or ACL its system
+// cannot carry, as acl judges the ACL.
+func metadata(
+	fd int,
+	path string,
+	kept uint32,
+	flagRefusal string,
+	acl func([]platform.ACE, bool, error) error,
+) error {
 	if err := privateFilesystem(path); err != nil {
 		return err
 	}
-	if flags, err := platform.FileFlags(fd, ""); err != nil || flags&^platform.HiddenFlag != 0 {
-		return Fail(ExitBlocked, "metadata", "Target folder filesystem flags cannot be preserved")
+	if flags, err := platform.FileFlags(fd, ""); err != nil || flags&^kept != 0 {
+		return Fail(ExitBlocked, "metadata", flagRefusal)
 	}
 	if err := attributeACL(fd, "", targetAttributes); err != nil {
 		return err
 	}
-	return folderACL(targetACL(fd, ""))
+	return acl(targetACL(fd, ""))
 }
 
 // folderACL admits the ACL of a folder whose own entries Workbench leaves
@@ -104,7 +123,7 @@ func linkMetadata(path string) error {
 	if err := privateFilesystem(path); err != nil {
 		return err
 	}
-	if flags, err := platform.FileFlags(-1, path); err != nil || flags != 0 {
+	if flags, err := platform.FileFlags(-1, path); err != nil || flags&^platform.KeptFlags != 0 {
 		return Fail(ExitBlocked, "metadata", "Target link flags cannot be preserved")
 	}
 	if err := attributeACL(

@@ -47,6 +47,12 @@ func fileFlags(fd int, path string) (uint32, error) {
 // hiddenFlag is UF_HIDDEN, the flag by which Finder hides a file.
 const hiddenFlag = unix.UF_HIDDEN
 
+// keptFlags is none: a new file has no flags.
+const keptFlags uint32 = 0
+
+// folderFlags is UF_HIDDEN alone.
+const folderFlags uint32 = hiddenFlag
+
 // fileSecurity reads the ACL with getattrlist, or fgetattrlist for fd alone:
 // Darwin does not expose ACLs through listxattr. getattrlist's
 // extended-security attribute contains kauth_filesec (sys/kauth.h): magic,
