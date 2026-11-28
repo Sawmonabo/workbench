@@ -112,9 +112,11 @@ func ChangesDigest(changes []TargetChange) string {
 	return SHA256Hex(data)
 }
 
-func checkpointScope(c Context) string {
-	return filepath.Join(c.Paths.State, "checkpoints", scopeDigest(c))
-}
+func checkpointScope(c Context) string { return filepath.Join(c.Paths.State, checkpointFolder(c)) }
+
+// checkpointFolder is the folder of the scope's checkpoints, named from the
+// state folder.
+func checkpointFolder(c Context) string { return filepath.Join("checkpoints", scopeDigest(c)) }
 
 // scopeDigest names a scope's checkpoint directory and lock file.
 func scopeDigest(c Context) string {
@@ -241,6 +243,9 @@ func BeginCheckpoint(
 		return nil, err
 	}
 	if err := makeRoom(c, plan); err != nil {
+		return nil, err
+	}
+	if _, err := PrivateDirectory(c.Paths.State, checkpointFolder(c)); err != nil {
 		return nil, err
 	}
 	id, err := NewID()
@@ -472,6 +477,9 @@ func (cp *Checkpoint) saveJournal() error {
 	}
 	if len(envelope) > journalBytes {
 		return Fail(ExitInvalid, "checkpoint", "Recovery journal exceeded its reserved capacity")
+	}
+	if err = makeOwnFolder("permissions", cp.directory); err != nil {
+		return err
 	}
 	path := filepath.Join(cp.directory, fmt.Sprintf("journal-%d.json", cp.journal.Sequence%2))
 	if err = checkPrivateFile(path); err != nil {

@@ -100,7 +100,7 @@ func loadCheckpoints(c Context) ([]*Checkpoint, error) {
 		return nil, err
 	}
 	directory := checkpointScope(c)
-	if err := safeParents(directory); err != nil {
+	if err := CheckPrivateDirectory(c.Paths.State, checkpointFolder(c)); err != nil {
 		return nil, err
 	}
 	entries, err := os.ReadDir(directory)
@@ -137,16 +137,20 @@ func loadCheckpoints(c Context) ([]*Checkpoint, error) {
 				)+"; no cleanup attempted",
 			)
 		}
-		cp, loadErr := loadCheckpoint(c, filepath.Join(directory, entry.Name()))
-		if loadErr != nil {
-			return nil, loadErr
-		}
-		result = append(result, cp)
-		stored, sizeErr := checkpointStorageBytes(cp.directory)
+		// The folders and files are checked, and their size bounded, before
+		// any file is read, so a folder others can write in is refused as
+		// one (see ownFolder) rather than as the folder above a file.
+		full := filepath.Join(directory, entry.Name())
+		stored, sizeErr := checkpointStorageBytes(full)
 		if sizeErr != nil {
 			return nil, sizeErr
 		}
 		total += stored
+		cp, loadErr := loadCheckpoint(c, full)
+		if loadErr != nil {
+			return nil, loadErr
+		}
+		result = append(result, cp)
 	}
 	if len(result) > MaxForwardCheckpoints || total > MaxScopeCheckpointBytes {
 		return nil, Fail(
