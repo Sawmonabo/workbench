@@ -169,9 +169,8 @@ func finishCopy(ctx context.Context, home, moved, to string) error {
 			"ledger",
 			"the ledger at "+shown+" "+problem,
 			operation.Kept("the original at "+display.PathFrom(home, moved)),
-			operation.FixText(
-				"delete "+shown+"; the next run puts the original back and starts again",
-			),
+			operation.Line{Label: "next run", Text: "puts the original back and starts again"},
+			operation.FixText("delete "+shown),
 		)
 	}
 	if err := os.Remove(moved); err != nil {
@@ -412,7 +411,8 @@ var copyCheck = sqlitefile.Options{
 func leftCopy(home, part string) []operation.Part {
 	return []operation.Part{
 		operation.Line{Label: "copy", Text: "stays at " + display.PathFrom(home, part)},
-		operation.FixText("delete it; the next run starts again from the original"),
+		operation.Line{Label: "next run", Text: "starts again from the original"},
+		operation.FixText("delete it"),
 	}
 }
 

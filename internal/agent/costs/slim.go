@@ -185,9 +185,9 @@ func insertRows(n int) string {
 // column col of the response r.
 func slimRefusal(path string, r textRow, what string, col int) error {
 	return ledgerProblem(operation.ExitInvalid, path, fmt.Sprintf(
-		"the response %q holds %s %q, which this release cannot convert to schema version %s; "+
-			"the ledger was left as it was",
-		r.text[colID], what, r.text[col], schemaVersion))
+		"the response %q holds %s %q, which this release cannot convert to schema version %s",
+		r.text[colID], what, r.text[col], schemaVersion),
+		operation.Kept("the ledger as it was"))
 }
 
 // slimNames are the names slim stores, numbered from 1 as it meets them.

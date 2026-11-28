@@ -93,7 +93,8 @@ func (m Move) Explain(home string) []operation.Warning {
 		if m.Source != "the environment" {
 			where = display.PathFrom(home, m.Source)
 			fix = []operation.Part{
-				operation.FixText("remove it from that file, or set it there to " + shown),
+				operation.FixText("remove it from that file"),
+				operation.FixText("or set it there to " + shown),
 			}
 		}
 		warnings = append(warnings, operation.Warn(
@@ -106,8 +107,8 @@ func (m Move) Explain(home string) []operation.Warning {
 		warnings = append(warnings, operation.Warn(
 			fmt.Sprintf("%s in %s is %q, not an absolute path",
 				m.Variable, display.PathFrom(home, r.File), r.Value),
-			operation.Cause(m.Tool+" reads it from the folder it starts in, so Workbench "+
-				"ignores it and reads "+display.PathFrom(home, m.Dir)),
+			operation.Cause(m.Tool+" reads it from the folder it starts in"),
+			operation.Outcome("Workbench ignores it and reads "+display.PathFrom(home, m.Dir)),
 			operation.FixText("write the absolute path there"),
 		))
 	}

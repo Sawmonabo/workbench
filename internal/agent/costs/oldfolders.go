@@ -175,15 +175,19 @@ func busy(why string) error {
 		operation.ExitBlocked,
 		"busy",
 		why,
-		operation.Changed("nothing moved; the next import or apply tries again"),
+		operation.Changed("nothing moved"),
+		operation.Line{Label: "next run", Text: "the next import or apply tries again"},
 	)
 }
 
+// conflictError is the error of a move that would leave text, a
+// [FolderCheck]'s Text, with what it leaves as its cause.
 func conflictError(text string) error {
 	return operation.Fail(
 		operation.ExitConflict,
 		"conflict",
-		"The costs files can't all move: it "+text,
+		"The costs files can't all move",
+		operation.Cause("it "+text),
 	)
 }
 

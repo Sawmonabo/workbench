@@ -197,7 +197,9 @@ func Run(ctx context.Context, l Locations, wanted []string, say func(string)) er
 			return operation.Fail(
 				operation.ExitBlocked,
 				"busy",
-				"The migration lock can't be taken ("+err.Error()+"), and the next apply tries again",
+				"The migration lock can't be taken",
+				operation.Cause(err.Error()),
+				operation.Line{Label: "next run", Text: "the next apply tries again"},
 			)
 		}
 		if held {
@@ -428,8 +430,8 @@ func readRecord(l Locations) (record, error) {
 		return empty, operation.Fail(
 			operation.ExitInvalid,
 			"record",
-			display.PathFrom(l.Home, recordPath(l))+
-				" is not a schema 1 migration record; it was not changed",
+			display.PathFrom(l.Home, recordPath(l))+" is not a schema 1 migration record",
+			operation.Kept("the record as it is"),
 		)
 	}
 	return r, nil
