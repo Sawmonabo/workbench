@@ -289,11 +289,14 @@ if role != "personal":
     if server.get("tools", {}).get("sample_tool", {}).get("approval_mode") != "approve":
         print("DISPATCH FAIL: codex sample-server does not approve sample_tool")
         bad = 1
+# The ingest hooks end in `|| true` like the guard hooks, so a workbench that
+# is missing or does not know the command exits 0, which neither tool reports
+# as a failed hook.
 for event, label in (("SessionStart", "session_start"), ("SessionEnd", "session_end")):
     found = [
         (g, h) for g, group in enumerate(hooks.get(event, []))
         for h, hook in enumerate(group.get("hooks", []))
-        if hook.get("type") == "command" and hook.get("command", "").endswith(" agent costs ingest")
+        if hook.get("type") == "command" and hook.get("command", "").endswith(" agent costs ingest || true")
     ]
     if not any(state.get(f"{path}:{label}:{g}:{h}", {}).get("trusted_hash") for g, h in found):
         print(f"HOOKS FAIL: codex {event} ingest hook or its trust missing")
@@ -326,6 +329,13 @@ if not any(
 ):
     print("HOOKS FAIL: claude SessionStart guard hook missing")
     bad = 1
+for event in ("SessionStart", "SessionEnd"):
+    if not any(
+        hook.get("type") == "command" and hook.get("command", "").endswith(" agent costs ingest || true")
+        for group in claude.get(event, []) for hook in group.get("hooks", [])
+    ):
+        print(f"HOOKS FAIL: claude {event} ingest hook missing")
+        bad = 1
 # Claude Code's post hooks also run on Monitor calls, whose commands the pre
 # hook on Bash notes too.
 for event, verb, matcher in (("PreToolUse", "pre", "Bash"), ("PostToolUse", "post", "Bash|Monitor"),

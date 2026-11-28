@@ -1156,6 +1156,22 @@ synthetic answers.
   rewritten itself (`codex mcp add`, `codex features enable`) kept every trust
   entry, and the next merge left them all `trusted`. Applying them to a real
   machine is not yet observed.
+- On 2026-11-27, in disposable homes without network, the hooks rendered with
+  a `workbench` that is not there: Claude Code 2.1.332 (`-p`, stream-json hook
+  events) reported the ingest `SessionStart` hook as exit 127 `error` and
+  printed `SessionEnd hook [...] failed: /bin/sh: ...: No such file or
+  directory`, and Codex 0.172.0 (`codex exec`) printed `hook: SessionStart
+  Failed`, while the guard hooks, which end in `|| true`, succeeded. With the
+  ingest hooks also ending in `|| true`, every hook succeeded in both tools,
+  with nothing on stderr from Claude Code, and Codex listed all five as
+  `trusted`. In the same Claude Code release a `SessionStart`,
+  `UserPromptSubmit` or `SessionEnd` hook that exits 0 shows no notice
+  whatever its stderr, interactively or with `-p`, and a `SessionStart` hook
+  that exits otherwise shows `SessionStart:startup hook failed` with its
+  stderr. Run as
+  the tools run them, each hook exited 0 with nothing on stdout or stderr in
+  under 0.5 seconds; the ingest hook's one stderr line for a runtime folder
+  that is not private also came with exit 0.
 
 ### Agent command guard
 

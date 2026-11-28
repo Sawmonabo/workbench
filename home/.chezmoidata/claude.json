@@ -64,7 +64,7 @@
         "SessionStart": [
           {
             "hooks": [
-              { "type": "command", "command": "workbench agent costs ingest", "timeout": 5 },
+              { "type": "command", "command": "workbench agent costs ingest || true", "timeout": 5 },
               { "type": "command", "command": "workbench agent guard session claude || true", "timeout": 5 }
             ]
           }
@@ -72,7 +72,7 @@
         "SessionEnd": [
           {
             "hooks": [
-              { "type": "command", "command": "workbench agent costs ingest", "timeout": 5 }
+              { "type": "command", "command": "workbench agent costs ingest || true", "timeout": 5 }
             ]
           }
         ],

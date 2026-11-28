@@ -381,8 +381,9 @@ as section 10 describes; there is no per-run `session` or `sweep` tag.
 ## 6. Hooks
 
 `home/private_dot_codex/private_hooks.json.tmpl` renders for every role: the
-`SessionStart` and `SessionEnd` entries run `workbench costs ingest` on the
-installed `workbench`'s absolute, single-quoted path in the apply's bin folder
+`SessionStart` and `SessionEnd` entries run `workbench agent costs ingest ||
+true` on the installed `workbench`'s absolute, single-quoted path in the
+apply's bin folder
 (the `workbench-command` template; `SessionEnd` with `"timeout": 3`, its
 maximum). `render-check.sh`
 drops its "hooks.json deployed on personal" leak check. `.codex/hooks.json` is not listed in
@@ -429,8 +430,8 @@ nothing.
 `toolconfig.CodexHooks` reports a state per event, as Codex decides whether to run a
 hook (`discovery.rs`: enabled unless `enabled = false`, and trusted when the
 recorded hash matches): `ok` when `hooks.json` has the command (one matching
-`(^|/)workbench'? agent costs ingest$`, the one matcher both tools' checks
-use, so any bin folder and its quoting count) and its entry, under the key
+`(^|/)workbench'? agent costs ingest \|\| true$`, the one matcher both
+tools' checks use, so any bin folder and its quoting count) and its entry, under the key
 Codex reads in this environment (`$CODEX_HOME` resolved when set, else
 `$HOME/.codex` as `$HOME` spells it), records the hash computed the same
 way, `disabled` when the entry sets `enabled = false`, `untrusted` when it records no hash or another one (as

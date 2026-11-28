@@ -1,5 +1,5 @@
 {{- $workbench := includeTemplate "workbench-command" (dict "root" . "tilde" false) -}}
-{{- $ingest := printf "%s agent costs ingest" $workbench -}}
+{{- $ingest := printf "%s agent costs ingest || true" $workbench -}}
 {
   "hooks": {
     "SessionStart": [

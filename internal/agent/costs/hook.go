@@ -13,8 +13,10 @@ import (
 
 // ingestCommand matches the ingest hook's command as Workbench installs it:
 // the workbench executable, by name, by path or as a single-quoted path, then
-// "agent costs ingest" and nothing after.
-var ingestCommand = regexp.MustCompile(`(^|/)workbench'? agent costs ingest$`)
+// "agent costs ingest", then "|| true", so a workbench that is missing or does
+// not know the command exits 0, which Claude Code and Codex report as no
+// failure (see [Hook]).
+var ingestCommand = regexp.MustCompile(`(^|/)workbench'? agent costs ingest \|\| true$`)
 
 // IngestHooks are the ingest hook on each session event, the hooks that keep
 // the ledger.
@@ -35,8 +37,11 @@ var IngestHooks = []toolconfig.HookCommand{
 // or empty stdin, or anything unreadable just means no event, and the worker
 // then sweeps everything. Reading stdin gives up after two seconds. When
 // it can't start the worker, for example because a runtime folder is not
-// private, it says why in one line on stderr, which the agent keeps, and
-// records nothing.
+// private, it says why in one line on stderr and records nothing. Claude Code
+// and Codex report a hook that exits 0 as succeeded whatever its stderr, and
+// report any other exit as a failed hook, so the hook's command ends in
+// `|| true` ([IngestHooks]): a workbench that is missing, or an older one that
+// does not know the command, fails no session either.
 func Hook(stdin *os.File) {
 	defer func() { _ = recover() }()
 	event, transcript, session := readHookInput(stdin)

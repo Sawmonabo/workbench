@@ -572,8 +572,8 @@ Report flags are section 7's, plus `--tool NAME`. Every screen
 starts with the `[WorkBench]` brand like the other commands; `--json` emits the
 Workbench result envelope with the rows as details, and `--csv` stays. Cobra
 generates completions, so the bash completion file is removed with the script.
-Hooks in `home/.chezmoidata/claude.json` name `workbench costs ingest`, and
-the settings merge fills in the installed `workbench`, the release symlink
+Hooks in `home/.chezmoidata/claude.json` name `workbench agent costs ingest
+|| true`, and the settings merge fills in the installed `workbench`, the release symlink
 Workbench installs in the apply's bin folder: `~/.local/bin/workbench` for the
 default folder, else its absolute, single-quoted path.
 
