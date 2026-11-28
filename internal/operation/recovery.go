@@ -27,6 +27,7 @@ func selectCheckpoint(c Context, selector RecoverySelector) (*Checkpoint, bool, 
 			"selection",
 			"Revert needs a checkpoint ID",
 			Cause("it never picks the latest checkpoint by itself"),
+			FixText(c.RevertListCommand()),
 		)
 	}
 	checkpoints, err := loadCheckpoints(c)
@@ -58,6 +59,7 @@ func selectCheckpoint(c Context, selector RecoverySelector) (*Checkpoint, bool, 
 			"selection",
 			"No checkpoint has that ID",
 			Line{Label: "checkpoints", Text: strings.Join(choices, ", ")},
+			FixText(c.RevertListCommand()),
 		)
 	}
 	if selected.journal.RecoveryCreated &&
@@ -163,17 +165,29 @@ func (cp *Checkpoint) editedRefusal(edited []int, current []Image, reverse bool)
 			ExitConflict,
 			"conflict",
 			headline,
-			append(parts, FixText(c.ScopeApplyCommand()))...)
-	}
-	id := cp.record.ID
-	if !reverse {
-		id = cp.record.RecoveryID
+			append(parts, FixText(cp.again(reverse)))...)
 	}
 	return Fail(
 		ExitConflict,
 		"conflict",
 		headline,
-		append(append(parts, fixes...), FixText(c.RevertCommand(id)))...)
+		append(append(parts, fixes...), FixText(cp.again(reverse)))...)
+}
+
+// again is what to type to run cp's write again once it stopped on a file
+// that changed after its plan: its apply (ScopeApplyCommand), or, for a
+// revert, the revert of the checkpoint it names, cp's own when reverse, else
+// its recovery checkpoint.
+func (cp *Checkpoint) again(reverse bool) string {
+	c := cp.mutation.context
+	if !cp.restoring {
+		return c.ScopeApplyCommand()
+	}
+	id := cp.record.ID
+	if !reverse {
+		id = cp.record.RecoveryID
+	}
+	return c.RevertCommand(id)
 }
 
 // foundWarning is what a revert plan says of the target at path that holds
@@ -346,7 +360,7 @@ func (cp *Checkpoint) confirm(i int, current Image) bool {
 // the group its apply approved. Each is then exactly the image the restore
 // expects, whose attributes it records as observed; the revert then restores
 // it, or keeps it if it is a folder holding other files.
-func (cp *Checkpoint) settleConfirmed() error {
+func (cp *Checkpoint) settleConfirmed(reverse bool) error {
 	c := cp.mutation.context
 	if err := removeStagedIn(c); err != nil {
 		return err
@@ -355,7 +369,7 @@ func (cp *Checkpoint) settleConfirmed() error {
 		change := cp.changes[i]
 		var err error
 		if missingCarried(change, observed) {
-			err = restageNative(c, change, observed, cp.stagedName(i))
+			err = restageNative(c, change, observed, cp.stagedName(i), cp.again(reverse))
 		} else {
 			err = correctNativeMetadata(c, change, observed, nil)
 		}
@@ -579,7 +593,7 @@ func Recover(
 					return err
 				}
 			}
-			if err = cp.settleConfirmed(); err != nil {
+			if err = cp.settleConfirmed(reverse); err != nil {
 				return err
 			}
 			operationID, err = NewID()

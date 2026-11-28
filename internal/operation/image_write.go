@@ -58,6 +58,7 @@ func enforceNativeMetadata(
 			"native_image",
 			display.Path(path)+" changed after chezmoi wrote it",
 			Outcome("Workbench did not give it its group"),
+			FixText(c.ScopeApplyCommand()),
 		)
 	}
 	current := Image{Kind: observed.Kind, Mode: imageMode(uint32(stat.Mode))}
@@ -88,6 +89,7 @@ func enforceNativeMetadata(
 			"native_image",
 			display.Path(path)+" differs from what chezmoi wrote",
 			Outcome("Workbench did not change its group"),
+			FixText(c.ScopeApplyCommand()),
 		)
 	}
 	if err = setImageGroup(fd, group); err != nil {
@@ -256,21 +258,28 @@ func carryFailure(path string, h holder, remove bool, what string, err error) er
 
 // writeImage gives path, which must hold expected, the image desired, and
 // leaves a path that already holds desired as it is. A file or link is staged
-// at temporary in path's folder, then renamed over path.
-func writeImage(c Context, path string, expected, desired Image, temporary string) error {
-	return putImage(c, path, expected, desired, false, temporary)
+// at temporary in path's folder, then renamed over path. A path that holds
+// something else is refused with again, what to type to plan the write anew.
+func writeImage(c Context, path string, expected, desired Image, temporary, again string) error {
+	return putImage(c, path, expected, desired, false, temporary, again)
 }
 
 // rewriteImage is writeImage for a file or link that is to be written anew
 // even when it holds desired already, as image comparisons see it: they leave
 // the label out, which a new file made in path's own folder gets from there.
-func rewriteImage(c Context, path string, expected, desired Image, temporary string) error {
-	return putImage(c, path, expected, desired, true, temporary)
+func rewriteImage(c Context, path string, expected, desired Image, temporary, again string) error {
+	return putImage(c, path, expected, desired, true, temporary, again)
 }
 
 // putImage is writeImage, and rewriteImage for a file or link when anew is
 // set.
-func putImage(c Context, path string, expected, desired Image, anew bool, temporary string) error {
+func putImage(
+	c Context,
+	path string,
+	expected, desired Image,
+	anew bool,
+	temporary, again string,
+) error {
 	if err := validateImageGroup(c, path, desired); err != nil {
 		return err
 	}
@@ -284,7 +293,7 @@ func putImage(c Context, path string, expected, desired Image, anew bool, tempor
 			"conflict",
 			display.Path(path)+" changed after the plan was made",
 			Outcome("Workbench kept those edits and did not write it"),
-			FixText("plan again"),
+			FixText(again),
 		)
 	}
 	fresh := anew && (desired.Kind == ImageFile || desired.Kind == ImageSymlink)
@@ -342,7 +351,7 @@ func putImage(c Context, path string, expected, desired Image, anew bool, tempor
 			"conflict",
 			display.Path(path)+" changed while Workbench prepared its replacement",
 			Outcome("Workbench kept those edits and did not write it"),
-			FixText("plan again"),
+			FixText(again),
 		)
 	}
 	if err = platform.RenameAt(fd, temporary, name, expected.Kind == ImageAbsent); err != nil {

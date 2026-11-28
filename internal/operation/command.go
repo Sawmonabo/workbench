@@ -63,10 +63,14 @@ func (c Context) ApplyCommand(root string) string {
 
 // ScopeApplyCommand is what to type to plan and apply c's scope again: the
 // machine's [Context.ApplyCommand] of its destination, or project apply of
-// the project.
+// the project, with --local-build where c's source is a developer checkout.
 func (c Context) ScopeApplyCommand() string {
 	if c.Scope.Kind == "project" {
-		return c.WorkbenchCommand() + " project apply " + c.ShellPath(c.Scope.Root)
+		command := c.WorkbenchCommand() + " project apply " + c.ShellPath(c.Scope.Root)
+		if c.Native.Developer {
+			command += " --local-build"
+		}
+		return command
 	}
 	return c.ApplyCommand(c.Scope.Root)
 }
@@ -84,6 +88,19 @@ func (c Context) RevertCommand(id string) string {
 			" --destination " + c.ShellPath(c.Scope.Root)
 	}
 	return c.WorkbenchCommand() + " revert --checkpoint " + id
+}
+
+// RevertListCommand is what to type to choose a checkpoint of c's scope to
+// revert: [Context.RevertCommand]'s revert without a checkpoint, with
+// --dry-run, which lists them, or asks which one at a terminal.
+func (c Context) RevertListCommand() string {
+	switch {
+	case c.Scope.Kind == "project":
+		return c.WorkbenchCommand() + " project revert " + c.ShellPath(c.Scope.Root) + " --dry-run"
+	case c.Scope.Root != c.Home:
+		return c.WorkbenchCommand() + " revert --dry-run --destination " + c.ShellPath(c.Scope.Root)
+	}
+	return c.WorkbenchCommand() + " revert --dry-run"
 }
 
 // ShowPath writes path for a person with [display.PathFrom] from c.Home.

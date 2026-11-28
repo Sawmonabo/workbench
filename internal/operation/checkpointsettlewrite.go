@@ -131,7 +131,14 @@ func (cp *Checkpoint) settleAnew(c Context, t UnfinishedTarget) error {
 		desired.Attributes = maps.Clone(desired.Attributes)
 		delete(desired.Attributes, platform.LabelAttribute)
 	}
-	if err := rewriteImage(c, t.Path, t.Current, desired, cp.stagedName(t.index)); err != nil {
+	if err := rewriteImage(
+		c,
+		t.Path,
+		t.Current,
+		desired,
+		cp.stagedName(t.index),
+		cp.again(false),
+	); err != nil {
 		return err
 	}
 	return settledAs(c, t)
@@ -206,6 +213,7 @@ func settledAs(c Context, t UnfinishedTarget) error {
 			"recovery",
 			display.Path(t.Path)+" does not hold what Workbench gave it",
 			Changed("its "+display.List(t.given())),
+			FixText(c.ScopeApplyCommand()),
 		)
 	}
 	return nil

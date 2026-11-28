@@ -491,7 +491,7 @@ func checkApproved(c Context, plan Plan, before *SourceIdentity, changes []Targe
 				"conflict",
 				display.Path(change.Path)+" changed after the plan was made",
 				Changed("nothing"),
-				FixText("plan again"),
+				FixText(c.ScopeApplyCommand()),
 			)
 		}
 	}

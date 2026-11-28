@@ -78,7 +78,7 @@ func (cp *Checkpoint) restoreNativeMetadata(targets []int, keepGoing bool) error
 	for _, i := range targets {
 		current, native, err := nativeOutput(c, cp.changes[i])
 		if err == nil && !native && !keepGoing {
-			err = differsFromNative(cp.changes[i].Path)
+			err = differsFromNative(c, cp.changes[i].Path)
 		}
 		if err != nil {
 			if !keepGoing {
@@ -101,7 +101,7 @@ func (cp *Checkpoint) restoreNativeMetadata(targets []int, keepGoing bool) error
 		label := nativeLabel(change, current)
 		switch {
 		case missingCarried(change, current) || foreignLabel(change, current):
-			err = restageNative(c, change, current, cp.stagedName(i))
+			err = restageNative(c, change, current, cp.stagedName(i), cp.again(false))
 		case *current.Group != *change.After.Group || current.Mode != change.After.Mode ||
 			label != nil:
 			err = correctNativeMetadata(c, change, current, label)
@@ -205,8 +205,8 @@ func holdsAttributes(held, carried map[string][]byte) bool {
 // group, attributes, mode, hidden flag and ACL, renamed over native's once that
 // is still there. A new file made in its own folder gets the label the system
 // gives a file there.
-func restageNative(c Context, change TargetChange, observed Image, temporary string) error {
-	err := rewriteImage(c, change.Path, observed, change.After, temporary)
+func restageNative(c Context, change TargetChange, observed Image, temporary, again string) error {
+	err := rewriteImage(c, change.Path, observed, change.After, temporary, again)
 	if _, ok := errors.AsType[*Error](err); ok {
 		headline, body := Explained(err)
 		return FailWith(ExitPartial, "native_image", headline, body.With(Explain(
@@ -238,14 +238,16 @@ func nativeOutput(c Context, change TargetChange) (Image, bool, error) {
 }
 
 // differsFromNative is the failure of the pass after native on path, which
-// does not hold what native wrote of its approved image.
-func differsFromNative(path string) error {
+// does not hold what native wrote of its approved image: the next apply of
+// c's scope finishes it.
+func differsFromNative(c Context, path string) error {
 	return Fail(
 		ExitPartial,
 		"native_image",
 		display.Path(path)+" differs from what the plan approved",
 		Cause("it changed after chezmoi wrote it"),
 		Outcome("Workbench left its group and label as they are"),
+		FixText(c.ScopeApplyCommand()),
 	)
 }
 
@@ -263,6 +265,7 @@ func correctNativeMetadata(c Context, change TargetChange, observed Image, label
 			"native_image",
 			display.Path(change.Path)+" changed after chezmoi wrote it",
 			Outcome("Workbench left it as it is, without the group the plan approved"),
+			FixText(c.ScopeApplyCommand()),
 		)
 	}
 	return enforceNativeMetadata(
@@ -375,7 +378,7 @@ func (cp *Checkpoint) Finish(runErr error) error {
 			"Workbench could not record what this apply wrote",
 			Cause(err.Error()),
 			Outcome("revert of checkpoint "+cp.ID+" checks each file before it restores it"),
-			FixText(cp.mutation.context.WorkbenchCommand()+" apply"),
+			FixText(cp.again(false)),
 		)
 	}
 	if ExitCode(runErr) == ExitInterrupted {
@@ -394,7 +397,7 @@ func (cp *Checkpoint) Finish(runErr error) error {
 				Outcome(
 					"revert of checkpoint "+cp.ID+" checks them again and names any it cannot undo",
 				),
-				FixText(cp.mutation.context.WorkbenchCommand()+" apply"),
+				FixText(cp.again(false)),
 			)
 		}
 		// The failure comes first: it is what the person has to act on.
@@ -443,6 +446,19 @@ var stoppedPartWay = Outcome(
 func stoppedAt(err error) error {
 	headline, body := Explained(err)
 	return FailWith(ExitPartial, "partial", headline, body.With(Explain(stoppedPartWay)))
+}
+
+// writeTarget gives target i of cp, which holds expected, the image desired
+// (writeImage), and records cp as stopped part way when the write fails.
+func (cp *Checkpoint) writeTarget(i int, expected, desired Image, reverse bool) error {
+	c, path := cp.mutation.context, cp.changes[i].Path
+	err := writeImage(c, path, expected, desired, cp.stagedName(i), cp.again(reverse))
+	if err != nil {
+		cp.journal.Status = JournalPartial
+		_ = cp.saveJournal()
+		return writeFailure(path, err)
+	}
+	return nil
 }
 
 // writeFailure is the failure of the write to path that stopped an apply,
@@ -560,10 +576,8 @@ func (cp *Checkpoint) applyImages(ctx context.Context, reverse, keepHeld bool) e
 		if err := cp.saveJournal(); err != nil {
 			return err
 		}
-		if err := writeImage(c, change.Path, expected, desired, cp.stagedName(i)); err != nil {
-			cp.journal.Status = JournalPartial
-			_ = cp.saveJournal()
-			return writeFailure(change.Path, err)
+		if err := cp.writeTarget(i, expected, desired, reverse); err != nil {
+			return err
 		}
 		observed, err := ReadImage(c, change.Path)
 		if err != nil || !sameImageContent(observed, desired) {

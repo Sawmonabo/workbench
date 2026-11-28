@@ -189,7 +189,7 @@ func creationParent(c Context, path string) (string, unix.Stat_t, error) {
 				ExitBlocked,
 				"metadata",
 				unknown,
-				Cause("Workbench cannot read "+display.Path(parent)+": "+err.Error()),
+				unreadParts(parent, err)...,
 			)
 		}
 		if parent == c.Scope.Root {
@@ -235,7 +235,7 @@ func checkStagedGroup(c Context, path, staging string) error {
 			ExitBlocked,
 			"metadata",
 			"Cannot read Workbench's temporary folder "+display.Path(staging),
-			Cause(err.Error()),
+			unreadParts(staging, err)...,
 		)
 	}
 	staged := inheritedGroup(temporary)
@@ -261,6 +261,16 @@ func checkStagedGroup(c Context, path, staging string) error {
 		),
 		FixText("or set TMPDIR to a folder that gives new files group "+groupName(group)),
 	)
+}
+
+// unreadParts are the cause of reading the folder path with err, and where
+// the user may not search a folder on the way to it, or a file stands in
+// its place, the fix (unreachable).
+func unreadParts(path string, err error) []Part {
+	if parts := unreachable(path, true, err); parts != nil {
+		return parts
+	}
+	return []Part{Cause("Workbench cannot read " + display.Path(path) + ": " + err.Error())}
 }
 
 // userName is the name of the user with ID uid, or its number when it has

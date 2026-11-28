@@ -35,8 +35,8 @@ type Unfinished struct {
 	// checkpoint records them.
 	Targets []UnfinishedTarget
 	// Missing are the files whose outcome the journal does not know that are
-	// not there, where the apply writes them: someone removed them
-	// after, or the folder they were in.
+	// not there, where the apply writes them: someone removed them, or the
+	// folder that holds them, after the stop.
 	Missing []string
 	// cp is the operation's checkpoint and unknown the index of each of its
 	// targets whose outcome its journal does not know.
