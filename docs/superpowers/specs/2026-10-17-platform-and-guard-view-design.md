@@ -599,10 +599,11 @@ A full-screen Bubble Tea program in the alternate screen.
   it is exiting), the header says `not connected`, its fourth line says why,
   and the view tries again each second.
 - **Refusals**, before the screen opens: with `--json` it exits 3 with
-  `agent guard has no JSON output; use workbench agent guard logs --json`.
-  Without a terminal on stdin and stdout, or with `--non-interactive`,
-  `agent guard` exits 3 with `agent guard needs a terminal; use
-  workbench agent guard logs --follow`. Under a coding agent (`CLAUDECODE=1`
+  `agent guard has no JSON output` and the fix
+  `workbench agent guard logs --json`. Without a terminal on stdin and
+  stdout, or with `--non-interactive`, `agent guard` exits 3 with
+  `agent guard needs a terminal` and the fix
+  `workbench agent guard logs --follow`. Under a coding agent (`CLAUDECODE=1`
   or the Codex variables AGENTS.md lists, the detection `apply` uses) it
   exits 3 with `agent guard is for a person at a terminal`.
 

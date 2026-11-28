@@ -44,8 +44,8 @@ again", though there was nothing to fix.
   chezmoi has stopped: the process runner kills its whole process group and waits
   for it.
 - ctrl+c at the terminal, which stops chezmoi, ends the apply as interrupted
-  (exit 130, "Interrupted; what already ran is kept, and running workbench apply
-  again finishes the rest."), not as a failed step to fix.
+  (exit 130, "Interrupted", with "kept  what already ran" and the fix
+  "workbench apply"), not as a failed step to fix.
 - Revert decides each file still unknown from what it holds now: exactly the
   approved content means written, exactly the earlier content means untouched.
   A file chezmoi created that differs only by the group of its temporary folder

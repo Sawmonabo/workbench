@@ -283,7 +283,8 @@ checked and its script runs normally. The plan never blocks on a probe.
 - `--dry-run` and `--approve-plan DIGEST` are unchanged: a dry run saves
   nothing; an approved digest applies exactly that plan without a prompt, and a
   changed machine, release or selection exits 4 (conflict) with
-  `Approval digest does not match the current plan; review a new plan`. The
+  `The approved digest does not match the current plan` and the fix
+  `review a new plan`. The
   digest covers the files, the effects and which are checked, so a plan
   approved from a dry run cannot apply a different selection. An approved
   apply by any route records `decided`.

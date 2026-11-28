@@ -443,7 +443,7 @@ hook while Claude Code skips the whole `settings.json` for a setting it
 refuses (it skips a file with an error entirely), which doctor names. `costs status` prints the
 state words, adding `(workbench apply)` once to a hooks line with a `missing`
 or `untrusted` event unless a variable moves the tool's folder, the same rule
-as doctor's `workbench apply installs and trusts them` (`toolconfig.ApplyFixes`),
+as doctor's `fix  workbench apply` line (`toolconfig.ApplyFixes`),
 and `costs status --json` gives each event's state as a string.
 
 Claude Code's hooks already run an ingest that reads every tool, so Codex
