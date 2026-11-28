@@ -61,7 +61,7 @@ func Apply(
 			return result, nil
 		}
 	}
-	result.Warnings = append(result.Warnings, displayed.RecoveryLimits...)
+	result.Warnings = append(result.Warnings, operation.WarnAll(displayed.RecoveryLimits...)...)
 	c.ReadOnly = false
 	var prepared *preparation
 	defer func() {

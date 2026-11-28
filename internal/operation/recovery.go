@@ -274,14 +274,16 @@ func RecoveryPlan(c Context, selector RecoverySelector) (_ Plan, err error) {
 	if unconfirmed {
 		plan.Warnings = append(
 			plan.Warnings,
-			"This apply stopped before Workbench recorded every file, so each was checked now: only files holding exactly what it wrote are restored",
+			Warn(
+				"This apply stopped before Workbench recorded every file, so each was checked now: only files holding exactly what it wrote are restored",
+			),
 		)
 	}
 	// A folder that now holds other files stays; everything else is restored.
 	for _, name := range heldNames(held) {
 		plan.Warnings = append(
 			plan.Warnings,
-			"Stays, because it holds files Workbench did not write: "+name,
+			Warn("Stays, because it holds files Workbench did not write: "+name),
 		)
 	}
 	plan.Source = cp.record.Applied

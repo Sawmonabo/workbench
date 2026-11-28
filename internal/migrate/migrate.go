@@ -385,7 +385,7 @@ func Plan(scope operation.Scope, l Locations, findings []Finding) operation.Plan
 				Checked:     true,
 			})
 		case f.Status == Conflict:
-			plan.Warnings = append(plan.Warnings, f.ID+": "+f.Detail)
+			plan.Warnings = append(plan.Warnings, operation.Warn(f.ID+": "+f.Detail))
 		}
 	}
 	return plan

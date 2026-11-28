@@ -105,7 +105,7 @@ func migrateList(cmd *cobra.Command, c operation.Context) (operation.Result, err
 	}
 	findings := migrate.Check(locations)
 	result.PlanDigest = migrate.Plan(c.Scope, locations, findings).Digest()
-	result.Warnings = append(result.Warnings, locations.Notes...)
+	result.Warnings = append(result.Warnings, operation.WarnAll(locations.Notes...)...)
 	for _, f := range findings {
 		component := operation.Component{Name: f.ID, Title: f.ID + " " + f.Title}
 		switch f.Status {
@@ -150,7 +150,7 @@ func (o *options) migrateApply(
 	findings := migrate.Check(locations)
 	plan := migrate.Plan(c.Scope, locations, findings)
 	stop()
-	result.Warnings = append(result.Warnings, locations.Notes...)
+	result.Warnings = append(result.Warnings, operation.WarnAll(locations.Notes...)...)
 	result.Warnings = append(result.Warnings, plan.Warnings...)
 	result.PlanDigest = plan.Digest()
 	if err = operation.CheckApproval(o.approvePlan, result.PlanDigest); err != nil {

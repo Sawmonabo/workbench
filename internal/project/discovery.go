@@ -121,7 +121,10 @@ func (r *Inventory) resolve(ctx context.Context) error {
 			return err
 		}
 		if item.Kind == "nested repository (not scanned)" {
-			r.Warnings = append(r.Warnings, "Nested repository excluded: "+item.Path)
+			r.Warnings = append(
+				r.Warnings,
+				operation.Warn("Nested repository excluded: "+item.Path),
+			)
 			continue
 		}
 		// Only manifests are read here. Lockfiles and standalone configuration are

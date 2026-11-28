@@ -23,17 +23,44 @@ const (
 	ExitInterrupted Exit = 130 // A signal canceled the operation.
 )
 
-// Error messages must be actionable and safe for public output.
+// Error is a refusal or a failure, safe for public output: its message is
+// the headline, what is wrong with what, and its body the cause, when the
+// headline does not say it, and what to type to fix it.
 type Error struct {
 	Category string `json:"category"`
 	Message  string `json:"message"`
-	Code     Exit   `json:"-"`
+	Body
+	Code Exit `json:"-"`
 }
 
-func (e *Error) Error() string { return e.Message }
+// Error is the headline and body in one line (see [Body.Sentence]).
+func (e *Error) Error() string { return e.Sentence(e.Message) }
 
-// Fail returns an [Error] with its exit status.
-func Fail(code Exit, category, message string) error { return &Error{category, message, code} }
+// Fail returns an [Error] with its exit status, its message the headline
+// and parts its body:
+//
+//	operation.Fail(operation.ExitBlocked, "tool", display.Path(path)+" is locked",
+//		operation.Cause("the flag uchg stops any file from replacing it"),
+//		operation.FixPath(path, "chflags", "nouchg"))
+func Fail(code Exit, category, message string, parts ...Part) error {
+	return &Error{Category: category, Message: message, Body: Explain(parts...), Code: code}
+}
+
+// FailAs is err raised again with code and category: an [Error] keeps its
+// headline and body, any other error is its text as the headline.
+func FailAs(code Exit, category string, err error) error {
+	headline, body := Explained(err)
+	return &Error{Category: category, Message: headline, Body: body, Code: code}
+}
+
+// Explained is err's headline and body: an [Error]'s own, any other error's
+// text and no body.
+func Explained(err error) (string, Body) {
+	if problem, ok := errors.AsType[*Error](err); ok {
+		return problem.Message, problem.Body
+	}
+	return err.Error(), Body{}
+}
 
 // ExitCode returns the process exit status for err: 0 for nil,
 // [ExitInterrupted] when canceled, the [Error] code when present, otherwise
@@ -144,11 +171,34 @@ type Component struct {
 	Name string `json:"name"`
 	// Title is the plain name the text view prints in place of Name, which
 	// --json keeps for callers; empty prints Name.
-	Title    string `json:"title,omitempty"`
-	Status   Status `json:"status"`
-	Message  string `json:"message,omitempty"`
+	Title  string `json:"title,omitempty"`
+	Status Status `json:"status"`
+	// Message is the line's headline and Body what stands under it.
+	Message string `json:"message,omitempty"`
+	Body
 	Recovery string `json:"recovery,omitempty"`
 	Details  any    `json:"details,omitempty"`
+}
+
+// Warning is a note that changes nothing, such as a check that could not
+// run: a headline and its body.
+type Warning struct {
+	Message string `json:"message"`
+	Body
+}
+
+// Warn is the [Warning] of message, its headline, and parts, its body.
+func Warn(message string, parts ...Part) Warning {
+	return Warning{Message: message, Body: Explain(parts...)}
+}
+
+// WarnAll is a headline-only [Warning] of each message.
+func WarnAll(messages ...string) []Warning {
+	warnings := make([]Warning, len(messages))
+	for i, message := range messages {
+		warnings[i] = Warning{Message: message}
+	}
+	return warnings
 }
 
 // Result is the single envelope every command renders, as text or JSON.
@@ -157,7 +207,7 @@ type Result struct {
 	Command       string      `json:"command"`
 	Status        Status      `json:"status"`
 	Results       []Component `json:"results"`
-	Warnings      []string    `json:"warnings"`
+	Warnings      []Warning   `json:"warnings"`
 	Errors        []*Error    `json:"errors"`
 	OperationID   string      `json:"operation_id,omitempty"`
 	PlanDigest    string      `json:"plan_digest,omitempty"`
@@ -172,7 +222,7 @@ func NewResult(command string) Result {
 		Command:       command,
 		Status:        StatusComplete,
 		Results:       []Component{},
-		Warnings:      []string{},
+		Warnings:      []Warning{},
 		Errors:        []*Error{},
 	}
 }

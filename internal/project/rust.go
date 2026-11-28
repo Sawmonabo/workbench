@@ -145,7 +145,9 @@ func (p *Proposal) rustManifests(root Project, members []Project) ([]rustManifes
 		if missingLints(table(lints)) {
 			p.Plan.Warnings = append(
 				p.Plan.Warnings,
-				"Kept the project's own lint levels; Workbench adds no lints beside them: "+manifest,
+				operation.Warn(
+					"Kept the project's own lint levels; Workbench adds no lints beside them: "+manifest,
+				),
 			)
 		}
 	}
@@ -224,21 +226,25 @@ func (p *Proposal) memberOptIns(root Project, members []Project, hasLints bool) 
 	if len(ownLints) > 0 {
 		p.Plan.Warnings = append(
 			p.Plan.Warnings,
-			"Members with a [lints] table of their own keep it and do not get the workspace lints: "+
-				strings.Join(
-					ownLints,
-					", ",
-				),
+			operation.Warn(
+				"Members with a [lints] table of their own keep it and do not get the workspace lints: "+
+					strings.Join(
+						ownLints,
+						", ",
+					),
+			),
 		)
 	}
 	if len(notOptedIn) > 0 {
 		p.Plan.Warnings = append(
 			p.Plan.Warnings,
-			"Members that do not opt into the project's [workspace.lints] with [lints] workspace = true, left as they are: "+
-				strings.Join(
-					notOptedIn,
-					", ",
-				),
+			operation.Warn(
+				"Members that do not opt into the project's [workspace.lints] with [lints] workspace = true, left as they are: "+
+					strings.Join(
+						notOptedIn,
+						", ",
+					),
+			),
 		)
 	}
 	return optInto
@@ -321,16 +327,16 @@ func (p *Proposal) rustFiles(root Project) ([]rustFile, error) {
 	case formatEdition == "":
 		p.Plan.Warnings = append(
 			p.Plan.Warnings,
-			"No rustfmt.toml written: "+filepath.Join(root.Root, "Cargo.toml")+
-				" sets no edition (package.edition or workspace.package.edition) to format with",
+			operation.Warn("No rustfmt.toml written: "+filepath.Join(root.Root, "Cargo.toml")+
+				" sets no edition (package.edition or workspace.package.edition) to format with"),
 		)
 	case !edition.MatchString(formatEdition):
 		p.Plan.Warnings = append(
 			p.Plan.Warnings,
-			fmt.Sprintf(
+			operation.Warn(fmt.Sprintf(
 				"No rustfmt.toml written: the manifest's edition %q is not a Rust edition",
 				formatEdition,
-			),
+			)),
 		)
 	default:
 		files = append(files, rustFile{
@@ -416,7 +422,7 @@ func (p *Proposal) keep(root, path, name string, policy []byte, tool string) {
 	}
 	p.Plan.Warnings = append(
 		p.Plan.Warnings,
-		"Kept the project's own "+tool+" configuration: "+path,
+		operation.Warn("Kept the project's own "+tool+" configuration: "+path),
 	)
 }
 
@@ -436,8 +442,8 @@ func (p *Proposal) rustToolchain(root string) error {
 	if path == "" {
 		p.Plan.Warnings = append(
 			p.Plan.Warnings,
-			"No rust-toolchain.toml pins the Rust toolchain at "+root+
-				"; Workbench never writes one. Add one that lists rustfmt and clippy in components",
+			operation.Warn("No rust-toolchain.toml pins the Rust toolchain at "+root+
+				"; Workbench never writes one. Add one that lists rustfmt and clippy in components"),
 		)
 		return nil
 	}
@@ -458,7 +464,9 @@ func (p *Proposal) rustToolchain(root string) error {
 	if !slices.Contains(components, "rustfmt") || !slices.Contains(components, "clippy") {
 		p.Plan.Warnings = append(
 			p.Plan.Warnings,
-			path+" does not list both rustfmt and clippy in components, so cargo fmt and cargo clippy can be missing where it is installed",
+			operation.Warn(
+				path+" does not list both rustfmt and clippy in components, so cargo fmt and cargo clippy can be missing where it is installed",
+			),
 		)
 	}
 	return nil

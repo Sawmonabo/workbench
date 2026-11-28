@@ -83,7 +83,7 @@ func updateRelease(
 	stop := c.ShowProgress("Installing Workbench " + bundle.Metadata.Release)
 	// A removal warning prints once the view has ended: from the handoff when
 	// it goes ahead, else with the result's other warnings.
-	var warnings []string
+	var warnings []operation.Warning
 	defer func() { result.Warnings = append(result.Warnings, warnings...) }()
 	err = operation.WithMutation(
 		cmd.Context(),
@@ -300,7 +300,7 @@ func stageRelease(
 	c operation.Context,
 	bundle release.Bundle,
 	plan operation.Plan,
-	warnings *[]string,
+	warnings *[]operation.Warning,
 ) func(*operation.Mutation) error {
 	return func(m *operation.Mutation) error {
 		directory, err := release.Stage(c, m, bundle)
@@ -359,14 +359,17 @@ func retentionEdits(c operation.Context, bundle release.Bundle) ([]operation.Edi
 // removeStale deletes the approved removals after activation and returns a
 // warning for each that failed: the directory stays and the next activation
 // lists it again.
-func removeStale(m *operation.Mutation, plan operation.Plan) []string {
-	var warnings []string
+func removeStale(m *operation.Mutation, plan operation.Plan) []operation.Warning {
+	var warnings []operation.Warning
 	for _, edit := range plan.Edits {
 		if edit.Action != "remove" {
 			continue
 		}
 		if err := m.RemovePrivateDirectory(edit.Path); err != nil {
-			warnings = append(warnings, fmt.Sprintf("could not remove %s: %v", edit.Path, err))
+			warnings = append(
+				warnings,
+				operation.Warn(fmt.Sprintf("could not remove %s: %v", edit.Path, err)),
+			)
 		}
 	}
 	return warnings

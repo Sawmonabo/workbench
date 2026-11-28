@@ -567,15 +567,18 @@ var optionalEffects = []operation.Effect{
 // platform. It is ignored, not refused, so one stale name never
 // blocks a plan. The warnings follow the saved file, not the selection being
 // planned, so a plan and its recheck under the locks read them alike.
-func staleSelectionWarnings(saved Selection, effects []operation.Effect) []string {
-	var warnings []string
+func staleSelectionWarnings(saved Selection, effects []operation.Effect) []operation.Warning {
+	var warnings []operation.Warning
 	for _, name := range saved.Select {
 		if !slices.ContainsFunc(
 			effects,
 			func(effect operation.Effect) bool { return effect.Name == name },
 		) {
-			warnings = append(warnings, "Saved choice "+name+" is not offered here and is "+
-				"ignored; workbench apply --reset forgets it")
+			warnings = append(
+				warnings,
+				operation.Warn("Saved choice "+name+" is not offered here and is "+
+					"ignored; workbench apply --reset forgets it"),
+			)
 		}
 	}
 	return warnings

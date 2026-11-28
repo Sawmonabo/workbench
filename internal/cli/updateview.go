@@ -474,7 +474,7 @@ func announceHandoff(
 	cmd *cobra.Command,
 	c operation.Context,
 	done string,
-	warnings *[]string,
+	warnings *[]operation.Warning,
 ) func() {
 	return func() {
 		view := updateViewOf(c)
@@ -495,11 +495,10 @@ func announceHandoff(
 }
 
 // printWarnings prints each warning on its own line of stderr.
-func printWarnings(cmd *cobra.Command, warnings []string) {
-	warn := newPainter(cmd.ErrOrStderr())
-	for _, warning := range warnings {
-		_, _ = fmt.Fprintln(cmd.ErrOrStderr(), warn.style(yellow, "Warning:"), warning)
-	}
+func printWarnings(cmd *cobra.Command, warnings []operation.Warning) {
+	var b strings.Builder
+	writeWarnings(&b, lineWidth(cmd.ErrOrStderr()), newPainter(cmd.ErrOrStderr()), warnings)
+	_, _ = lipgloss.Fprint(cmd.ErrOrStderr(), b.String())
 }
 
 // startUpdateView heads the update view, if c's progress draws one, with the

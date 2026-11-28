@@ -169,7 +169,9 @@ func (p *Proposal) addJobs(c operation.Context, path string, jobs []ownedJob) ([
 			case refs:
 				p.Plan.Warnings = append(
 					p.Plan.Warnings,
-					"Kept "+job.name+" in "+path+": it differs from the recipe only in its uses: refs",
+					operation.Warn(
+						"Kept "+job.name+" in "+path+": it differs from the recipe only in its uses: refs",
+					),
 				)
 			}
 			continue

@@ -571,13 +571,8 @@ func planHeader(plan operation.Plan, width int, view planView) []string {
 		lines = append(lines, wrapLines(line, width, 0)...)
 	}
 	for _, warning := range plan.Warnings {
-		for i, part := range wrapLines(warning, width-9, 0) {
-			prefix := "         "
-			if i == 0 {
-				prefix = yellow.Render("Warning:") + " "
-			}
-			lines = append(lines, prefix+part)
-		}
+		lines = append(lines, headlineLines(width, true, painter(true).warningMark(),
+			warning.Message, warning.Body)...)
 	}
 	return lines
 }

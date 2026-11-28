@@ -301,7 +301,8 @@ func render(out, diagnostics io.Writer, asJSON, verbose bool, result operation.R
 			line += " — " + component.Message
 		}
 		var wrapped strings.Builder
-		writeText(&wrapped, lineWidth(out), 0, paint.mark(component.Status)+line)
+		writeHeadline(&wrapped, lineWidth(out), paint, paint.mark(component.Status), line,
+			component.Body)
 		if _, err := lipgloss.Fprint(out, wrapped.String()); err != nil {
 			return err
 		}
@@ -309,23 +310,14 @@ func render(out, diagnostics io.Writer, asJSON, verbose bool, result operation.R
 			return err
 		}
 	}
-	for _, warning := range result.Warnings {
-		if _, err := fmt.Fprintln(
-			diagnostics,
-			warn.style(yellow, "Warning:"),
-			warning,
-		); err != nil {
-			return err
-		}
-	}
+	var said strings.Builder
+	width := lineWidth(diagnostics)
+	writeWarnings(&said, width, warn, result.Warnings)
 	for _, problem := range result.Errors {
-		if _, err := fmt.Fprintln(
-			diagnostics,
-			warn.style(red, glyphs.Cross+" Error:"),
-			problem.Message,
-		); err != nil {
-			return err
-		}
+		writeHeadline(&said, width, warn, warn.errorMark(), problem.Message, problem.Body)
+	}
+	if _, err := lipgloss.Fprint(diagnostics, said.String()); err != nil {
+		return err
 	}
 	if result.Summary != "" && len(result.Errors) == 0 {
 		if _, err := fmt.Fprintln(

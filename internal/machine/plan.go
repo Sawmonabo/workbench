@@ -188,7 +188,10 @@ func (p *preparation) selectEffects(
 		writers := windowsWriters(ctx, c)
 		p.Plan.Inputs = append(p.Plan.Inputs, writers)
 		if writers.Digest == "unknown" {
-			p.Plan.Warnings = append(p.Plan.Warnings, "Couldn't read the Windows writer record")
+			p.Plan.Warnings = append(
+				p.Plan.Warnings,
+				operation.Warn("Couldn't read the Windows writer record"),
+			)
 		}
 	}
 	if shown == nil {
@@ -226,7 +229,9 @@ func (p *preparation) selectEffects(
 		}
 		p.Plan.Warnings = append(
 			p.Plan.Warnings,
-			"Isolated destination: provisioning effects are unchecked and only files apply",
+			operation.Warn(
+				"Isolated destination: provisioning effects are unchecked and only files apply",
+			),
 		)
 	}
 	return nil

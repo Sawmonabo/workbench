@@ -65,7 +65,9 @@ func projectInspectCommand(o *options) *cobra.Command {
 				result.Results = append(result.Results, component)
 				result.Warnings = append(
 					result.Warnings,
-					"Bounded native metadata inspection; dependency/generated directories and symlinks are excluded. Git ignore rules are not evaluated. No project code was executed or files changed.",
+					operation.Warn(
+						"Bounded native metadata inspection; dependency/generated directories and symlinks are excluded. Git ignore rules are not evaluated. No project code was executed or files changed.",
+					),
 				)
 				return result, err
 			},

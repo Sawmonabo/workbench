@@ -50,7 +50,7 @@ func (p *Proposal) addGoPolicy(c operation.Context, module Project) error {
 		!bytes.Equal(p.Inventory.inputs[existing], gopolicy.Golangci):
 		p.Plan.Warnings = append(
 			p.Plan.Warnings,
-			"Kept the project's own golangci-lint configuration: "+existing,
+			operation.Warn("Kept the project's own golangci-lint configuration: "+existing),
 		)
 		v2, err := golangciV2(existing, p.Inventory.inputs[existing])
 		if err != nil {
@@ -59,7 +59,9 @@ func (p *Proposal) addGoPolicy(c operation.Context, module Project) error {
 		if !v2 {
 			p.Plan.Warnings = append(
 				p.Plan.Warnings,
-				"golangci-lint v2 refuses this v1 config; run `golangci-lint migrate`: "+existing,
+				operation.Warn(
+					"golangci-lint v2 refuses this v1 config; run `golangci-lint migrate`: "+existing,
+				),
 			)
 		}
 	}
@@ -286,7 +288,9 @@ func (p *Proposal) testWorkflow(
 		if yaml.Unmarshal(data, &doc) != nil {
 			p.Plan.Warnings = append(
 				p.Plan.Warnings,
-				"Skipped a workflow that is not valid YAML while looking for "+label+": "+path,
+				operation.Warn(
+					"Skipped a workflow that is not valid YAML while looking for "+label+": "+path,
+				),
 			)
 			continue
 		}

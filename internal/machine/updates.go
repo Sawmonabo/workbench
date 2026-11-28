@@ -62,14 +62,14 @@ func (p *preparation) planUpdates(
 	if err != nil {
 		p.Plan.Warnings = append(
 			p.Plan.Warnings,
-			"Updates were not checked; Homebrew's outdated check failed",
+			operation.Warn("Updates were not checked; Homebrew's outdated check failed"),
 		)
 		return
 	}
 	if len(held) > 0 {
 		p.Plan.Warnings = append(
 			p.Plan.Warnings,
-			"Held by brew pin, not updated: "+strings.Join(held, ", "),
+			operation.Warn("Held by brew pin, not updated: "+strings.Join(held, ", ")),
 		)
 	}
 	running := workbenchFormulae(p.Plan.Dependencies)
@@ -141,7 +141,9 @@ func (p *preparation) planUpdates(
 	if len(unread) > 0 {
 		p.Plan.Warnings = append(
 			p.Plan.Warnings,
-			"Not updated, Homebrew's dry run could not be read: "+strings.Join(unread, ", "),
+			operation.Warn(
+				"Not updated, Homebrew's dry run could not be read: "+strings.Join(unread, ", "),
+			),
 		)
 	}
 }

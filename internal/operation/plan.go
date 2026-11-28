@@ -178,9 +178,9 @@ type Plan struct {
 	UnchangedTargets int `json:"unchanged_targets"`
 	// Warnings are review notes that change nothing, such as a check that
 	// could not run.
-	Warnings       []string `json:"warnings,omitempty"`
-	RecoveryLimits []string `json:"recovery_limits"`
-	Complete       bool     `json:"complete"`
+	Warnings       []Warning `json:"warnings,omitempty"`
+	RecoveryLimits []string  `json:"recovery_limits"`
+	Complete       bool      `json:"complete"`
 }
 
 // Digest returns the SHA-256 that consent approves: the public plan plus its

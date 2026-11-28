@@ -32,7 +32,7 @@ type ApplyOptions struct {
 type Proposal struct {
 	Plan      operation.Plan           `json:"plan"`
 	Inventory *Inventory               `json:"inventory"`
-	Warnings  []string                 `json:"warnings,omitempty"`
+	Warnings  []operation.Warning      `json:"warnings,omitempty"`
 	Changes   []operation.TargetChange `json:"-"`
 	native    []nativeRequest
 	// applied holds the images Workbench last left at project targets.
@@ -252,19 +252,23 @@ func (p *Proposal) selectProjects(languages []string) []Project {
 		case !slices.Contains(configurable, project.Language):
 			p.Warnings = append(
 				p.Warnings,
-				"Discovery-only component left untouched: "+project.Root,
+				operation.Warn("Discovery-only component left untouched: "+project.Root),
 			)
 		case len(languages) > 0 && !slices.Contains(languages, project.Language):
 			p.Warnings = append(
 				p.Warnings,
-				"Component of a language not selected left untouched: "+project.Root,
+				operation.Warn(
+					"Component of a language not selected left untouched: "+project.Root,
+				),
 			)
 		case project.Language != "python" && !project.Supported:
 			blocked[project.Language] = append(blocked[project.Language], unsupported(project))
 		case !project.Supported && project.Manager != "uv":
 			p.Warnings = append(
 				p.Warnings,
-				"Discovery-only Python component left untouched: "+unsupported(project),
+				operation.Warn(
+					"Discovery-only Python component left untouched: "+unsupported(project),
+				),
 			)
 		case !project.Supported:
 			p.Plan.Prerequisites = append(p.Plan.Prerequisites, unsupported(project))
@@ -282,7 +286,10 @@ func (p *Proposal) selectProjects(languages []string) []Project {
 			continue
 		}
 		for _, reason := range blocked[language.id] {
-			p.Warnings = append(p.Warnings, language.name+" component left untouched: "+reason)
+			p.Warnings = append(
+				p.Warnings,
+				operation.Warn(language.name+" component left untouched: "+reason),
+			)
 		}
 	}
 	if len(selected) == 0 {

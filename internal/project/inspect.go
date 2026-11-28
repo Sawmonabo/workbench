@@ -11,6 +11,8 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+
+	"github.com/Sawmonabo/workbench/internal/operation"
 )
 
 const (
@@ -28,13 +30,13 @@ type Item struct {
 
 // Inventory is the bounded result of inspecting a directory for projects.
 type Inventory struct {
-	Directory string    `json:"directory"`
-	Items     []Item    `json:"items"`
-	Entries   int       `json:"entries"`
-	Excluded  int       `json:"excluded"`
-	Skipped   int       `json:"skipped"`
-	Projects  []Project `json:"projects"`
-	Warnings  []string  `json:"warnings,omitempty"`
+	Directory string              `json:"directory"`
+	Items     []Item              `json:"items"`
+	Entries   int                 `json:"entries"`
+	Excluded  int                 `json:"excluded"`
+	Skipped   int                 `json:"skipped"`
+	Projects  []Project           `json:"projects"`
+	Warnings  []operation.Warning `json:"warnings,omitempty"`
 	inputs    map[string][]byte
 	// cargo holds the member folders of the Cargo workspace at Directory.
 	cargo map[string]bool

@@ -149,13 +149,15 @@ func (p *preparation) planAgentUpdates(
 ) {
 	c.Step("checking Codex and Claude Code")
 	for _, move := range toolconfig.Moves(c.Home) {
-		p.Plan.Warnings = append(p.Plan.Warnings, move.Explain(c.Home))
+		p.Plan.Warnings = append(p.Plan.Warnings, operation.Warn(move.Explain(c.Home)))
 	}
 	pins, err := agentPins(files)
 	if err != nil {
 		p.Plan.Warnings = append(
 			p.Plan.Warnings,
-			"Codex and Claude Code updates were not checked; versions.toml could not be read",
+			operation.Warn(
+				"Codex and Claude Code updates were not checked; versions.toml could not be read",
+			),
 		)
 		return
 	}
@@ -170,9 +172,12 @@ func (p *preparation) planAgentUpdates(
 		case install.path == "":
 			continue
 		case len(install.others) > 0:
-			p.Plan.Warnings = append(p.Plan.Warnings, agent.name+" has more than one copy ("+
-				strings.Join(append([]string{install.path}, install.others...), ", ")+
-				"), and which one runs depends on how the shell starts; Workbench updates none of them until only one is left, so remove the ones you don't use")
+			p.Plan.Warnings = append(
+				p.Plan.Warnings,
+				operation.Warn(agent.name+" has more than one copy ("+
+					strings.Join(append([]string{install.path}, install.others...), ", ")+
+					"), and which one runs depends on how the shell starts; Workbench updates none of them until only one is left, so remove the ones you don't use"),
+			)
 			continue
 		case install.cask != "":
 			if platform.HasCasks {
@@ -200,7 +205,7 @@ func (p *preparation) planAgentUpdates(
 		if install.launcher != "" {
 			warning = agent.name + " at " + install.path + " runs its installer's release through a launcher of your own, which the installer leaves alone (its own is " + install.launcher + "); Workbench leaves its updates to you"
 		}
-		p.Plan.Warnings = append(p.Plan.Warnings, warning)
+		p.Plan.Warnings = append(p.Plan.Warnings, operation.Warn(warning))
 	}
 	wg.Wait()
 	for i, agent := range agents {
@@ -209,13 +214,17 @@ func (p *preparation) planAgentUpdates(
 		case failed[i]:
 			p.Plan.Warnings = append(
 				p.Plan.Warnings,
-				agent.name+" updates were not checked; the newest version on its "+channels[i]+
-					" channel could not be looked up",
+				operation.Warn(
+					agent.name+" updates were not checked; the newest version on its "+channels[i]+
+						" channel could not be looked up",
+				),
 			)
 		case targets[i] == "":
 			p.Plan.Warnings = append(
 				p.Plan.Warnings,
-				agent.name+" updates were not checked; versions.toml does not pin "+agent.pin+" to a version",
+				operation.Warn(
+					agent.name+" updates were not checked; versions.toml does not pin "+agent.pin+" to a version",
+				),
 			)
 		case installs[i].method == "native" && p.claudeFloorAbove(c.Home, targets[i]):
 		default:
@@ -235,8 +244,10 @@ func (p *preparation) claudeFloorAbove(home, target string) bool {
 	}
 	p.Plan.Warnings = append(
 		p.Plan.Warnings,
-		"Claude Code is not updated to "+target+": its settings set minimumVersion "+minimum+
-			", below which claude install installs nothing",
+		operation.Warn(
+			"Claude Code is not updated to "+target+": its settings set minimumVersion "+minimum+
+				", below which claude install installs nothing",
+		),
 	)
 	return true
 }
@@ -253,7 +264,9 @@ func (p *preparation) planAgentUpdate(
 	if !comparable {
 		p.Plan.Warnings = append(
 			p.Plan.Warnings,
-			agent.name+" "+install.version+" was not compared with "+target+", which are not both version numbers; it is left as it is",
+			operation.Warn(
+				agent.name+" "+install.version+" was not compared with "+target+", which are not both version numbers; it is left as it is",
+			),
 		)
 		return
 	}

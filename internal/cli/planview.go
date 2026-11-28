@@ -71,19 +71,20 @@ func writePlan(w io.Writer, plan operation.Plan) error {
 		writeTable(&b, width, 4, tableSpec{Cols: []column{{}, {Clip: true}}, Rows: rows})
 	}
 
+	paint := newPainter(w)
 	for _, section := range []struct {
 		title string
-		lines []string
+		lines []operation.Warning
 	}{
-		{"Prerequisites", plan.Prerequisites},
+		{"Prerequisites", operation.WarnAll(plan.Prerequisites...)},
 		{"Warnings", plan.Warnings},
-		{"Recovery limits", plan.RecoveryLimits},
+		{"Recovery limits", operation.WarnAll(plan.RecoveryLimits...)},
 	} {
 		if len(section.lines) > 0 {
 			b.WriteString("\n")
 			writeText(&b, width, 0, section.title+":")
 			for _, line := range section.lines {
-				writeText(&b, width, 2, line)
+				writeHeadline(&b, width, paint, "  ", line.Message, line.Body)
 			}
 		}
 	}
@@ -444,8 +445,9 @@ func writeInventory(w io.Writer, inventory *project.Inventory) error {
 	}
 	if len(inventory.Warnings) > 0 {
 		writeText(&b, width, 0, "Warnings:")
+		paint := newPainter(w)
 		for _, warning := range inventory.Warnings {
-			writeText(&b, width, 2, warning)
+			writeHeadline(&b, width, paint, "  ", warning.Message, warning.Body)
 		}
 	}
 	_, err := lipgloss.Fprint(w, b.String())

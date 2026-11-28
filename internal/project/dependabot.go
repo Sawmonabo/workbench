@@ -99,7 +99,7 @@ func (p *Proposal) checkDependabot(root string, found, ecosystems []string, data
 	if len(found) > 1 {
 		p.Plan.Warnings = append(
 			p.Plan.Warnings,
-			"Dependabot reads "+found[0]+" and ignores "+found[1],
+			operation.Warn("Dependabot reads "+found[0]+" and ignores "+found[1]),
 		)
 	}
 	var missing []string
@@ -114,8 +114,8 @@ func (p *Proposal) checkDependabot(root string, found, ecosystems []string, data
 	if len(missing) > 0 {
 		p.Plan.Warnings = append(
 			p.Plan.Warnings,
-			found[0]+" has no updates entry for "+display.List(missing)+
-				"; add them by hand for update pull requests",
+			operation.Warn(found[0]+" has no updates entry for "+display.List(missing)+
+				"; add them by hand for update pull requests"),
 		)
 	}
 	return nil
@@ -176,8 +176,8 @@ func (p *Proposal) warnRenovate(root string) error {
 	if len(found) > 0 {
 		p.Plan.Warnings = append(
 			p.Plan.Warnings,
-			"Renovate is configured ("+strings.Join(found, ", ")+
-				"); with Dependabot, two update bots would open pull requests for the same dependencies",
+			operation.Warn("Renovate is configured ("+strings.Join(found, ", ")+
+				"); with Dependabot, two update bots would open pull requests for the same dependencies"),
 		)
 	}
 	return nil

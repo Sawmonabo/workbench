@@ -211,8 +211,10 @@ func (p *Proposal) warnIgnoredExtensions(owner string) error {
 	if ignored {
 		p.Plan.Warnings = append(
 			p.Plan.Warnings,
-			path+" ignores .vscode/, so Git will not commit .vscode/extensions.json; "+
-				"to share the recommendations, ignore .vscode/* and add !.vscode/extensions.json",
+			operation.Warn(
+				path+" ignores .vscode/, so Git will not commit .vscode/extensions.json; "+
+					"to share the recommendations, ignore .vscode/* and add !.vscode/extensions.json",
+			),
 		)
 	}
 	return nil
