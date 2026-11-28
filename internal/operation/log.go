@@ -10,6 +10,8 @@ import (
 	"os"
 	"syscall"
 	"time"
+
+	"golang.org/x/sys/unix"
 )
 
 // Workbench's logs (the costs ingest log, the guard log) are appended to by
@@ -335,4 +337,35 @@ func (r *openLog) read() ([]byte, error) {
 	data = data[:bytes.LastIndexByte(data, '\n')+1]
 	r.at, _ = m.span(position - int64(head) + int64(len(data)))
 	return data, nil
+}
+
+// RotateOutput bounds a detached child's output file (see [StartDetached]),
+// and reports whether this process's stdout is the file at path. Called by
+// the child once it holds the lock that makes it the only one of its kind, it
+// renames that file to path.1, replacing the one before, when it is over limit
+// bytes, and points stdout and stderr at a new file at path. A rename moves no
+// byte, so a process still writing to the old file writes on into path.1.
+func RotateOutput(path string, limit int64) (bool, error) {
+	info, err := os.Lstat(path)
+	stdout, stdoutErr := os.Stdout.Stat()
+	if err != nil || stdoutErr != nil || !os.SameFile(info, stdout) {
+		return false, nil
+	}
+	if info.Size() <= limit {
+		return true, nil
+	}
+	if err = os.Rename(path, path+".1"); err != nil {
+		return true, err
+	}
+	output, err := openLogFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY)
+	if err != nil {
+		return true, err
+	}
+	defer func() { _ = output.Close() }()
+	for _, fd := range []int{1, 2} {
+		if err = unix.Dup2(int(output.Fd()), fd); err != nil {
+			return true, err
+		}
+	}
+	return true, nil
 }
