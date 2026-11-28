@@ -77,8 +77,9 @@ func Get(
 		return nil, nil, operation.Fail(
 			operation.ExitInvalid,
 			"download",
-			shown(u, err)+
-				": refused; a download needs an HTTPS address with no credentials or fragment, and a bounded size",
+			"Workbench refuses to download "+shown(u, err),
+			operation.Cause("a download needs an HTTPS address with no credentials or "+
+				"fragment, and a bounded size"),
 		)
 	}
 	outgoing, err := http.NewRequestWithContext(ctx, http.MethodGet, location, nil)
@@ -144,9 +145,11 @@ func Get(
 }
 
 // failure is [Get]'s answer for a download from location that did not
-// succeed: a "download" failure that names the address, then the cause.
-func failure(location, cause string) error {
-	return operation.Fail(operation.ExitFailed, "download", location+": "+cause)
+// succeed: a "download" failure that names the address, with cause and parts
+// its body.
+func failure(location, cause string, parts ...operation.Part) error {
+	return operation.Fail(operation.ExitFailed, "download", "Cannot download "+location,
+		append([]operation.Part{operation.Cause(cause)}, parts...)...)
 }
 
 // shown is the address a refusal of u names: u without the credentials it
@@ -247,7 +250,8 @@ func (r *stallReader) Read(p []byte) (int, error) {
 func cut(location string, caller, download context.Context) error {
 	switch {
 	case errors.Is(context.Cause(download), errStalled):
-		return failure(location, "received nothing for a minute; check the network and rerun")
+		return failure(location, "received nothing for a minute",
+			operation.FixText("check the network"))
 	case errors.Is(caller.Err(), context.DeadlineExceeded):
 		return failure(location, "timed out")
 	}
