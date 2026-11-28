@@ -1050,8 +1050,9 @@ additionally selects possible native build-code execution and requires resolutio
 uv's `--no-build` is not a sandbox. Dynamic/local/direct dependencies and custom
 resolver arrangements may remain blocked rather than execute unexpectedly.
 
-A Go module gets a `.golangci.yml` only when no golangci-lint configuration
-exists at it or above it in the repository; an existing one is kept byte for
+A Go module gets a `.golangci.yml` (the standard linters plus errorlint,
+modernize, revive and unparam, formatted with gofumpt) only when no
+golangci-lint configuration exists at it or above it in the repository; an existing one is kept byte for
 byte and named in the plan, with a `golangci-lint migrate` note for a v1 file.
 Its `.workbench.toml` records `policies = ["go-v1"]`. A `go.work` at or above
 the module blocks the Go plan, and so does selecting a folder whose only
@@ -1064,7 +1065,9 @@ A Cargo package or workspace root gets, in its `Cargo.toml`, Workbench's lints
 `[package.metadata.workbench]` or `[workspace.metadata.workbench]`. When the
 plan creates `[workspace.lints]`, each member without a `[lints]` table opts in
 with `[lints] workspace = true`; other members are named. `rustfmt.toml` (with
-the manifest's edition), `deny.toml` and `.mbx.toml` are written only when the
+the manifest's edition), `deny.toml` (advisories, bans and sources; licence
+checks stay the project's) and `.mbx.toml` (crates shared between checkouts;
+the compile budget stays in mbx's own config) are written only when the
 project has none, and an existing one is kept byte for byte and named. The plan
 warns when no `rust-toolchain.toml` installs rustfmt and clippy, and never
 writes one. Members come from the manifests' text, as Cargo counts them;

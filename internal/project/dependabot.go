@@ -67,10 +67,9 @@ func (p *Proposal) addDependabot(c operation.Context, languages []string) error 
 			c,
 			filepath.Join(root, dependabotConfigs[0]),
 			data,
-			"Create the Dependabot configuration: weekly update pull requests for "+
-				display.List(
-					ecosystems,
-				)+" at the repository root, with each ecosystem's minor and patch updates grouped into one",
+			"Create the Dependabot configuration: weekly grouped updates for "+display.List(
+				ecosystems,
+			),
 		); err != nil {
 			return err
 		}

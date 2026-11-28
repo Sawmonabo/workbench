@@ -215,7 +215,7 @@ func (p *Proposal) addHooks(c operation.Context, selected []Project, languages [
 		c,
 		path,
 		data,
-		"Create the lefthook configuration: format, lint, dependency-file and secret checks before each commit and tests before each push; run lefthook install once per clone to turn them on",
+		"Create the lefthook configuration: checks before each commit and tests before each push",
 	); err != nil {
 		return err
 	}
@@ -227,7 +227,7 @@ func (p *Proposal) addHooks(c operation.Context, selected []Project, languages [
 		Name:        "git-hook-checks",
 		Description: "After you run lefthook install in a clone, each commit and push runs project code and tests",
 		Privilege:   "user",
-		Recovery:    "Restoring lefthook.yml does not remove the Git hooks lefthook install wrote; run lefthook uninstall for that",
+		Recovery:    "Restoring lefthook.yml leaves the Git hooks lefthook install wrote, which lefthook uninstall removes",
 	})
 	return nil
 }

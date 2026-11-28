@@ -346,7 +346,7 @@ func (p *Proposal) rustFiles(root Project) ([]rustFile, error) {
 	default:
 		files = append(files, rustFile{
 			path:        filepath.Join(root.Root, "rustfmt.toml"),
-			description: "Create the rustfmt configuration for edition " + formatEdition + ", so bare rustfmt and the editor format as cargo fmt does",
+			description: "Create the rustfmt configuration for edition " + formatEdition + ", matching cargo fmt",
 			data:        rustfmt,
 		})
 	}
@@ -364,7 +364,7 @@ func (p *Proposal) rustFiles(root Project) ([]rustFile, error) {
 	} else {
 		files = append(files, rustFile{
 			path:        filepath.Join(root.Root, "deny.toml"),
-			description: "Create the cargo-deny configuration for cargo deny check advisories bans sources; licence checks are left to the project",
+			description: "Create the cargo-deny configuration for advisories, bans and sources, not licences",
 			data:        rustpolicy.Deny,
 		})
 	}
@@ -378,7 +378,7 @@ func (p *Proposal) rustFiles(root Project) ([]rustFile, error) {
 	} else {
 		files = append(files, rustFile{
 			path:        mbx,
-			description: "Create the mbx workspace setting that shares compiled crates between checkouts; the machine's compile budget stays in mbx's own config",
+			description: "Create the mbx workspace setting that shares compiled crates between checkouts",
 			data:        rustpolicy.Mbx,
 		})
 	}

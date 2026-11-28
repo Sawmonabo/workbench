@@ -42,7 +42,7 @@ func (p *Proposal) addGoPolicy(c operation.Context, module Project) error {
 			c,
 			filepath.Join(module.Root, ".golangci.yml"),
 			gopolicy.Golangci,
-			"Create the golangci-lint configuration: the standard linters plus errorlint, modernize, revive and unparam, formatted with gofumpt",
+			"Create the golangci-lint configuration: the standard linters plus errorlint, modernize, revive and unparam",
 		); err != nil {
 			return err
 		}
@@ -181,7 +181,7 @@ func (p *Proposal) addRecord(c operation.Context, root string) error {
 		c,
 		path,
 		[]byte(content),
-		"Record that the module follows the Workbench policy "+gopolicy.ID+"; builds and tests never read it",
+		"Record that the module follows the Workbench policy "+gopolicy.ID+", which no build reads",
 	)
 }
 

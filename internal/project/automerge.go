@@ -129,7 +129,7 @@ func (p *Proposal) addAutoMerge(c operation.Context, ids []string) error {
 		c,
 		path,
 		data,
-		"Create the workflow that turns on GitHub auto-merge for Dependabot's patch and minor pull requests, and only for those",
+		"Create the workflow that turns on auto-merge for Dependabot's patch and minor pull requests only",
 	); err != nil {
 		return err
 	}
@@ -154,12 +154,10 @@ func (p *Proposal) addAutoMerge(c operation.Context, ids []string) error {
 		),
 	)
 	p.Plan.Effects = append(p.Plan.Effects, operation.Effect{
-		Name: "dependabot-auto-merge",
-		Description: "GitHub merges Dependabot's patch and minor pull requests by squash, without review, once " +
-			"the checks a branch rule requires have passed or, where none is required, once the pull " +
-			"request's other checks have; a failed check, no check at all or a major update leaves it open",
-		Privilege: "CI runner",
-		Recovery:  "Restoring the workflow does not undo merges it made",
+		Name:        "dependabot-auto-merge",
+		Description: "GitHub squash-merges Dependabot's patch and minor pull requests without review once their checks pass",
+		Privilege:   "CI runner",
+		Recovery:    "Restoring the workflow does not undo merges it made",
 	})
 	return nil
 }
