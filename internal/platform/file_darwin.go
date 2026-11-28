@@ -173,6 +173,9 @@ func aceDenies(e ACE, rights uint32) bool {
 // aceInherited reports an entry with an inherit flag.
 func aceInherited(e ACE) bool { return e.Flags&aceInherits != 0 }
 
+// aclForMode is data: chmod leaves a macOS ACL as it is.
+func aclForMode(data []byte, _ uint32) []byte { return data }
+
 // allowed is faccessat(AT_FDCWD, path, rights<<8, AT_EACCESS|
 // AT_SYMLINK_NOFOLLOW): EACCES and EPERM are a refusal, any other error the
 // call's errno.

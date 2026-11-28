@@ -1,7 +1,9 @@
 package platform
 
 import (
+	"encoding/binary"
 	"errors"
+	"slices"
 
 	"golang.org/x/sys/unix"
 )
@@ -59,6 +61,41 @@ func aceInherited(ACE) bool { return false }
 // allowed fails with errors.ErrUnsupported: no caller has an entry to ask
 // about here.
 func allowed(string, uint32) (bool, error) { return false, errors.ErrUnsupported }
+
+// aclForMode rewrites, in the posix_acl_xattr layout (version 2, then a
+// 16-bit tag, 16-bit permissions and 32-bit ID per entry, little-endian,
+// linux/posix_acl_xattr.h), the permissions of ACL_USER_OBJ (1) and ACL_OTHER
+// (0x20) and of ACL_MASK (0x10), or ACL_GROUP_OBJ (4) without a mask, from
+// mode.
+func aclForMode(data []byte, mode uint32) []byte {
+	const header, entry = 4, 8
+	if len(data) < header || (len(data)-header)%entry != 0 ||
+		binary.LittleEndian.Uint32(data) != 2 {
+		return data
+	}
+	out := slices.Clone(data)
+	set := func(at int, perm uint32) { binary.LittleEndian.PutUint16(out[at+2:], uint16(perm&7)) }
+	group, mask := -1, -1
+	for at := header; at < len(out); at += entry {
+		switch binary.LittleEndian.Uint16(out[at:]) {
+		case 0x01:
+			set(at, mode>>6)
+		case 0x04:
+			group = at
+		case 0x10:
+			mask = at
+		case 0x20:
+			set(at, mode)
+		}
+	}
+	switch {
+	case mask >= 0:
+		set(mask, mode>>3)
+	case group >= 0:
+		set(group, mode>>3)
+	}
+	return out
+}
 
 // setFileSecurity has no ACL to write but nil, which is none.
 func setFileSecurity(_ int, _ string, data []byte) error {

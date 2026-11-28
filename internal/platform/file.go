@@ -93,6 +93,15 @@ func (e ACE) Inherited() bool { return aceInherited(e) }
 // ACL entries a caller could ask about, it fails with errors.ErrUnsupported.
 func Allowed(path string, rights uint32) (bool, error) { return allowed(path, rights) }
 
+// ACLForMode is the access ACL data, as AccessACLAttribute holds it, as it
+// becomes on a file chmod gives mode. On Linux chmod rewrites the owner's
+// entry, the mask (or, without one, the owning group's entry) and the other
+// entry from mode and keeps every named entry (posix_acl_chmod_masq in
+// fs/posix_acl.c), so a file given data and then mode holds what this
+// returns; data whose layout it does not know is returned as it is. On macOS,
+// which keeps ACLs apart from the mode, it is data.
+func ACLForMode(data []byte, mode uint32) []byte { return aclForMode(data, mode) }
+
 // SetFileSecurity gives fd, or path itself, not a link's target, when path
 // is not empty, the ACL data, as FileSecurity read it from a file, or takes
 // its ACL away when data is nil. On macOS fsetattrlist, or setattrlist with

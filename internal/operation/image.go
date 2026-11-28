@@ -55,12 +55,17 @@ type Image struct {
 // Carried is after, the image Workbench writes in place of before, with
 // before's extended attributes, ACL and hidden flag when both are the same
 // kind of file, folder or link, so what Workbench writes keeps them and
-// revert puts back what it had.
+// revert puts back what it had. An access ACL that is an attribute is the one
+// after's mode gives it (platform.ACLForMode), which a write that sets the
+// ACL and then the mode leaves on disk.
 func Carried(before, after Image) Image {
 	if before.Kind == ImageAbsent || before.Kind != after.Kind {
 		return after
 	}
 	after.Attributes = maps.Clone(before.Attributes)
+	if acl, ok := after.Attributes[platform.AccessACLAttribute]; ok && platform.AccessACLAttribute != "" {
+		after.Attributes[platform.AccessACLAttribute] = platform.ACLForMode(acl, after.Mode)
+	}
 	after.ACL = slices.Clone(before.ACL)
 	after.Hidden = before.Hidden
 	return after
