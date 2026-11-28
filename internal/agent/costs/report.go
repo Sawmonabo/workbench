@@ -4,14 +4,12 @@ import (
 	"cmp"
 	"context"
 	"fmt"
-	"os"
 	"path/filepath"
 	"slices"
 	"sort"
 	"strings"
 	"time"
 
-	"github.com/Sawmonabo/workbench/internal/agent/toolconfig"
 	"github.com/Sawmonabo/workbench/internal/operation"
 )
 
@@ -176,25 +174,6 @@ func (r Row) UnsignedOrg() bool {
 type Block struct {
 	Project Row   `json:"project"`
 	Models  []Row `json:"models"`
-}
-
-// Coverage is what the ledger holds for the tool, and when it last ingested.
-type Coverage struct {
-	First                string   `json:"first"` // YYYY-MM-DD in the machine's time zone, or "none"
-	Last                 string   `json:"last"`
-	Responses            int64    `json:"responses"`
-	AccountEvidence      Evidence `json:"account_evidence"`      // rows by the evidence of their email
-	SubscriptionEvidence Evidence `json:"subscription_evidence"` // and of their subscription
-	// AccountNamedSince and SubscriptionNamedSince are the time of the first
-	// row whose transcript named its email, and its subscription (ledger
-	// layout, "" when none did): what the tool's transcripts record starts
-	// there.
-	AccountNamedSince      string `json:"account_named_since"`
-	SubscriptionNamedSince string `json:"subscription_named_since"`
-	LastIngestAt           string `json:"last_ingest_at"`
-	LastIngestSummary      string `json:"last_ingest_summary"`
-	LastError              string `json:"last_error"`
-	RatesFetched           string `json:"rates_fetched"` // YYYY-MM-DD in the machine's time zone, or "never"
 }
 
 // Evidence counts rows by the level of evidence one field of them rests on.
@@ -666,123 +645,6 @@ func total(rows []Row) Row {
 	return t
 }
 
-// coverageTally is what a pass over a tool's responses learns for its
-// Coverage. Its times are in milliseconds.
-type coverageTally struct {
-	responses int64
-	// first and last are the earliest dated and the latest response time;
-	// counted says that a row was counted, and they hold one.
-	first, last int64
-	counted     bool
-	// accountSince and subscriptionSince are the earliest time of a row whose
-	// transcript named that, once named is set.
-	accountSince, subscriptionSince int64
-	accountNamed, subscriptionNamed bool
-	account, subscription           Evidence
-}
-
-func (t *coverageTally) add(r response) {
-	if !t.counted {
-		t.first, t.last, t.counted = noTime, noTime, true
-	}
-	t.responses++
-	if r.ts != noTime && (t.first == noTime || r.ts < t.first) {
-		t.first = r.ts
-	}
-	t.last = max(t.last, r.ts)
-	if r.accountRank == 4 && (!t.accountNamed || r.ts < t.accountSince) {
-		t.accountSince, t.accountNamed = r.ts, true
-	}
-	if r.subscriptionRank == 4 && (!t.subscriptionNamed || r.ts < t.subscriptionSince) {
-		t.subscriptionSince, t.subscriptionNamed = r.ts, true
-	}
-	t.account.add(r.accountRank, 1)
-	t.subscription.add(r.subscriptionRank, 1)
-}
-
-// coverage reads every response of tool for its Coverage.
-func coverage(
-	ctx context.Context,
-	ledger *Ledger,
-	fetched time.Time,
-	tool string,
-) (Coverage, error) {
-	var tally coverageTally
-	if err := scanResponses(ctx, ledger, tool, tally.add); err != nil {
-		return Coverage{}, err
-	}
-	return tally.coverage(ledger, fetched)
-}
-
-// coverage is the tally's Coverage, with the ledger's last ingest and the
-// time the official rates were fetched.
-func (t coverageTally) coverage(ledger *Ledger, fetched time.Time) (Coverage, error) {
-	first, last := int64(noTime), int64(noTime)
-	if t.counted {
-		first, last = t.first, t.last
-	}
-	since := func(ms int64, named bool) string {
-		if !named {
-			return ""
-		}
-		return storedTime(ms)
-	}
-	c := Coverage{
-		First: localDate(first), Last: localDate(last), Responses: t.responses,
-		AccountEvidence: t.account, SubscriptionEvidence: t.subscription,
-		AccountNamedSince:      since(t.accountSince, t.accountNamed),
-		SubscriptionNamedSince: since(t.subscriptionSince, t.subscriptionNamed),
-	}
-	c.LastIngestAt, c.LastIngestSummary, c.LastError = "never", "", ""
-	if v, err := ledger.Meta("last_ingest_at"); err == nil && v != "" {
-		c.LastIngestAt = v
-	}
-	c.LastIngestSummary, _ = ledger.Meta("last_ingest_summary")
-	c.LastError, _ = ledger.Meta("last_error")
-	c.RatesFetched = "never"
-	if !fetched.IsZero() {
-		c.RatesFetched = fetched.Local().Format(time.DateOnly)
-	}
-	return c, nil
-}
-
-// StatusInfo is what `workbench agent costs status` shows.
-type StatusInfo struct {
-	Ledger            string       `json:"ledger"`
-	LedgerBytes       int64        `json:"ledger_bytes"`
-	LastIngestAt      string       `json:"last_ingest_at"`
-	LastIngestSummary string       `json:"last_ingest_summary"`
-	LastError         string       `json:"last_error"`
-	WorkerRunning     bool         `json:"worker_running"` // a worker holds the lock
-	Tools             []ToolStatus `json:"tools"`
-}
-
-// SignInStatus is who a tool is signed in as now. Account is "unknown" when
-// nobody is; Subscription is its id ("unknown" when none) and Label what the
-// report shows for it.
-type SignInStatus struct {
-	Account      string `json:"account"`
-	Subscription string `json:"subscription"`
-	Label        string `json:"subscription_label"`
-}
-
-// Display writes the sign-in as the report names an account, "you@example.com · Max".
-func (s SignInStatus) Display() string {
-	return AccountName(s.Account, planName(s.Subscription, s.Label))
-}
-
-// ToolStatus is one tool's coverage, sign-in and hooks.
-type ToolStatus struct {
-	Name        string            `json:"name"`
-	Title       string            `json:"title"`
-	Implemented bool              `json:"implemented"`
-	Coverage    Coverage          `json:"coverage"`
-	SignIn      SignInStatus      `json:"sign_in"`
-	Hooks       map[string]string `json:"hooks,omitempty"`         // event → a Hook* state
-	ConfigMove  *toolconfig.Move  `json:"config_move,omitempty"`   // nil unless a variable moved the tool's folder
-	Skipped     int               `json:"skipped_files,omitempty"` // transcripts the source cannot read (compressed)
-}
-
 // cardNow is the rate card with the official prices the open ledger keeps,
 // and the paths whose home holds the tools' own cost records.
 func cardNow(ctx context.Context, ledger *Ledger) (Paths, Card, error) {
@@ -792,73 +654,4 @@ func cardNow(ctx context.Context, ledger *Ledger) (Paths, Card, error) {
 	}
 	card, err := loadCard(ctx, paths.Home, ledger)
 	return paths, card, err
-}
-
-// Status reads the open ledger (see [Paths.Open]) and the live hook settings;
-// it ingests and fetches nothing itself, and makes nothing. A file it can't
-// read counts as missing, so when another process moved the costs folders
-// while it read them (see [Paths.moved]) it reads them again where they are
-// then.
-func Status(ctx context.Context, ledger *Ledger) (StatusInfo, error) {
-	paths, err := Locations()
-	if err != nil {
-		return StatusInfo{}, err
-	}
-	info, err := status(ctx, ledger, paths)
-	if paths.moved() {
-		if paths, err = Locations(); err == nil {
-			info, err = status(ctx, ledger, paths)
-		}
-	}
-	return info, err
-}
-
-func status(ctx context.Context, ledger *Ledger, paths Paths) (StatusInfo, error) {
-	info := StatusInfo{Ledger: paths.Ledger}
-	if stat, err := os.Stat(paths.Ledger); err == nil {
-		info.LedgerBytes = stat.Size()
-	}
-	info.LastIngestAt = "never"
-	if v, _ := ledger.Meta("last_ingest_at"); v != "" {
-		info.LastIngestAt = v
-	}
-	info.LastIngestSummary, _ = ledger.Meta("last_ingest_summary")
-	info.LastError, _ = ledger.Meta("last_error")
-	info.WorkerRunning = operation.IsLockHeld(paths.lock())
-	for _, tool := range Tools {
-		status := ToolStatus{Name: tool.Name, Title: tool.Title, Implemented: tool.Source != nil}
-		if tool.Source != nil {
-			official, err := ledger.officialRates(ctx, tool.Name)
-			if err != nil {
-				return info, err
-			}
-			var fetched time.Time
-			if official.FetchedAt > 0 {
-				fetched = fromEpoch(official.FetchedAt)
-			}
-			if status.Coverage, err = coverage(ctx, ledger, fetched, tool.Name); err != nil {
-				return info, err
-			}
-			signIn := tool.Source.SignIn(paths.Home)
-			status.SignIn = SignInStatus{
-				Account:      cmp.Or(signIn.Account, "unknown"),
-				Subscription: cmp.Or(signIn.Subscription, "unknown"),
-				Label:        subscriptionLabel(signIn.Subscription, signIn.Label),
-			}
-			status.Hooks = map[string]string{}
-			for i, state := range tool.Hooks(paths.Home, IngestHooks) {
-				status.Hooks[IngestHooks[i].Event] = state
-			}
-			if tool.Move != nil {
-				if move, moved := tool.Move(paths.Home); moved {
-					status.ConfigMove = &move
-				}
-			}
-			if counter, ok := tool.Source.(interface{ Skipped(string) int }); ok {
-				status.Skipped = counter.Skipped(paths.Home)
-			}
-		}
-		info.Tools = append(info.Tools, status)
-	}
-	return info, nil
 }
