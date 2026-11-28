@@ -1,5 +1,8 @@
 package cli
 
+// This file is `agent guard logs`: reading the guard log from a time on,
+// following it, and each record as one logfmt line.
+
 import (
 	"fmt"
 	"io"

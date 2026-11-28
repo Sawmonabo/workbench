@@ -742,7 +742,7 @@ Everything else reuses what Workbench already has:
   (`internal/cli/table.go`).
 - **Log printing**: `guard.ReadLog` and the existing `--since` parser
   (`internal/cli/timeflag.go`); only the line format in
-  `internal/cli/guard.go` changes. Sizes print through `guard.Size` (a
+  `internal/cli/agentguardlogs.go` changes. Sizes print through `guard.Size` (a
   measurement) and `guard.Capacity` (a capacity), which the stop reason uses
   too.
 - **Messages and records**: `encoding/json` for JSON Lines, and the guard's

@@ -1,5 +1,9 @@
 package cli
 
+// This file is `agent guard history`: what it says of the history of
+// finished commands, the --keep value it parses, and the trim it runs when
+// it sets that time.
+
 import (
 	"context"
 	"errors"
@@ -320,10 +324,6 @@ func parseKeep(text string) (time.Duration, error) {
 	return keep, nil
 }
 
-// guardHistoryUnreadable is the error of a history in the guard folder root
-// that cannot be read, as the view says it (see guard.HistoryUnreadable). A
-// file that is not a guard history is invalid state; any other reason a
-// failure.
 // inHistoryFolder runs work in the guard folder root and, when it fails
 // because the folder moved meanwhile (see guard.HistoryFolderMoved), once
 // more where find (guard.HistoryRoot or guard.MakeHistoryRoot) says the
@@ -343,6 +343,10 @@ func inHistoryFolder(
 	return root, true, work(root)
 }
 
+// guardHistoryUnreadable is the error of a history in the guard folder root
+// that cannot be read, as the view says it (see guard.HistoryUnreadable). A
+// file that is not a guard history is invalid state; any other reason a
+// failure.
 func guardHistoryUnreadable(err error, root string) error {
 	code := operation.ExitFailed
 	if errors.Is(err, guard.ErrHistoryUnusable) {

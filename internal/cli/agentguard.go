@@ -1,5 +1,9 @@
 package cli
 
+// This file is the `agent guard` command and its hidden hook and watcher
+// commands, and the forms of a call's ID, a time taken and a memory size that
+// the log lines and the live view write alike.
+
 import (
 	"strings"
 	"time"
