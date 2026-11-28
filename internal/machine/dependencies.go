@@ -70,19 +70,22 @@ func resolveDependencies(
 			)
 		}
 		component := operation.Component{
-			Name:   name,
-			Status: operation.StatusBlocked,
-			Message: "not found; " + c.WorkbenchCommand() + " apply or update installs Workbench's own " +
-				qualifiedVersions(
-					name,
-					requirements,
-				),
+			Name:    name,
+			Status:  operation.StatusBlocked,
+			Message: "not found",
+			Body: operation.Explain(append(
+				[]operation.Part{operation.Line{
+					Label: "needs",
+					Text:  "Workbench's own " + qualifiedVersions(name, requirements),
+				}},
+				InstallFix(c)...,
+			)...),
 		}
 		var refusal error
 		for _, candidate := range candidates {
 			version, err := probeVersion(ctx, c, name, candidate.Path)
 			if err != nil {
-				component.Message = err.Error()
+				component.Message, component.Body = operation.Explained(err)
 				if refusal == nil && operation.Category(err) == "tool" {
 					refusal = err
 				}
@@ -93,22 +96,29 @@ func resolveDependencies(
 			candidate.Version = version
 			if !qualified {
 				component.Message = fmt.Sprintf(
-					"%s %s at %s is not %s; %s apply or update installs Workbench's own copy and leaves this one alone",
+					"%s %s at %s is not %s",
 					name,
 					version,
-					candidate.Path,
+					c.ShowPath(candidate.Path),
 					qualifiedVersions(name, requirements),
-					c.WorkbenchCommand(),
 				)
+				component.Body = operation.Explain(append(
+					[]operation.Part{operation.Cause(
+						"Workbench installs its own copy and leaves this one alone")},
+					InstallFix(c)...,
+				)...)
 				continue
 			}
 			dependencies = append(dependencies, candidate)
 			component.Status = operation.StatusComplete
-			component.Message = version + " (" + candidate.Owner + ") at " + candidate.Path
+			component.Message = version + " (" + candidate.Owner + ") at " + c.ShowPath(
+				candidate.Path,
+			)
+			component.Body = operation.Body{}
 			break
 		}
 		if component.Status != operation.StatusComplete && refusal != nil {
-			component.Message = refusal.Error()
+			component.Message, component.Body = operation.Explained(refusal)
 			if firstRefusal == nil {
 				firstRefusal = refusal
 			}

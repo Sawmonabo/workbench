@@ -38,7 +38,8 @@ func Doctor(ctx context.Context, c operation.Context) ([]operation.Component, er
 	}
 	switch {
 	case selectionErr != nil:
-		effects.Status, effects.Message = operation.StatusBlocked, selectionErr.Error()
+		effects.Status = operation.StatusBlocked
+		effects.Message, effects.Body = operation.Explained(selectionErr)
 	case len(selection.Skip) > 0 || len(selection.Select) > 0:
 		effects.Status = operation.StatusComplete
 		var parts []string
@@ -58,11 +59,9 @@ func Doctor(ctx context.Context, c operation.Context) ([]operation.Component, er
 		requirements, sourceErr = SourceRequirements(files)
 	}
 	if sourceErr != nil {
-		results = append(results, operation.Component{
-			Name:    "tool-versions",
-			Status:  operation.StatusBlocked,
-			Message: sourceErr.Error(),
-		})
+		line := operation.Component{Name: "tool-versions", Status: operation.StatusBlocked}
+		line.Message, line.Body = operation.Explained(sourceErr)
+		results = append(results, line)
 	} else {
 		_, resolved := ResolveDependencies(ctx, c, requirements, recorded, os.Getenv("PATH"))
 		// Workbench's own tools read tool-, apart from the runtime- lines of
@@ -88,17 +87,28 @@ func Doctor(ctx context.Context, c operation.Context) ([]operation.Component, er
 				operation.Component{
 					Name:    "native-chezmoi",
 					Status:  operation.StatusConflict,
-					Message: "~/.config/chezmoi/chezmoi.toml points plain chezmoi at " + native.SourceDir + "; move it aside after switching (docs/switch-from-dotfiles.md)",
+					Message: "~/.config/chezmoi/chezmoi.toml points plain chezmoi at " + native.SourceDir,
+					Body: operation.Explain(
+						operation.Cause(
+							"plain chezmoi would apply that source over the files Workbench manages",
+						),
+						operation.FixText(
+							"move it aside after switching (docs/switch-from-dotfiles.md)",
+						),
+					),
 				},
 			)
 		}
 	}
 	for _, move := range toolconfig.Moves(c.Home) {
-		results = append(results, operation.Component{
-			Name:    strings.ToLower(strings.ReplaceAll(move.Variable, "_", "-")),
-			Status:  operation.StatusConflict,
-			Message: move.Explain(c.Home),
-		})
+		for _, warning := range move.Explain(c.Home) {
+			results = append(results, operation.Component{
+				Name:    strings.ToLower(strings.ReplaceAll(move.Variable, "_", "-")),
+				Status:  operation.StatusConflict,
+				Message: warning.Message,
+				Body:    warning.Body,
+			})
+		}
 	}
 	results = append(results, editorFolders(c)...)
 	for _, result := range results {
@@ -106,7 +116,8 @@ func Doctor(ctx context.Context, c operation.Context) ([]operation.Component, er
 			return results, operation.Fail(
 				operation.ExitBlocked,
 				"dependency",
-				"Doctor found something Workbench cannot run without (the blocked lines); it repaired nothing",
+				"Doctor found something Workbench cannot run without",
+				operation.Cause("each line marked blocked names it; doctor repaired nothing"),
 			)
 		}
 	}
@@ -147,7 +158,8 @@ func installed(c operation.Context, state *operation.State) []operation.Componen
 	release := operation.Component{
 		Name:    "release",
 		Status:  operation.StatusAbsent,
-		Message: "No release installed; install.sh installs one",
+		Message: "No release installed",
+		Body:    operation.Explain(operation.FixText("install one with install.sh")),
 	}
 	if state.ActiveRelease != nil {
 		release.Status = operation.StatusComplete
@@ -173,8 +185,10 @@ func installed(c operation.Context, state *operation.State) []operation.Componen
 		results = append(results, operation.Component{
 			Name:   "unfinished-apply",
 			Status: operation.StatusPartial,
-			Message: "Apply " + partial.ID + " to " + partial.Scope.Root +
-				" did not finish; rerun " + c.WorkbenchCommand() + " apply",
+			Message: "Apply " + partial.ID + " to " + c.ShowPath(
+				partial.Scope.Root,
+			) + " did not finish",
+			Body: operation.Explain(operation.FixText(c.WorkbenchCommand() + " apply")),
 		})
 	}
 	return results
@@ -187,7 +201,7 @@ func checkPlatform(ctx context.Context, c operation.Context) operation.Component
 		Message: platform.System + " on " + runtime.GOARCH,
 	}
 	if runtime.GOARCH != "amd64" && runtime.GOARCH != "arm64" {
-		result.Message += "; Workbench supports amd64 and arm64"
+		result.Body = operation.Explain(operation.Cause("Workbench supports amd64 and arm64"))
 		return result
 	}
 	hostVersion(ctx, c, &result)

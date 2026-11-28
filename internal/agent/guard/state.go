@@ -110,12 +110,23 @@ func WatcherRuns() (bool, error) {
 	return held, nil
 }
 
-// WatcherSilent is what is said, by doctor and the view, when a process holds
-// the watcher's lock (see [WatcherRuns]) but nothing answers on its socket: a
-// watcher that is starting, or one that cannot serve, whose log says why; a
-// hook moving the guard folder holds the lock for an instant too.
-const WatcherSilent = "the watcher's lock is held, but nothing answers on its socket: a " +
-	"watcher is starting, or one runs that cannot serve; workbench agent guard logs says why"
+// What is said, by doctor and the view, when a process holds the watcher's
+// lock (see [WatcherRuns]) but nothing answers on its socket: a watcher that
+// is starting, or one that cannot serve, whose log says why; a hook moving
+// the guard folder holds the lock for an instant too. Doctor says the
+// headline, the cause and the command that shows the log; the view says
+// WatcherSilent, the same in one sentence.
+const (
+	WatcherSilentHeadline = "nothing answers on the watcher's socket"
+	WatcherSilentCause    = "its lock is held: " + watcherSilentWhy
+	WatcherSilent         = "the watcher's lock is held, but nothing answers on its socket: " +
+		watcherSilentWhy + "; workbench agent guard logs says why"
+	watcherSilentWhy = "a watcher is starting, or one runs that cannot serve"
+)
+
+// WatcherSilentFix is the command that shows the watcher's log, which says
+// why it does not answer.
+var WatcherSilentFix = []string{"workbench", "agent", "guard", "logs"}
 
 // locate is the guard folder where Root says, for part, with nothing opened
 // or made: the watcher takes its lock before it opens anything (see open).

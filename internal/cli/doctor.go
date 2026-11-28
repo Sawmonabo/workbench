@@ -93,7 +93,8 @@ func doctorSummary(components []operation.Component) string {
 // workbench agent costs status reads them. A missing hook is absent, and one
 // the agent does not run (Codex's untrusted or disabled) is a conflict;
 // neither blocks Workbench, and workbench apply installs them and, in Codex,
-// trusts them.
+// trusts them. Each group with a hook that does not run has a line of its
+// own, labeled with the group's command.
 func agentHooks(home string) []operation.Component {
 	var lines []operation.Component
 	for _, tool := range costs.Tools {
@@ -107,84 +108,94 @@ func agentHooks(home string) []operation.Component {
 			{"agent costs", costs.IngestHooks},
 			{"agent guard", guard.Hooks(tool.Name)},
 		}
-		var absent, idling, states []string
-		none := true
-		for _, group := range groups {
-			var missing, idle []string
-			for i, state := range tool.Hooks(home, group.hooks) {
-				states = append(states, state)
-				switch state {
-				case toolconfig.HookOK:
-				case toolconfig.HookMissing:
-					missing = append(missing, group.hooks[i].Event)
-				default:
-					idle = append(idle, group.hooks[i].Event+" "+state)
-				}
-			}
-			none = none && len(missing) == len(group.hooks)
-			if len(missing) > 0 {
-				absent = append(absent, fmt.Sprintf(
-					"%d of %d %s hooks (%s)",
-					len(missing), len(group.hooks), group.command, strings.Join(missing, ", "),
-				))
-			}
-			if len(idle) > 0 {
-				idling = append(idling, fmt.Sprintf(
-					"%d of %d %s hooks (%s)",
-					len(idle), len(group.hooks), group.command, strings.Join(idle, ", "),
-				))
-			}
-		}
 		line := operation.Component{
 			Name:    "agent-hooks-" + tool.Name,
 			Status:  operation.StatusComplete,
 			Message: "agent costs and agent guard hooks are installed",
 		}
-		var problems []string
-		if len(absent) > 0 {
-			line.Status = operation.StatusAbsent
-			problems = append(problems, "is missing "+strings.Join(absent, " and "))
-		}
-		if len(idling) > 0 {
-			if line.Status == operation.StatusComplete {
-				line.Status = operation.StatusConflict
+		var states []string
+		var topics []operation.Part
+		none := true
+		for _, group := range groups {
+			var missing []string
+			idle := map[string][]string{}
+			var order []string
+			for i, state := range tool.Hooks(home, group.hooks) {
+				states = append(states, state)
+				event := group.hooks[i].Event
+				switch state {
+				case toolconfig.HookOK:
+				case toolconfig.HookMissing:
+					missing = append(missing, event)
+				default:
+					if _, ok := idle[state]; !ok {
+						order = append(order, state)
+					}
+					idle[state] = append(idle[state], event)
+				}
 			}
-			problems = append(problems, "does not run "+strings.Join(idling, " and "))
+			none = none && len(missing) == len(group.hooks)
+			var said []string
+			if len(missing) > 0 {
+				line.Status = operation.StatusAbsent
+				said = append(said, fmt.Sprintf("%d of %d hooks missing (%s)",
+					len(missing), len(group.hooks), strings.Join(missing, ", ")))
+			}
+			for _, state := range order {
+				if line.Status == operation.StatusComplete {
+					line.Status = operation.StatusConflict
+				}
+				said = append(said, fmt.Sprintf("%d %s (%s)",
+					len(idle[state]), state, strings.Join(idle[state], ", ")))
+			}
+			if len(said) > 0 {
+				topics = append(topics, operation.Line{
+					Label: group.command,
+					Text:  strings.Join(said, ", "),
+				})
+			}
 		}
-		switch {
-		case none:
-			line.Message = tool.Title + " has no agent costs or agent guard hooks"
-		case len(problems) > 0:
-			line.Message = tool.Title + " " + strings.Join(problems, " and ")
+		if line.Status != operation.StatusComplete {
+			line.Message = ""
 		}
-		line.Message += hookFixes(home, tool, states)
+		if none {
+			line.Message, topics = "no agent costs or agent guard hooks", nil
+		}
+		line.Body = operation.Explain(append(topics, hookFixes(home, tool, states)...)...)
 		lines = append(lines, line)
 	}
 	return lines
 }
 
-// hookFixes is what the doctor line of tool's hooks, in states, adds on how
-// to fix them: what the apply does about them (toolconfig.ApplyFixes; nothing
-// in a folder a variable moved, which doctor's own line for the move
-// explains), and a settings file Claude Code skips is named.
-func hookFixes(home string, tool costs.Tool, states []string) string {
-	var hint string
-	if fixes := toolconfig.ApplyFixes(home, tool.Title, states); len(fixes) > 0 {
-		hint += "; workbench apply " + strings.Join(fixes, " and ") + " them"
-	}
+// hookFixes is what the doctor line of tool's hooks, in states, says on how
+// to fix them: workbench apply when the apply fixes them
+// (toolconfig.ApplyFixes; nothing in a folder a variable moved, which
+// doctor's own line for the move explains), and the settings file the tool
+// skips, which no apply fixes: the apply keeps the user's settings.
+func hookFixes(home string, tool costs.Tool, states []string) []operation.Part {
+	var parts []operation.Part
 	// Claude Code skips a settings file with a setting it refuses, hooks
 	// and all, and Codex does not start with a config.toml it cannot parse.
-	// No apply can fix either: the apply keeps the user's settings.
 	if slices.Contains(states, toolconfig.HookSkipped) {
 		if tool.Name == "codex" {
-			hint += "; Codex cannot parse " + display.Path(toolconfig.CodexConfig(home)) +
-				", so fix that file"
+			parts = append(parts,
+				operation.Cause("Codex cannot parse "+display.Path(toolconfig.CodexConfig(home))),
+				operation.FixText("fix that file"))
 		} else {
-			hint += "; Claude Code skips " + display.Path(toolconfig.ClaudeUserSettings(home)) +
-				" for a setting it refuses, so fix that setting"
+			parts = append(
+				parts,
+				operation.Cause(
+					"Claude Code skips "+display.Path(toolconfig.ClaudeUserSettings(home))+
+						" for a setting it refuses",
+				),
+				operation.FixText("fix that setting"),
+			)
 		}
 	}
-	return hint
+	if len(toolconfig.ApplyFixes(home, tool.Title, states)) > 0 {
+		parts = append(parts, operation.Fix("workbench", "apply"))
+	}
+	return parts
 }
 
 // guardWatcher is the doctor line for the guard's watcher: whether one runs,
@@ -203,11 +214,14 @@ func guardWatcher(ctx context.Context) operation.Component {
 	switch {
 	case err != nil:
 		line.Status = operation.StatusConflict
-		line.Message = "cannot tell whether the watcher runs: " + err.Error()
+		line.Message = "cannot tell whether the watcher runs"
+		line.Body = operation.Explain(operation.Cause(err.Error()))
 		return line
 	case !runs:
 		line.Status = operation.StatusSkipped
-		line.Message = "not running; the next agent session starts it, and it exits when idle"
+		line.Message = "not running"
+		line.Body = operation.Explain(
+			operation.Cause("the next agent session starts it, and it exits when idle"))
 		return line
 	}
 	ctx, cancel := context.WithTimeout(ctx, time.Second)
@@ -215,10 +229,15 @@ func guardWatcher(ctx context.Context) operation.Component {
 	client, err := guard.Dial(ctx)
 	if err != nil {
 		line.Status = operation.StatusConflict
-		line.Message = guard.WatcherSilent
+		cause := guard.WatcherSilentCause
 		if !errors.Is(err, syscall.ENOENT) && !errors.Is(err, syscall.ECONNREFUSED) {
-			line.Message += " (" + err.Error() + ")"
+			cause += " (" + err.Error() + ")"
 		}
+		line.Message = guard.WatcherSilentHeadline
+		line.Body = operation.Explain(
+			operation.Cause(cause),
+			operation.Fix(guard.WatcherSilentFix...),
+		)
 		return line
 	}
 	_ = client.Close()
@@ -234,8 +253,11 @@ func oldAgentFolders(c operation.Context) []operation.Component {
 	if text == "" {
 		return nil
 	}
+	line := operation.Component{Name: "agent-folders", Status: status, Message: text}
 	if status == operation.StatusPending {
-		text += "; workbench migrate, or the next apply, does it, or says why a folder stays"
+		// The next apply's migrations step does it too, or says why a folder
+		// stays.
+		line.Body = operation.Explain(operation.Fix("workbench", "migrate"))
 	}
-	return []operation.Component{{Name: "agent-folders", Status: status, Message: text}}
+	return []operation.Component{line}
 }

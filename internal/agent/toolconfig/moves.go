@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/Sawmonabo/workbench/internal/display"
+	"github.com/Sawmonabo/workbench/internal/operation"
 )
 
 // Move is a tool's config folder moved by a variable away from the one
@@ -79,32 +80,43 @@ func CodexMove(home string) (Move, bool) {
 }
 
 // Explain says what the move means and how to undo it, the same in the plan,
-// doctor and agent costs status.
-func (m Move) Explain(home string) string {
-	var parts []string
+// doctor and agent costs status: a warning for the variable that moves the
+// folder, and one for each settings file that sets it to a relative path.
+func (m Move) Explain(home string) []operation.Warning {
+	var warnings []operation.Warning
 	if m.Source != "" {
-		where, fix := m.Source, "unset it, or set it to "+display.PathFrom(home, m.Default)
+		where := m.Source
+		fix := operation.Fix("unset", m.Variable)
 		if m.Source != "the environment" {
-			where, fix = display.PathFrom(
-				home,
-				m.Source,
-			), "remove it from that file, or set it there to "+m.Default
+			where = display.PathFrom(home, m.Source)
+			fix = operation.FixText("remove it from that file, or set it there to " + m.Default)
 		}
-		parts = append(parts, m.Variable+" in "+where+" points "+m.Tool+" at "+
-			display.PathFrom(home, m.Dir)+", so it does not read the settings, instructions "+
-			"and costs and guard hooks Workbench installs in "+display.PathFrom(home, m.Default)+
-			"; "+fix+", for them to apply")
-	}
-	for _, r := range m.Relative {
-		parts = append(parts, fmt.Sprintf(
-			"%s in %s is %q, not an absolute path: %s copies it as written and reads it from "+
-				"the folder it starts in, so Workbench ignores it and reads %s; write the "+
-				"absolute path there",
-			m.Variable, display.PathFrom(home, r.File), r.Value, m.Tool,
-			display.PathFrom(home, m.Dir),
+		warnings = append(warnings, operation.Warn(
+			m.Variable+" in "+where+" points "+m.Tool+" at "+display.PathFrom(home, m.Dir),
+			operation.Cause(m.Tool+" does not read the settings, instructions and costs and "+
+				"guard hooks Workbench installs in "+display.PathFrom(home, m.Default)),
+			fix,
 		))
 	}
-	return strings.Join(parts, "; ")
+	for _, r := range m.Relative {
+		warnings = append(warnings, operation.Warn(
+			fmt.Sprintf("%s in %s is %q, not an absolute path",
+				m.Variable, display.PathFrom(home, r.File), r.Value),
+			operation.Cause(m.Tool+" reads it from the folder it starts in, so Workbench "+
+				"ignores it and reads "+display.PathFrom(home, m.Dir)),
+			operation.FixText("write the absolute path there"),
+		))
+	}
+	return warnings
+}
+
+// Sentence is Explain in one line, for a cell of agent costs status.
+func (m Move) Sentence(home string) string {
+	var said []string
+	for _, warning := range m.Explain(home) {
+		said = append(said, warning.Sentence(warning.Message))
+	}
+	return strings.Join(said, "; ")
 }
 
 // SameDir reports whether a and b name the same folder: the same file when

@@ -149,7 +149,7 @@ func (p *preparation) planAgentUpdates(
 ) {
 	c.Step("checking Codex and Claude Code")
 	for _, move := range toolconfig.Moves(c.Home) {
-		p.Plan.Warnings = append(p.Plan.Warnings, operation.Warn(move.Explain(c.Home)))
+		p.Plan.Warnings = append(p.Plan.Warnings, move.Explain(c.Home)...)
 	}
 	pins, err := agentPins(files)
 	if err != nil {

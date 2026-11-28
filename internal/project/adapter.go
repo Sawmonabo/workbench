@@ -94,7 +94,7 @@ func (p *Proposal) adapter(
 	if err != nil {
 		p.Plan.Prerequisites = append(
 			p.Plan.Prerequisites,
-			"Workbench's private Python and TOML Kit are missing; "+machine.InstallHint(c),
+			"Workbench's private Python and TOML Kit are missing",
 		)
 		return nil, err
 	}

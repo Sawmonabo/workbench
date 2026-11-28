@@ -97,7 +97,7 @@ func costsStatus(info costs.StatusInfo, width int) string {
 			add("rates"+suffix, "official card fetched "+tool.Coverage.RatesFetched)
 			add("hooks"+suffix, hookStates(tool))
 			if tool.ConfigMove != nil {
-				add("config"+suffix, tool.ConfigMove.Explain(display.Home()))
+				add("config"+suffix, tool.ConfigMove.Sentence(display.Home()))
 			}
 			if tool.Skipped > 0 {
 				add(

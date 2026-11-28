@@ -90,6 +90,10 @@ func checkRuntimes(
 	return components
 }
 
+// skippedStep is why a runtime's line asks for nothing: the step that sets
+// it up is turned off in the saved choices.
+const skippedStep = "its step is skipped (saved)"
+
 // component is the doctor line of one runtime.
 func (r runtimeState) component(mode string) operation.Component {
 	line := operation.Component{Name: r.name, Status: operation.StatusComplete}
@@ -98,15 +102,22 @@ func (r runtimeState) component(mode string) operation.Component {
 	case r.found && r.have == "":
 		line.Message = "installed; its version cannot be read"
 	case r.have == "" && r.skipped:
-		line.Status, line.Message = operation.StatusSkipped, "not installed; its step is skipped (saved)"
+		line.Status, line.Message = operation.StatusSkipped, "not installed"
+		line.Body = operation.Explain(operation.Cause(skippedStep))
 	case r.have == "":
-		line.Status, line.Message = operation.StatusAbsent, "not installed; workbench apply installs it"
+		line.Status, line.Message = operation.StatusAbsent, "not installed"
+		line.Body = operation.Explain(operation.Fix("workbench", "apply"))
 	case r.off != "" && r.skipped:
 		line.Status = operation.StatusSkipped
-		line.Message = shown + " (pinned " + r.pin + "); its step is skipped (saved)"
+		line.Message = shown + " (pinned " + r.pin + ")"
+		line.Body = operation.Explain(operation.Cause(skippedStep))
 	case r.off != "":
 		line.Status = operation.StatusPending
-		line.Message = shown + " (pinned " + r.pin + "); workbench apply " + r.off
+		line.Message = shown + " (pinned " + r.pin + ")"
+		line.Body = operation.Explain(
+			operation.Line{Label: "apply", Text: r.off},
+			operation.Fix("workbench", "apply"),
+		)
 	case r.note != "":
 		line.Message = shown + " (" + r.note + ")"
 	case r.pin == "":

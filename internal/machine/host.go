@@ -15,8 +15,8 @@ import (
 // supportNote is, by system (platform.System), what the platform check adds
 // to its line for a release Workbench does not support.
 var supportNote = map[string]string{
-	"darwin": "; Workbench supports macOS 15 or later",
-	"linux":  "; Workbench supports Ubuntu 22.04, 24.04 and 26.04 and AlmaLinux 10",
+	"darwin": "Workbench supports macOS 15 or later",
+	"linux":  "Workbench supports Ubuntu 22.04, 24.04 and 26.04 and AlmaLinux 10",
 }
 
 // hostVersion completes the platform check with the release
@@ -49,10 +49,13 @@ func hostVersion(ctx context.Context, c operation.Context, result *operation.Com
 	if supportedRelease(platform.System, name, version) {
 		result.Status = operation.StatusComplete
 	} else {
-		result.Message += supportNote[platform.System]
+		result.Body = result.With(operation.Explain(operation.Cause(supportNote[platform.System])))
 	}
 	if platform.WSL() {
-		result.Message += "; WSL: the Windows steps have not been checked on a real Windows host"
+		result.Body = result.With(operation.Explain(operation.Line{
+			Label: "WSL",
+			Text:  "the Windows steps have not been checked on a real Windows host",
+		}))
 	}
 }
 

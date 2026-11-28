@@ -289,14 +289,18 @@ func (p *preparation) checkPrerequisites(
 		}
 	}
 	if refusal != nil {
-		return nil, operation.Fail(operation.ExitBlocked, "prerequisites", refusal.Error())
+		return nil, operation.FailAs(operation.ExitBlocked, "prerequisites", refusal)
 	}
 	if len(plan.Prerequisites) > 0 {
-		missing := "Workbench's tools are missing; "
+		missing := "Workbench's tools are missing"
 		if c.Native.Developer {
-			missing = "This checkout's pinned tools are not installed; "
+			missing = "This checkout's pinned tools are not installed"
 		}
-		return nil, operation.Fail(operation.ExitBlocked, "prerequisites", missing+InstallHint(c))
+		return nil, operation.Fail(
+			operation.ExitBlocked,
+			"prerequisites",
+			missing,
+			InstallFix(c)...)
 	}
 	if platform := checkPlatform(ctx, c); platform.Status != operation.StatusComplete {
 		plan.Prerequisites = append(plan.Prerequisites, platform.Message)

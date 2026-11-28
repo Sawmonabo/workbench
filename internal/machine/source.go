@@ -102,8 +102,9 @@ func SelectedSource(c operation.Context) (map[string][]byte, error) {
 		return nil, operation.Fail(
 			operation.ExitBlocked,
 			"source",
-			"No Workbench release is active to read tool versions from; "+
-				"install one with install.sh or workbench update",
+			"No Workbench release is active to read tool versions from",
+			operation.Fix("workbench", "update"),
+			operation.FixText("or install one with install.sh"),
 		)
 	}
 	files, _, err := SourceSnapshot(source, c.Native.Developer)

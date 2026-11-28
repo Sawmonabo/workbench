@@ -60,16 +60,16 @@ func trustedExecutable(path string, excluded []string) (string, error) {
 			"Cannot read the program "+FileError(canonical, err).Error(),
 		)
 	}
-	if refusal := programRefusal(canonical, info); refusal != "" {
-		return "", Fail(ExitBlocked, "tool", refusal)
+	if err := programRefusal(canonical, info); err != nil {
+		return "", err
 	}
 	return canonical, nil
 }
 
 // programRefusal is why Workbench does not run the program at path, which
-// info describes, or empty when it does: it runs only a file marked
+// info describes, or nil when it does: it runs only a file marked
 // executable that no user but its owner can change.
-func programRefusal(path string, info os.FileInfo) string {
+func programRefusal(path string, info os.FileInfo) error {
 	mode := info.Mode().Perm()
 	sudo := []string{}
 	if !ownedByUser(info) {
@@ -77,22 +77,33 @@ func programRefusal(path string, info os.FileInfo) string {
 	}
 	switch {
 	case !info.Mode().IsRegular():
-		return display.Path(path) + " is " + fileKind(info) + ", not a program Workbench can run"
+		return Fail(ExitBlocked, "tool",
+			display.Path(path)+" is "+fileKind(info)+", not a program Workbench can run")
 	case mode&0o111 == 0:
-		shown := fmt.Sprintf(
-			"%s is not marked executable (mode %04o)",
-			display.Path(path),
-			uint32(mode),
+		return Fail(
+			ExitBlocked,
+			"tool",
+			fmt.Sprintf(
+				"%s is not marked executable (mode %04o)",
+				display.Path(path),
+				uint32(mode),
+			),
+			FixPath(path, append(sudo, "chmod", "+x")...),
 		)
-		return shown + retry(append(sudo, "chmod", "+x"), path)
 	case mode&0o022 != 0:
-		return fmt.Sprintf(
-			"%s can be changed by other users (mode %04o), so Workbench does not run it",
-			display.Path(path),
-			uint32(mode),
-		) + retry(append(sudo, "chmod", "go-w"), path)
+		return Fail(
+			ExitBlocked,
+			"tool",
+			fmt.Sprintf(
+				"%s can be changed by other users (mode %04o)",
+				display.Path(path),
+				uint32(mode),
+			),
+			Cause("Workbench runs only a program no other user can change"),
+			FixPath(path, append(sudo, "chmod", "go-w")...),
+		)
 	}
-	return ""
+	return nil
 }
 
 func outsideProjects(directory string, excluded []string) error {

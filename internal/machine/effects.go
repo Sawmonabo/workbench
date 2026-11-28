@@ -103,18 +103,28 @@ func checkMbx(
 ) operation.Component {
 	line := operation.Component{Name: "mbx", Status: operation.StatusSkipped}
 	if pin.SHA256[release.Target()] == "" {
-		line.Message = "mbx publishes no build for " + release.Target() + ", so the Rust build cache step is not offered"
+		line.Message = "the Rust build cache step is not offered"
+		build := "mbx publishes no build for " + release.Target()
 		if release.Target() == "darwin-amd64" {
-			line.Message = "mbx publishes no Intel Mac build, so the Rust build cache step is not offered"
+			build = "mbx publishes no Intel Mac build"
 		}
+		line.Body = operation.Explain(operation.Cause(build))
 		return line
 	}
 	ticked := slices.Contains(selected, "mbx")
 	path := filepath.Join(c.Home, ".local", "bin", "mbx")
 	if _, err := os.Stat(path); err != nil {
-		line.Message = "not installed; the optional Rust build cache step installs it (workbench apply --choose ticks it)"
+		line.Message = "not installed"
+		line.Body = operation.Explain(
+			operation.Cause("the optional Rust build cache step installs it, once ticked"),
+			operation.Fix("workbench", "apply", "--choose"),
+		)
 		if ticked {
-			line.Status, line.Message = operation.StatusAbsent, "not installed; Rust build cache is ticked, so workbench apply installs it"
+			line.Status = operation.StatusAbsent
+			line.Body = operation.Explain(
+				operation.Cause("Rust build cache is ticked, and the next apply installs it"),
+				operation.Fix("workbench", "apply"),
+			)
 		}
 		return line
 	}
@@ -125,8 +135,11 @@ func checkMbx(
 		line.Message = "in ~/.local/bin; its version cannot be read"
 	case ticked && newerDotted(pin.Version, have):
 		line.Status = operation.StatusPending
-		line.Message = "mbx " + have + " in ~/.local/bin (pinned " + pin.Version + "); workbench apply installs " +
-			pin.Version
+		line.Message = "mbx " + have + " in ~/.local/bin (pinned " + pin.Version + ")"
+		line.Body = operation.Explain(
+			operation.Line{Label: "apply", Text: "installs " + pin.Version},
+			operation.Fix("workbench", "apply"),
+		)
 	default:
 		line.Message = "mbx " + have + " in ~/.local/bin (pinned " + pin.Version + ")"
 	}

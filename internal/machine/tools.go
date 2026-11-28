@@ -125,25 +125,46 @@ func setupDependencies(
 	if err = ctx.Err(); err != nil {
 		return nil, err
 	}
-	var failed []string
+	var failed []operation.Component
 	for _, result := range results {
 		if result.Status != operation.StatusComplete {
-			failed = append(failed, result.Name+": "+result.Message)
+			failed = append(failed, result)
 			c.Tool(result.Name, operation.ToolFailed, "", "")
 		}
 	}
 	if len(failed) > 0 {
-		return nil, operation.Fail(
-			operation.ExitBlocked,
-			"dependency",
-			"Acquired tools did not pass their checks; "+strings.Join(failed, "; "),
-		)
+		return nil, failedTools(failed)
 	}
 	state.Dependencies = qualified
 	if err = m.WriteState(*state); err != nil {
 		return nil, err
 	}
 	return qualified, nil
+}
+
+// failedTools is the refusal of the installed tools whose checks failed: one
+// tool's own headline and body, led by its name, or, for several, a line
+// for each tool, its headline, and every fix line they give.
+func failedTools(failed []operation.Component) error {
+	if len(failed) == 1 {
+		return &operation.Error{
+			Category: "dependency",
+			Message:  failed[0].Name + ": " + failed[0].Message,
+			Body:     failed[0].Body,
+			Code:     operation.ExitBlocked,
+		}
+	}
+	var body operation.Body
+	for _, tool := range failed {
+		body.Lines = append(body.Lines, operation.Line{Label: tool.Name, Text: tool.Message})
+		body = body.With(tool.Body)
+	}
+	return &operation.Error{
+		Category: "dependency",
+		Message:  "Installed tools did not pass their checks",
+		Body:     body,
+		Code:     operation.ExitBlocked,
+	}
 }
 
 // partialOf reports whether name is the temporary file of one of files, left
@@ -424,19 +445,17 @@ func wheelFiles(data []byte) (map[string][]byte, error) {
 	return files, nil
 }
 
-// InstallHint says how to install Workbench's missing tools, to finish a
-// sentence such as "Workbench's tools are missing; ": workbench update, or an
-// apply at a terminal, for a release; workbench update --local-build for a
-// checkout, which installs the tools its versions.toml pins. Update installs
-// only Workbench's own checked tool files and never asks, so a coding agent can
-// run either update; its apply is refused before it installs anything (see the
-// CLI's consent gate), so neither suggests an unattended apply.
-func InstallHint(c operation.Context) string {
-	command := c.WorkbenchCommand()
+// InstallFix is the fix line that installs Workbench's tools: update, or
+// update --local-build in a checkout. update installs only Workbench's own
+// checked tool files and never asks, so a coding agent can run either; an
+// apply at a terminal installs them too, and is refused to an agent before it
+// installs anything (see the CLI's consent gate), so the fix never names it.
+func InstallFix(c operation.Context) []operation.Part {
+	command := c.WorkbenchCommand() + " update"
 	if c.Native.Developer {
-		return "run " + command + " update --local-build to install them"
+		command += " --local-build"
 	}
-	return "run " + command + " update, or " + command + " apply at a terminal, to install them"
+	return []operation.Part{operation.FixText(command)}
 }
 
 // TomlkitPath is read-only and rechecks the trusted wheel and every installed
@@ -451,7 +470,8 @@ func TomlkitPath(c operation.Context, requirements Requirements) (string, error)
 		return "", operation.Fail(
 			operation.ExitBlocked,
 			"tomlkit",
-			"Workbench's TOML Kit is missing; "+InstallHint(c),
+			"Workbench's TOML Kit is missing",
+			InstallFix(c)...,
 		)
 	}
 	if operation.SHA256Hex(data) != requirements.TomlkitSHA256 {
@@ -482,7 +502,8 @@ func TomlkitPath(c operation.Context, requirements Requirements) (string, error)
 				return operation.Fail(
 					operation.ExitBlocked,
 					"tomlkit",
-					"An interrupted TOML Kit install left "+name+"; "+InstallHint(c),
+					"An interrupted TOML Kit install left "+name,
+					InstallFix(c)...,
 				)
 			}
 			return operation.Fail(
