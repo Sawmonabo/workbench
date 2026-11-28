@@ -273,9 +273,10 @@ func (cp *Checkpoint) Finish(runErr error) error {
 	return runErr
 }
 
-// stoppedPartWay ends the failure of a write that stopped an apply after it
-// changed other files: the checkpoint keeps what they held, for revert.
-const stoppedPartWay = "; Workbench stopped there and kept the checkpoint of the files it changed before"
+// stoppedPartWay ends the failure of a write that stopped an apply or a
+// revert after it may have changed other files, which its checkpoint
+// records.
+const stoppedPartWay = ". Workbench stopped there and kept its checkpoint of the files it changed"
 
 // writeFailure is the failure of the write to path that stopped an apply,
 // which err says why: a refusal in its own words, which name the file,
@@ -289,7 +290,7 @@ func writeFailure(path string, err error) error {
 		reason = "Workbench did not finish writing " + display.Path(path) + ": " +
 			FileError(problem.Path, err).Error()
 	}
-	return Fail(ExitPartial, "partial", reason+stoppedPartWay)
+	return Fail(ExitPartial, "partial", strings.TrimSuffix(reason, ".")+stoppedPartWay)
 }
 
 // outcomeRefusal is the failure of a write to path whose result cannot be
@@ -302,7 +303,7 @@ func outcomeRefusal(path string, err error) error {
 	} else if err != nil {
 		reason = "Workbench cannot read " + display.Path(path) + " after writing it: " + err.Error()
 	}
-	return Fail(ExitPartial, "partial", reason+stoppedPartWay)
+	return Fail(ExitPartial, "partial", strings.TrimSuffix(reason, ".")+stoppedPartWay)
 }
 
 // Apply is the shared exact-write owner for project configuration and recovery.
