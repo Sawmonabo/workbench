@@ -404,10 +404,11 @@ func (c Context) entrypointAlias(path string) error {
 			return err
 		}
 	}
+	shown := display.Path(path)
 	return Fail(
 		ExitInvalid,
 		"scope",
-		display.Path(path)+" is Workbench's entry point under another name, which Workbench does not write"+
+		shown+" is Workbench's entry point under another name, which Workbench does not write"+
 			replacedFile.retry(nil, path),
 	)
 }

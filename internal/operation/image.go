@@ -63,7 +63,8 @@ func Carried(before, after Image) Image {
 		return after
 	}
 	after.Attributes = maps.Clone(before.Attributes)
-	if acl, ok := after.Attributes[platform.AccessACLAttribute]; ok && platform.AccessACLAttribute != "" {
+	if acl, ok := after.Attributes[platform.AccessACLAttribute]; ok &&
+		platform.AccessACLAttribute != "" {
 		after.Attributes[platform.AccessACLAttribute] = platform.ACLForMode(acl, after.Mode)
 	}
 	after.ACL = slices.Clone(before.ACL)

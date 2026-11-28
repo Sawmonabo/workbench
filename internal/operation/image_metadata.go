@@ -271,7 +271,8 @@ func entryRefusal(path string, h holder, denying []int, err error, what, cause s
 		return Fail(
 			ExitBlocked,
 			"metadata",
-			"Cannot check whether its ACL lets you change "+shown+": "+err.Error()+h.retry(nil, path),
+			"Cannot check whether its ACL lets you change "+shown+": "+err.Error()+
+				h.retry(nil, path),
 		)
 	}
 	message := shown + " has an ACL entry that denies you " + what + ", " + cause
@@ -283,7 +284,11 @@ func entryRefusal(path string, h holder, denying []int, err error, what, cause s
 		message = shown + " has ACL entries " + display.List(numbers) + " that deny " + what +
 			", one or more of them denying you, " + cause
 	}
-	return Fail(ExitBlocked, "metadata", message+h.retry(platform.ACLEntryRemoval(denying[0]), path))
+	return Fail(
+		ExitBlocked,
+		"metadata",
+		message+h.retry(platform.ACLEntryRemoval(denying[0]), path),
+	)
 }
 
 // targetACL reads the ACL of fd, or of the link selector itself when it is

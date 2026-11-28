@@ -156,7 +156,12 @@ func nativeChange(t *testing.T, c Context, path string) ([]TargetChange, held) {
 // withNative runs native under a new checkpoint of changes in c, after the
 // journal marks every outcome unknown, as an apply hands the targets to
 // chezmoi, and returns the checkpoint's ID.
-func withNative(t *testing.T, c Context, changes []TargetChange, native func(*Checkpoint) error) string {
+func withNative(
+	t *testing.T,
+	c Context,
+	changes []TargetChange,
+	native func(*Checkpoint) error,
+) string {
 	t.Helper()
 	plan := Plan{
 		Source:   SourceIdentity{Release: "fixture", ContentDigest: ChangesDigest(changes)},
