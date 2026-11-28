@@ -545,8 +545,8 @@ func notFolderRefusal(category, path string, info os.FileInfo) error {
 // closes it, so that no other user can add anything after that line, and
 // lets its owner read it: the ACL comes off, then chmod 700, which also gives
 // back the group bits a Linux ACL's removal sets from its group entry
-// (setfacl(1)). Then the find, which can now read it, lists what is not this
-// user's, to move aside: chmod 700 typed alone would let the folder pass with
+// (setfacl(1)). Then the find, which reads it after those lines, lists what
+// is not this user's, to move aside: chmod 700 typed alone would let the folder pass with
 // what another user put in it.
 func othersWriteRefusal(path, headline, cause string, acl bool) error {
 	var fixes fixLines

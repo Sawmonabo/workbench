@@ -111,11 +111,13 @@ func settledJournal(status JournalStatus) bool {
 
 // pruneApproved removes only the checkpoint the approved plan names. A rename
 // out of the scope makes the removal atomic before its files are deleted.
-// The scope holds MaxForwardCheckpoints, and the plan names no removal or
-// another one, when the checkpoints changed after it was made: the scope's
-// apply makes a plan from them as they are. With no candidate at all, every
-// checkpoint is the newest or the one the state records as unfinished, which
-// that apply finishes first.
+// At MaxForwardCheckpoints retentionCandidate finds one, as it passes over
+// only the newest incomplete checkpoint and the one the state records, and
+// [WithMutation] plans again under the same locks, refusing a plan whose
+// digest differs, so the plan machine and project applies hand
+// BeginCheckpoint names the same removal. The refusal below guards a plan
+// that names none or another one; its fix is the scope's apply, which plans
+// from the checkpoints as they are.
 func pruneApproved(c Context, plan Plan) error {
 	oldest, err := retentionCandidate(c)
 	if err != nil {
