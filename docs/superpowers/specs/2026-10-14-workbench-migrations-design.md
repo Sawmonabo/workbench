@@ -291,7 +291,8 @@ any machine, it costs only a few `Lstat` calls.
 ### 5.1 The environment
 
 The apply runs scripts with a fixed environment, not the owner's
-(`scriptEnvironment` in `internal/machine/environment.go`, `internal/operation/process.go:196`).
+(`scriptEnvironment` in `internal/machine/environment.go`, `Process.Environment` in
+`internal/operation/process.go`).
 chezmoi gives every script one environment, so the apply adds to every
 script's environment, for its probe and its run:
 
