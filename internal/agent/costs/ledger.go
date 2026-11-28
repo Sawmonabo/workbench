@@ -207,11 +207,11 @@ func openLedger(
 	// The switch to WAL comes after prepare, so only a verified ledger is
 	// switched and a foreign database is never modified. WAL lets a report read
 	// the last committed state while a worker ingests.
-	if _, err := sqlitefile.Open(path, sqlitefile.Options{
+	if _, err := sqlitefile.Open(ctx, path, sqlitefile.Options{
 		Create:  !exists,
 		Pragmas: []string{"busy_timeout(5000)", "synchronous(NORMAL)"},
 		TxLock:  "immediate",
-		Prepare: func(db *sql.DB) error {
+		Prepare: func(ctx context.Context, db *sql.DB) error {
 			ledger.db = db
 			return ledger.prepare(ctx, exists, upgrade)
 		},
@@ -339,9 +339,9 @@ func (l *Ledger) SetMeta(ctx context.Context, key, value string) error {
 }
 
 // Empty reports whether the ledger holds no responses of tool.
-func (l *Ledger) Empty(tool string) (bool, error) {
+func (l *Ledger) Empty(ctx context.Context, tool string) (bool, error) {
 	var one int
-	err := l.db.QueryRow(`SELECT 1 FROM responses
+	err := l.db.QueryRowContext(ctx, `SELECT 1 FROM responses
 	  WHERE tool = (SELECT id FROM names WHERE kind = ? AND name = ?) LIMIT 1`,
 		nameTool, tool).Scan(&one)
 	if errors.Is(err, sql.ErrNoRows) {

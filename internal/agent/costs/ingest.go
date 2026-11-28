@@ -220,7 +220,7 @@ func ingestLocked(ctx context.Context, paths Paths, opts IngestOptions) (string,
 		if stop {
 			break
 		}
-		if err := ledger.DropHeldCopies(ctx, tool.Name, holdsIn(ledger, held)); err != nil {
+		if err := ledger.DropHeldCopies(ctx, tool.Name, holdsIn(ctx, ledger, held)); err != nil {
 			errs = append(errs, fmt.Sprintf("%s: copies: %v", tool.Name, err))
 		}
 	}
@@ -305,7 +305,7 @@ func observeSignIns(ctx context.Context, ledger *Ledger, home string) error {
 	var unread []error
 	for _, tool := range Tools {
 		if source, ok := tool.Source.(markSource); ok {
-			found, err := source.Marks(home)
+			found, err := source.Marks(ctx, home)
 			marks[tool.Name] = found
 			if err != nil {
 				unread = append(unread, err)
@@ -375,7 +375,7 @@ func commitFile(
 	served func(model, tier string) string,
 ) error {
 	if read.vanished {
-		return wrapLedger(ledger.DeleteFile(read.path))
+		return wrapLedger(ledger.DeleteFile(ctx, read.path))
 	}
 	if !read.changed {
 		return nil
@@ -461,7 +461,7 @@ const (
 // holdsIn reports, for a run that read paths, whether a transcript holds a
 // thread's lines up to a time: it was read and committed this run, in full, or
 // the ledger read it after it was last written at or after that time.
-func holdsIn(ledger *Ledger, paths []string) func(thread, since string) bool {
+func holdsIn(ctx context.Context, ledger *Ledger, paths []string) func(thread, since string) bool {
 	return func(thread, since string) bool {
 		if thread == "" {
 			return false
@@ -471,7 +471,7 @@ func holdsIn(ledger *Ledger, paths []string) func(thread, since string) bool {
 				return true
 			}
 		}
-		return ledger.readSince(thread, since)
+		return ledger.readSince(ctx, thread, since)
 	}
 }
 
@@ -505,7 +505,7 @@ func readEach(
 			units[i] = 1
 			if info, err := os.Stat(path); err == nil {
 				left := info.Size() // what a read of this file goes through
-				if previous, found, err := ledger.File(path); err == nil && found &&
+				if previous, found, err := ledger.File(ctx, path); err == nil && found &&
 					previous.Offset <= left {
 					left -= previous.Offset
 				}

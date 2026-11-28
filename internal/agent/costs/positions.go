@@ -20,9 +20,9 @@ type FileRow struct {
 }
 
 // File is the stored position of a transcript.
-func (l *Ledger) File(path string) (row FileRow, found bool, err error) {
+func (l *Ledger) File(ctx context.Context, path string) (row FileRow, found bool, err error) {
 	var state string
-	err = l.db.QueryRow(
+	err = l.db.QueryRowContext(ctx,
 		"SELECT offset, size, mtime_ns, state, head FROM files WHERE path = ?", path,
 	).Scan(&row.Offset, &row.Size, &row.ModTimeNanos, &state, &row.Head)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -37,13 +37,13 @@ func (l *Ledger) File(path string) (row FileRow, found bool, err error) {
 // readSince reports whether the ledger read a transcript whose path contains
 // text when that transcript had been written at or after since (ledger
 // layout).
-func (l *Ledger) readSince(text, since string) bool {
+func (l *Ledger) readSince(ctx context.Context, text, since string) bool {
 	when, err := time.Parse(timeLayout, since)
 	if err != nil {
 		return false
 	}
 	var one int
-	return l.db.QueryRow(
+	return l.db.QueryRowContext(ctx,
 		"SELECT 1 FROM files WHERE instr(path, ?) > 0 AND mtime_ns >= ? LIMIT 1",
 		text, when.UnixNano(),
 	).Scan(&one) == nil
@@ -85,8 +85,8 @@ func (l *Ledger) ForgetFiles(ctx context.Context, tool, revision string, roots [
 }
 
 // DeleteFile forgets a transcript that no longer exists.
-func (l *Ledger) DeleteFile(path string) error {
-	_, err := l.db.Exec("DELETE FROM files WHERE path = ?", path)
+func (l *Ledger) DeleteFile(ctx context.Context, path string) error {
+	_, err := l.db.ExecContext(ctx, "DELETE FROM files WHERE path = ?", path)
 	return err
 }
 

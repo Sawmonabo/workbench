@@ -4,6 +4,7 @@
 package costs
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"time"
@@ -76,7 +77,7 @@ type reparser interface {
 // run. Marks returns what it found, and an error when it couldn't read all of
 // where they are kept.
 type markSource interface {
-	Marks(home string) ([]AccountMark, error)
+	Marks(ctx context.Context, home string) ([]AccountMark, error)
 }
 
 // finisher is a source that saves its state once a read of a file ends,

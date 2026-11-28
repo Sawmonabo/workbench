@@ -323,7 +323,7 @@ const differs = "doesn't hold what it holds"
 // never deleted for it. It opens both without taking them over (see
 // copyCheck), so a ledger that turns out to be another one is left as it was.
 func checkCopy(ctx context.Context, path, original string) (string, error) {
-	db, err := sqlitefile.Open(path, copyCheck)
+	db, err := sqlitefile.Open(ctx, path, copyCheck)
 	if err != nil {
 		return "", err
 	}
@@ -343,7 +343,10 @@ func checkCopy(ctx context.Context, path, original string) (string, error) {
 	); err != nil {
 		return "", err
 	}
-	defer func() { _, _ = conn.ExecContext(context.Background(), "DETACH DATABASE original") }()
+	// The detach runs after a cancel too, before the connection goes back.
+	defer func() {
+		_, _ = conn.ExecContext(context.WithoutCancel(ctx), "DETACH DATABASE original")
+	}()
 	same, err := sameTables(ctx, conn)
 	if err != nil || same {
 		return "", err

@@ -142,7 +142,7 @@ func TestLedgerUpgradesVersionTwoWithoutLoss(t *testing.T) {
 	if err := ledger.db.QueryRow("SELECT COUNT(*) FROM responses").Scan(&rows); err != nil {
 		t.Fatal(err)
 	}
-	file, found, err := ledger.File("/w/t.jsonl")
+	file, found, err := ledger.File(t.Context(), "/w/t.jsonl")
 	if err != nil {
 		t.Fatal(err)
 	}

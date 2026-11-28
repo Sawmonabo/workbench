@@ -327,7 +327,7 @@ func openIngested(cmd *cobra.Command, o *options) (*costs.Ledger, costs.Paths, e
 		if tool.Source == nil {
 			continue
 		}
-		empty, err := ledger.Empty(tool.Name)
+		empty, err := ledger.Empty(cmd.Context(), tool.Name)
 		if err != nil {
 			_ = ledger.Close()
 			return nil, costs.Paths{}, err

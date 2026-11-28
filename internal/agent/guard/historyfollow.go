@@ -7,6 +7,7 @@ package guard
 // file at its path is another one or the folder moved.
 
 import (
+	"context"
 	"errors"
 	"io/fs"
 	"os"
@@ -97,17 +98,20 @@ type FollowedHistory struct {
 // reader never shows an empty history for a move. held is never changed or
 // closed: a find or a read of a command's parts may still run on it, and the
 // reader closes it once FollowHistory gives another.
-func FollowHistory(held *History) (FollowedHistory, error) {
-	found, root, err := followHistory(held)
+func FollowHistory(ctx context.Context, held *History) (FollowedHistory, error) {
+	found, root, err := followHistory(ctx, held)
 	if (err != nil || found.History == nil) && HistoryFolderMoved(root) {
-		found, _, err = followHistory(held)
+		found, _, err = followHistory(ctx, held)
 	}
 	return found, err
 }
 
 // followHistory is FollowHistory's one look, with the guard folder it looked
 // in.
-func followHistory(held *History) (found FollowedHistory, root string, err error) {
+func followHistory(
+	ctx context.Context,
+	held *History,
+) (found FollowedHistory, root string, err error) {
 	found.Other = true
 	root, err = HistoryRoot()
 	if root != "" {
@@ -124,7 +128,7 @@ func followHistory(held *History) (found FollowedHistory, root string, err error
 	case err != nil:
 		return found, root, operation.FileError(found.Path, err)
 	case held == nil || !os.SameFile(file, held.opened):
-		found.History, err = openReader(root, file)
+		found.History, err = openReader(ctx, root, file)
 		if errors.Is(err, fs.ErrNotExist) {
 			err = nil
 		}
@@ -135,7 +139,7 @@ func followHistory(held *History) (found FollowedHistory, root string, err error
 		found.History = held
 		return found, root, nil
 	}
-	if history, err := openReader(root, file); err == nil {
+	if history, err := openReader(ctx, root, file); err == nil {
 		found.History, found.Moved = history, true
 	} else {
 		found.History, found.Path = held, held.path
@@ -146,8 +150,8 @@ func followHistory(held *History) (found FollowedHistory, root string, err error
 // openReader opens the history in the guard folder root for reading (see
 // OpenHistory), noting file, the identity its path had before, as the file
 // it opened. It gives nil with any error.
-func openReader(root string, file os.FileInfo) (*History, error) {
-	h, err := OpenHistory(root, false)
+func openReader(ctx context.Context, root string, file os.FileInfo) (*History, error) {
+	h, err := OpenHistory(ctx, root, false)
 	if err != nil {
 		return nil, err
 	}

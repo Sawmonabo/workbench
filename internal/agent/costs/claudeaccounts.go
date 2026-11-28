@@ -135,7 +135,7 @@ func (claude) SignIns(home string) []SignIn {
 // name fewer rows, and the ledger keeps its marks after Claude Code trims the
 // file. A line longer than historyLine holds a large paste, never a /login,
 // and is passed over without stopping the read.
-func (claude) Marks(home string) ([]AccountMark, error) {
+func (claude) Marks(ctx context.Context, home string) ([]AccountMark, error) {
 	var marks []AccountMark
 	for _, acct := range claudeSignIns(home) {
 		if acct.AccountUUID != "" {
@@ -153,7 +153,7 @@ func (claude) Marks(home string) ([]AccountMark, error) {
 		return marks, fmt.Errorf("can't read %w", operation.FileError(path, err))
 	}
 	defer func() { _ = file.Close() }()
-	lines := newLineReader(context.Background(), file, historyLine)
+	lines := newLineReader(ctx, file, historyLine)
 	for {
 		line, err := lines.next()
 		if login, ok := loginMark(line); ok {

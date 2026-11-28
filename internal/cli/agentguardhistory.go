@@ -162,7 +162,9 @@ func (m *guardView) readHistory() tea.Cmd {
 // is read from the last row held, so the rows held and the find answer stay.
 func (r historyRead) read() historyMsg {
 	out := historyMsg{from: r, keep: guard.HistoryKeepDefault}
-	found, err := guard.FollowHistory(r.db)
+	// A Bubble Tea command (tea.Cmd) is given no context, so the history is
+	// opened and read with context.Background(), as the view's other reads.
+	found, err := guard.FollowHistory(context.Background(), r.db)
 	out.db, out.path, out.damaged = found.History, found.Path, found.Damaged
 	out.reset, out.moved = found.Other, found.Moved
 	if err != nil || out.db == nil {

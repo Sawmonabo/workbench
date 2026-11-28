@@ -51,13 +51,14 @@ type Options struct {
 	// TxLock is the lock BEGIN takes ("deferred", "immediate" or
 	// "exclusive"); empty leaves the driver's default.
 	TxLock string
-	// Prepare, when set, runs on the opened database before the switch to
-	// WAL, so a caller that checks the file is its own, or writes its schema,
-	// does so before anything changes the file. An error it returns closes the
-	// database and is returned as it is. Once it returns nil, the file is its
-	// caller's, so Open makes it and its -wal and -shm files private (see
-	// makePrivate); without Prepare it changes no mode.
-	Prepare func(*sql.DB) error
+	// Prepare, when set, runs on the opened database, with the context Open
+	// was given, before the switch to WAL, so a caller that checks the file
+	// is its own, or writes its schema, does so before anything changes the
+	// file. An error it returns closes the database and is returned as it is.
+	// Once it returns nil, the file is its caller's, so Open makes it and its
+	// -wal and -shm files private (see makePrivate); without Prepare it
+	// changes no mode.
+	Prepare func(context.Context, *sql.DB) error
 }
 
 // Open opens the SQLite file at path as o says and, unless o.ReadOnly,
@@ -71,14 +72,16 @@ type Options struct {
 // that is not a database, which a pragma meets, is left to o.Prepare, or to
 // the caller without one, which meets it again on its own first connection
 // and says it as it says its other errors. Its errors name path once (see
-// [operation.FileError]), except those of o.Prepare.
+// [operation.FileError]), except those of o.Prepare and ctx's own error,
+// which a cancel of ctx before the first connection returns as it is. The
+// first connection, o.Prepare and the switch to WAL run with ctx.
 //
 // It never opens a file already at path outside the driver: closing that
 // descriptor would drop every SQLite lock the process holds on the file,
 // those of a connection it already has to it too (see [CheckHeader]). The
 // private create opens only the file it makes, and the reason of a file
 // SQLite cannot open is asked without opening it (see openProblem).
-func Open(path string, o Options) (*sql.DB, error) {
+func Open(ctx context.Context, path string, o Options) (*sql.DB, error) {
 	if !o.ReadOnly && o.Create {
 		file, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
 		switch {
@@ -95,22 +98,25 @@ func Open(path string, o Options) (*sql.DB, error) {
 	if err != nil {
 		return nil, operation.FileError(path, err)
 	}
-	conn, err := db.Conn(context.Background())
+	conn, err := db.Conn(ctx)
 	switch {
 	case err == nil:
 		_ = conn.Close()
+	case ctx.Err() != nil:
+		_ = db.Close()
+		return nil, ctx.Err()
 	case code(err) == sqliteCantOpen:
 		_ = db.Close()
 		return nil, operation.FileError(path, openProblem(path, err))
 	}
 	if o.Prepare != nil {
-		if err := o.Prepare(db); err != nil {
+		if err := o.Prepare(ctx, db); err != nil {
 			_ = db.Close()
 			return nil, err
 		}
 	}
 	if !o.ReadOnly {
-		if err := enableWAL(db); err != nil {
+		if err := enableWAL(ctx, db); err != nil {
 			_ = db.Close()
 			return nil, operation.FileError(path, err)
 		}
@@ -453,8 +459,7 @@ func code(err error) int {
 // SQLite fails one of them with BUSY at once, without waiting out the busy
 // timeout. The other has switched the journal by the time that one tries
 // again, and a file already in WAL needs no lock.
-func enableWAL(db *sql.DB) error {
-	ctx := context.Background()
+func enableWAL(ctx context.Context, db *sql.DB) error {
 	var err error
 	for attempt := range 50 {
 		_, err = db.ExecContext(ctx, "PRAGMA journal_mode=WAL")

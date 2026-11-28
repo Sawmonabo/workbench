@@ -197,8 +197,9 @@ func olderDamagedFile(root string) string { return filepath.Join(root, "history.
 // history. Either way, a history readable by others is made private, with its
 // -wal and -shm files, once it is found to be one (see [sqlitefile.Open]),
 // since a command's text may hold a token. A file that is not a history of
-// version 1 fails with [ErrHistoryUnusable] and is left as it is.
-func OpenHistory(root string, write bool) (*History, error) {
+// version 1 fails with [ErrHistoryUnusable] and is left as it is. The open
+// runs with ctx (see [sqlitefile.Open]).
+func OpenHistory(ctx context.Context, root string, write bool) (*History, error) {
 	h := &History{root: root, path: HistoryFile(root), write: write}
 	if !write {
 		if _, err := os.Stat(h.path); err != nil {
@@ -216,7 +217,7 @@ func OpenHistory(root string, write bool) (*History, error) {
 		// first never fails when it turns into a write.
 		options.TxLock = "immediate"
 	}
-	db, err := sqlitefile.Open(h.path, options)
+	db, err := sqlitefile.Open(ctx, h.path, options)
 	if err != nil {
 		if sqlitefile.IsDamaged(err) && !errors.Is(err, ErrHistoryUnusable) {
 			err = fmt.Errorf("%w: %w", ErrHistoryUnusable, err)
@@ -242,7 +243,7 @@ func OpenHistory(root string, write bool) (*History, error) {
 		h.file, h.opened = file, info
 		// SQLite opens the -wal and -shm files at the first read after the
 		// switch to WAL, so one is made before they are noted.
-		_, _ = db.ExecContext(context.Background(), "PRAGMA user_version")
+		_, _ = db.ExecContext(ctx, "PRAGMA user_version")
 		h.sides = sidesAt(h.path)
 	}
 	return h, nil
@@ -323,6 +324,8 @@ func (h *History) closeDB() error {
 	if info, err := os.Stat(h.path); err == nil && os.SameFile(info, h.opened) {
 		return h.db.Close()
 	}
+	// Close takes no context: the log is folded into the file it opened
+	// whatever stopped the caller, before the side files go.
 	_, _ = h.db.ExecContext(context.Background(), "PRAGMA wal_checkpoint(TRUNCATE)")
 	err := h.db.Close()
 	for i, side := range sqlitefile.SideFiles(h.path) {
@@ -336,8 +339,7 @@ func (h *History) closeDB() error {
 
 // prepare checks the file is a history of version 1, before anything changes
 // it, and makes the schema of a writer's file that holds none yet.
-func (h *History) prepare(db *sql.DB) error {
-	ctx := context.Background()
+func (h *History) prepare(ctx context.Context, db *sql.DB) error {
 	if h.write {
 		db.SetMaxOpenConns(1)
 	}

@@ -107,7 +107,7 @@ func showGuardHistory(cmd *cobra.Command, o *options, result *operation.Result) 
 	}
 	var history *guard.History
 	root, found, err := inHistoryFolder(root, guard.HistoryRoot, func(root string) (err error) {
-		history, err = guard.OpenHistory(root, false)
+		history, err = guard.OpenHistory(cmd.Context(), root, false)
 		return err
 	})
 	if !found {
@@ -185,7 +185,7 @@ func setGuardHistoryKeep(
 	}
 	var history *guard.History
 	root, found, err := inHistoryFolder(root, guard.MakeHistoryRoot, func(root string) (err error) {
-		history, err = guard.OpenHistory(root, true)
+		history, err = guard.OpenHistory(cmd.Context(), root, true)
 		return err
 	})
 	if !found {

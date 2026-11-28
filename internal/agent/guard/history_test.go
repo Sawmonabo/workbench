@@ -23,7 +23,7 @@ import (
 func TestHistoryFilesArePrivate(t *testing.T) {
 	root := t.TempDir()
 	for _, write := range []bool{true, false, true} {
-		history, err := OpenHistory(root, write)
+		history, err := OpenHistory(t.Context(), root, write)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -98,7 +98,7 @@ func TestHistoryWriterKeepsItsLockThroughCheck(t *testing.T) {
 		return
 	}
 	root := t.TempDir()
-	history, err := OpenHistory(root, true)
+	history, err := OpenHistory(t.Context(), root, true)
 	if err != nil {
 		t.Fatal(err)
 	}

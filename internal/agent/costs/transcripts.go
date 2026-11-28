@@ -102,7 +102,7 @@ func readFile(ctx context.Context, ledger *Ledger, tool Tool, path string) fileR
 		read.err = err
 		return read
 	}
-	previous, found, err := ledger.File(path)
+	previous, found, err := ledger.File(ctx, path)
 	if err != nil {
 		read.err = wrapLedger(err)
 		return read

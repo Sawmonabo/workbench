@@ -347,7 +347,9 @@ func (h *historyWriter) noteCopy(root string) {
 // when it read it; when to try again after a failure, zero while none; when
 // the last history it could not use was moved aside by it; when the next trim
 // starts and whether the last trim step had more to delete; when the guard
-// log is next cut.
+// log is next cut. The goroutine has no context: it stops only when drain
+// asks, after writing the commands it holds (see historyWriter.run), so its
+// opens, reads and writes of the history run with context.Background().
 type writerRun struct {
 	h        *historyWriter
 	root     string
@@ -396,7 +398,7 @@ func (r *writerRun) step(now time.Time) bool {
 // open opens the history, making it when it is missing, reads the time kept
 // and notes the copies of histories that could not be used.
 func (r *writerRun) open() {
-	history, err := OpenHistory(r.root, true)
+	history, err := OpenHistory(context.Background(), r.root, true)
 	if err != nil {
 		r.failed(err)
 		return
@@ -543,7 +545,7 @@ func (r *writerRun) replace(cause error) error {
 			return err
 		}
 	}
-	history, err := OpenHistory(r.root, true)
+	history, err := OpenHistory(context.Background(), r.root, true)
 	if err != nil {
 		return err
 	}
