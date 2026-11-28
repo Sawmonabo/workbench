@@ -19,6 +19,9 @@ import (
 	"github.com/spf13/cobra"
 )
 
+// doctorCommand checks this machine without repairing it: Workbench's own
+// lines (see machine.Doctor), then the agent hooks, the guard's watcher and
+// any agent folder still at its old path.
 func doctorCommand(o *options) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "doctor",
