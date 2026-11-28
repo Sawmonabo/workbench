@@ -72,6 +72,11 @@ var oldGuardLog = Migration{
 		return found
 	},
 	Run: func(_ context.Context, l Locations) ([]string, error) {
+		// The run judges the guard folder as Check does: one others can
+		// write in is refused and left as it is, its log too.
+		if _, err := guard.CheckedRoot(l.Runtime.State); err != nil {
+			return nil, err
+		}
 		var kept []string
 		for _, path := range guardLogPaths(l) {
 			var err error
