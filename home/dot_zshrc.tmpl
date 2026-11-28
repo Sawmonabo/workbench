@@ -185,7 +185,7 @@ __workbench_env_files+=({{ joinPath $config "personal.env" | replace "'" "'\"'\"
 zmodload -F zsh/stat b:zstat
 # __workbench_env_read FILE sets the caller's __workbench_env_names and
 # __workbench_env_values to the names FILE sets and their values, read as
-# ParseEnvFile (internal/machine/envfiles.go) reads them.
+# envfile.Parse (internal/machine/envfile/envfile.go) reads them.
 __workbench_env_read() {
     local line name value
     __workbench_env_names=() __workbench_env_values=()
