@@ -46,7 +46,7 @@ func (p *preparation) stageNative(
 	// folder this apply resolved, as the migrations and agent-costs-ingest scripts
 	// do. Templates cannot read the caller's environment (the preview renders
 	// with a fixed one), so the path reaches them as an answer.
-	workbench := filepath.Join(c.Paths.Bin, "workbench")
+	workbench := c.Paths.Entrypoint()
 	nativeAnswers["workbench_bin"] = workbench
 	// Codex keys the trust of its hooks by the spelling of hooks.json's path,
 	// which follows $HOME as it is set; chezmoi renders with the home's

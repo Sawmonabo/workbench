@@ -326,7 +326,7 @@ func releasePlanner(
 		plan.Edits = append(
 			plan.Edits,
 			operation.Edit{
-				Path:        filepath.Join(c.Paths.Bin, "workbench"),
+				Path:        c.Paths.Entrypoint(),
 				Action:      "activate",
 				Description: "Activate this verified CLI/source pair; retain previous runtime and applied-configuration identity",
 			},

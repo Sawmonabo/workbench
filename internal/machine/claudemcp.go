@@ -6,7 +6,6 @@ import (
 	"io/fs"
 	"maps"
 	"os"
-	"path/filepath"
 	"slices"
 	"strings"
 
@@ -90,7 +89,7 @@ func claudeMCPPending(c operation.Context, a Answers) (claudeMCPChanges, error) 
 		servers: servers,
 		wanted: dispatchServers(
 			a,
-			filepath.Join(c.Paths.Bin, "workbench"),
+			c.Paths.Entrypoint(),
 			c.Paths.Config,
 			c.Home,
 		),

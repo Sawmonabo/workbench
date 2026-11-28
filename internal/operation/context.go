@@ -16,10 +16,22 @@ import (
 // holds the workbench command.
 type Paths struct{ Config, Data, State, Cache, Bin string }
 
+// All are the five folders, in the order Config, Data, State, Cache, Bin.
+func (p Paths) All() []string { return []string{p.Config, p.Data, p.State, p.Cache, p.Bin} }
+
+// Entrypoint is the workbench command in the bin folder, the link that
+// activating a release points at its executable.
+func (p Paths) Entrypoint() string { return filepath.Join(p.Bin, "workbench") }
+
+// Locks is the folder in the state folder that holds the operation locks
+// and the migrations' lock. No private write replaces a file in it (see
+// [Mutation.WritePrivate]): flock(2) stays on the file it opened.
+func (p Paths) Locks() string { return filepath.Join(p.State, "locks") }
+
 // MigrateLock is the lock one run of Workbench's migrations holds while it
 // moves files, whether `workbench migrate` or the costs import worker runs it
 // (see internal/migrate).
-func (p Paths) MigrateLock() string { return filepath.Join(p.State, "locks", "migrate.lock") }
+func (p Paths) MigrateLock() string { return filepath.Join(p.Locks(), "migrate.lock") }
 
 // MachineConfig is machine.toml, where the machine's answers and the apply
 // choices are saved.
@@ -138,7 +150,7 @@ func Resolve(options Options) (Context, error) {
 				"Destination must not alias or lie inside the source",
 			)
 		}
-		for _, path := range []string{c.Paths.Config, c.Paths.Data, c.Paths.State, c.Paths.Cache, c.Paths.Bin} {
+		for _, path := range c.Paths.All() {
 			if Within(c.Native.Source, path) || Within(path, c.Native.Source) {
 				return c, Fail(
 					ExitInvalid,
@@ -348,7 +360,7 @@ func (c Context) ValidateTarget(path string) error {
 			return Fail(ExitInvalid, "scope", "Target overlaps source or Workbench runtime state")
 		}
 	}
-	entrypoint := filepath.Join(c.Paths.Bin, "workbench")
+	entrypoint := c.Paths.Entrypoint()
 	if Within(entrypoint, path) {
 		return Fail(ExitInvalid, "scope", "Target is the protected Workbench entry point")
 	}
@@ -388,7 +400,7 @@ func (c Context) ValidateContainer(path string) error {
 		c.Paths.Data,
 		c.Paths.State,
 		c.Paths.Cache,
-		filepath.Join(c.Paths.Bin, "workbench"),
+		c.Paths.Entrypoint(),
 	}
 	for _, excluded := range protected {
 		if excluded != "" && Within(excluded, path) {

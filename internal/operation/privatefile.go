@@ -126,7 +126,7 @@ func (m *Mutation) WritePrivate(path string, data []byte) error {
 	// Atomic replacement of a lock file would leave flock on the old inode.
 	// Compare filesystem identities: config and state overrides may themselves
 	// alias the same directory under different spellings or mount paths.
-	lockDirectory, err := os.Stat(filepath.Join(m.context.Paths.State, "locks"))
+	lockDirectory, err := os.Stat(m.context.Paths.Locks())
 	if err != nil || !lockDirectory.IsDir() {
 		return Fail(
 			ExitConflict,

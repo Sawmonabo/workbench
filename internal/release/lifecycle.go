@@ -332,7 +332,7 @@ func ValidateSelection(c operation.Context) error {
 	if err != nil || state == nil || state.ActiveRelease == nil {
 		return err
 	}
-	entry, err := os.Readlink(filepath.Join(c.Paths.Bin, "workbench"))
+	entry, err := os.Readlink(c.Paths.Entrypoint())
 	if err != nil || entry != state.ActiveRelease.Executable {
 		return operation.Fail(
 			operation.ExitConflict,
@@ -383,7 +383,7 @@ func Activate(
 	if err = checkRuntime(ctx, c, executable, directory); err != nil {
 		return err
 	}
-	entry := filepath.Join(c.Paths.Bin, "workbench")
+	entry := c.Paths.Entrypoint()
 	journal, err := readActivation(c)
 	if err != nil {
 		return err
@@ -456,7 +456,7 @@ func switchRuntime(
 			"Activation state could not be made durable or restored; resume the same install",
 		)
 	}
-	if err = os.Rename(pending, filepath.Join(c.Paths.Bin, "workbench")); err != nil {
+	if err = os.Rename(pending, c.Paths.Entrypoint()); err != nil {
 		return restore(
 			err,
 			"Entry-point activation failed and state restoration is incomplete; rerun workbench update",

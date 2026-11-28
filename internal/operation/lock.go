@@ -26,7 +26,7 @@ func acquireLocks(c Context) (*locks, error) {
 	if err := ensureRoot(c.Paths.State); err != nil {
 		return nil, err
 	}
-	directory := filepath.Join(c.Paths.State, "locks")
+	directory := c.Paths.Locks()
 	if err := ensurePrivateDirectory(directory); err != nil {
 		return nil, err
 	}

@@ -43,7 +43,7 @@ func (c Context) WorkbenchCommand() string {
 	if c.BinOnPath() {
 		return "workbench"
 	}
-	entry := filepath.Join(c.Paths.Bin, "workbench")
+	entry := c.Paths.Entrypoint()
 	if _, err := os.Lstat(entry); err != nil {
 		return "workbench"
 	}

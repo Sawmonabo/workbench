@@ -28,7 +28,7 @@ func Handoff(c Context, expected ReleaseRecord, args []string, ready func()) err
 			"Activated runtime changed before handoff; run workbench doctor, then rerun workbench update",
 		)
 	}
-	entry, err := os.Readlink(filepath.Join(c.Paths.Bin, "workbench"))
+	entry, err := os.Readlink(c.Paths.Entrypoint())
 	if err != nil || entry != expected.Executable {
 		return Fail(
 			ExitConflict,
