@@ -607,12 +607,10 @@ func (p *Proposal) add(c operation.Context, path string, data []byte, descriptio
 	after, err := operation.ImageWithGroup(
 		c,
 		path,
-		operation.Image{
-			Kind:       operation.ImageFile,
-			Mode:       mode,
-			Data:       data,
-			Attributes: before.Attributes,
-		},
+		operation.Carried(
+			before,
+			operation.Image{Kind: operation.ImageFile, Mode: mode, Data: data},
+		),
 	)
 	if err != nil {
 		return err

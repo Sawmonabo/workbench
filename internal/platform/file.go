@@ -15,6 +15,18 @@ import (
 // kind and inheritance flags and the rights it allows or denies.
 type ACE struct{ Flags, Rights uint32 }
 
+// ACL is a file's access control list as FileSecurity reads it. Data is the
+// list as the system keeps it, which SetFileSecurity gives another file
+// exactly, or nil when the file has none; a list without entries is not nil.
+// On macOS it is the kauth_filesec getattrlist returns, whose owner and group
+// GUIDs are null and which setattrlist reads only for its ACL
+// (vfs_attrlist.c), so writing it changes no owner. Entries are its access
+// control entries, in Data's order.
+type ACL struct {
+	Data    []byte
+	Entries []ACE
+}
+
 // ErrUnsupportedACL is FileSecurity's error for security data whose layout
 // it does not recognize, which no caller may read as "no ACL".
 var ErrUnsupportedACL = errors.New("unsupported ACL layout")
@@ -35,14 +47,24 @@ func RenameAt(fd int, from, to string, exclusive bool) error {
 	return renameAt(fd, from, to, exclusive)
 }
 
-// FileSecurity returns the ACL entries of fd, or of path itself, not a
-// link's target, when path is not empty, and whether an ACL is present at
-// all. An error is the call's errno, or ErrUnsupportedACL for security data
-// whose layout it does not recognize, so a caller fails closed. On Linux it
-// always reports no ACL and no error: POSIX ACLs there are extended
-// attributes (ACLsAreAttributes), which ExtendedAttributeNames lists.
-func FileSecurity(fd int, path string) (entries []ACE, present bool, err error) {
-	return fileSecurity(fd, path)
+// FileSecurity returns the ACL of fd, or of path itself, not a link's
+// target, when path is not empty. An error is the call's errno, or
+// ErrUnsupportedACL for security data whose layout it does not recognize, so
+// a caller fails closed. On Linux it always reports no ACL and no error:
+// POSIX ACLs there are extended attributes (ACLsAreAttributes), which
+// ExtendedAttributeNames lists.
+func FileSecurity(fd int, path string) (ACL, error) { return fileSecurity(fd, path) }
+
+// SetFileSecurity gives fd, or path itself, not a link's target, when path
+// is not empty, the ACL data, as FileSecurity read it from a file, or takes
+// its ACL away when data is nil. On macOS fsetattrlist, or setattrlist with
+// FSOPT_NOFOLLOW for a path, writes it as ATTR_CMN_EXTENDED_SECURITY, which
+// a file's owner may write whatever its mode and its ACL deny, and a list of
+// KAUTH_FILESEC_NOACL entries takes it away. On Linux, whose ACLs are
+// extended attributes, it fails with EOPNOTSUPP for data and does nothing for
+// nil. The error is the call's errno.
+func SetFileSecurity(fd int, path string, data []byte) error {
+	return setFileSecurity(fd, path, data)
 }
 
 // FileFlags returns the file flags of fd, or of path itself, not a link's
@@ -53,6 +75,16 @@ func FileSecurity(fd int, path string) (entries []ACE, present bool, err error) 
 // which a link does not give, and chattr cannot set them on a link, so there
 // a path reports 0 without a call. The error is the call's errno.
 func FileFlags(fd int, path string) (uint32, error) { return fileFlags(fd, path) }
+
+// SetHidden gives fd, or path itself, not a link's target, when path is not
+// empty, HiddenFlag when hidden, or takes it away, and keeps every other flag
+// FileFlags reads. On macOS fchflags sets it through fd, and setattrlist with
+// ATTR_CMN_FLAGS and FSOPT_NOFOLLOW on a path, since no call changes a link's
+// flags through a descriptor; a file's owner may set it whatever its mode
+// and its ACL deny. On Linux, which has no such flag, it fails with
+// EOPNOTSUPP to set it and does nothing to take it away. The error is the
+// call's errno.
+func SetHidden(fd int, path string, hidden bool) error { return setHidden(fd, path, hidden) }
 
 // NewLinkMode is the permissions mode a link this process makes gets under
 // its umask, which a link made by a process it starts gets too, since that

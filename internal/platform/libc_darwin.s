@@ -10,6 +10,11 @@ TEXT libc_fgetattrlist_trampoline<>(SB),NOSPLIT,$0-0
 GLOBL	·fgetattrlist(SB), RODATA, $8
 DATA	·fgetattrlist(SB)/8, $libc_fgetattrlist_trampoline<>(SB)
 
+TEXT libc_fsetattrlist_trampoline<>(SB),NOSPLIT,$0-0
+	JMP	libc_fsetattrlist(SB)
+GLOBL	·fsetattrlist(SB), RODATA, $8
+DATA	·fsetattrlist(SB)/8, $libc_fsetattrlist_trampoline<>(SB)
+
 TEXT libc_proc_pid_rusage_trampoline<>(SB),NOSPLIT,$0-0
 	JMP	libc_proc_pid_rusage(SB)
 GLOBL	·procPidRusage(SB), RODATA, $8

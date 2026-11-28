@@ -1,7 +1,7 @@
 package operation
 
 import (
-	"encoding/binary"
+	"bytes"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -61,11 +61,11 @@ func TestFolderModeRestoreKeepsACLAndFlags(t *testing.T) {
 			t.Fatal(openErr)
 		}
 		defer func() { _ = unix.Close(fd) }()
-		entries, _, aclErr := platform.FileSecurity(fd, "")
+		found, aclErr := platform.FileSecurity(fd, "")
 		if aclErr != nil {
 			t.Fatal(aclErr)
 		}
-		return entries
+		return found.Entries
 	}
 	want := acl()
 	if len(want) != 1 {
@@ -88,13 +88,13 @@ func TestFolderModeRestoreKeepsACLAndFlags(t *testing.T) {
 	}
 }
 
-// Prevent a silent permission change on Linux: a POSIX ACL is an extended
-// attribute there, which a replacement does not have, so a target that holds
-// one, or a folder whose default ACL would give the replacement one, must stop
-// planning, even beside the SELinux label, which images carry. If the label's
-// admission let an ACL through, the replace would drop the users and groups it
-// grants or denies without a word.
-func TestACLAttributesBlockBesideTheLabel(t *testing.T) {
+// Prevent a silent permission change on Linux: a folder's default ACL, an
+// extended attribute there, gives each file made in it an ACL, so a file
+// Workbench writes there would let in users and groups no plan showed. A
+// folder that holds one must stop planning a target in it, even beside the
+// SELinux label, which images carry. If the label's admission let the
+// default ACL through, the write would grant that access without a word.
+func TestDefaultACLBlocksBesideTheLabel(t *testing.T) {
 	if !platform.ACLsAreAttributes {
 		t.Skip("ACLs are not extended attributes here")
 	}
@@ -103,46 +103,18 @@ func TestACLAttributesBlockBesideTheLabel(t *testing.T) {
 		t.Fatal(err)
 	}
 	c := Context{Scope: Scope{Kind: "project", Root: root}}
-	// A POSIX ACL in its extended attribute form (linux/posix_acl_xattr.h):
-	// version 2, then tag, permissions and ID per entry, with a named user and a
-	// mask, so the kernel cannot fold it into the mode.
-	entry := func(tag, perm uint16, id uint32) []byte {
-		return binary.LittleEndian.AppendUint32(
-			binary.LittleEndian.AppendUint16(binary.LittleEndian.AppendUint16(nil, tag), perm),
-			id,
-		)
-	}
-	acl := binary.LittleEndian.AppendUint32(nil, 2)
-	for _, e := range [][]byte{
-		entry(0x01, 6, 0xffffffff), // ACL_USER_OBJ rw
-		entry(0x02, 4, 0),          // ACL_USER root r
-		entry(0x04, 4, 0xffffffff), // ACL_GROUP_OBJ r
-		entry(0x10, 4, 0xffffffff), // ACL_MASK r
-		entry(0x20, 0, 0xffffffff), // ACL_OTHER none
-	} {
-		acl = append(acl, e...)
-	}
-	label := []byte("unconfined_u:object_r:user_home_t:s0")
-	file := filepath.Join(root, "file")
 	folder := filepath.Join(root, "folder")
-	if err = os.WriteFile(file, []byte("data"), 0o640); err != nil {
-		t.Fatal(err)
-	}
 	if err = os.Mkdir(folder, 0o750); err != nil {
 		t.Fatal(err)
 	}
-	labeled := unix.Setxattr(file, platform.LabelAttribute, label, 0) == nil
-	if err = unix.Setxattr(file, "system.posix_acl_access", acl, 0); err != nil {
-		t.Skipf("cannot give the fixture an ACL here: %v", err)
-	}
-	if err = unix.Setxattr(folder, "system.posix_acl_default", acl, 0); err != nil {
+	label := []byte("unconfined_u:object_r:user_home_t:s0")
+	labeled := unix.Setxattr(folder, platform.LabelAttribute, label, 0) == nil
+	if err = unix.Setxattr(folder, platform.DefaultACLAttribute, posixACL(), 0); err != nil {
 		t.Skipf("cannot give the fixture a default ACL here: %v", err)
 	}
-	if _, err = ReadImage(c, file); Category(err) != "metadata" {
-		t.Fatalf("a file with an ACL (labeled: %v) was read as preservable: %v", labeled, err)
-	}
 	if _, err = ReadImage(c, filepath.Join(folder, "new")); Category(err) != "metadata" {
-		t.Fatalf("a folder with a default ACL was admitted as a target's folder: %v", err)
+		t.Fatalf("a folder with a default ACL (labeled: %v) was admitted as a target's folder: %v",
+			labeled, err)
 	}
 }
 
@@ -196,9 +168,10 @@ func TestReplacementCarriesTheLabel(t *testing.T) {
 
 // Prevent credential exposure: an extended attribute can hold a secret, such
 // as a token a tool keeps beside a file, and a refusal is printed, logged and
-// returned in --json. A refusal of an attribute it cannot keep names the
-// attribute, so the person can remove it; if it ever quoted the value, the
-// secret would reach the terminal, logs and any caller reading the JSON.
+// returned in --json. A refusal of an attribute it cannot keep, here one
+// larger than an image keeps, names the attribute, so the person can remove
+// it; if it ever quoted the value, the secret would reach the terminal, logs
+// and any caller reading the JSON.
 func TestAttributeRefusalNamesTheAttributeNotItsValue(t *testing.T) {
 	root, err := filepath.EvalSymlinks(t.TempDir())
 	if err != nil {
@@ -210,8 +183,9 @@ func TestAttributeRefusalNamesTheAttributeNotItsValue(t *testing.T) {
 		t.Fatal(err)
 	}
 	const name, secret = "user.workbench-test-token", "synthetic-secret-4f1c9a"
-	if err = unix.Setxattr(file, name, []byte(secret), 0); err != nil {
-		t.Skipf("cannot give the fixture an extended attribute here: %v", err)
+	value := append([]byte(secret), bytes.Repeat([]byte(" "), 5000)...)
+	if err = unix.Setxattr(file, name, value, 0); err != nil {
+		t.Skipf("cannot give the fixture an attribute over 4 KiB here: %v", err)
 	}
 	_, err = ReadImage(c, file)
 	if Category(err) != "metadata" {

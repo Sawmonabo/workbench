@@ -34,10 +34,19 @@ func ChangeSummary(before, after Image, last *Image) string {
 }
 
 // EditedOutside reports whether an existing target is not what Workbench last
-// left there: it never wrote the path, or its content has changed since.
+// left there: it never wrote the path, or its content has changed since. Its
+// ACL and hidden flag are not content: what Workbench writes keeps them.
 // last is the image Workbench last left at the path, or nil.
 func EditedOutside(before Image, last *Image) bool {
-	return before.Kind != ImageAbsent && (last == nil || !sameImageContent(*last, before))
+	if before.Kind == ImageAbsent {
+		return false
+	}
+	if last == nil {
+		return true
+	}
+	written := *last
+	written.ACL, written.Hidden = before.ACL, before.Hidden
+	return !sameImageContent(written, before)
 }
 
 func contentSummary(before, after Image) string {

@@ -68,7 +68,7 @@ func (p *preparation) buildChanges(ctx context.Context, c operation.Context) err
 				return err
 			}
 		}
-		after, err = operation.ImageWithGroup(c, edit.Path, after)
+		after, err = operation.ImageWithGroup(c, edit.Path, operation.Carried(before, after))
 		if err != nil {
 			return err
 		}

@@ -255,7 +255,7 @@ func validateChanges(c Context, changes []TargetChange) error {
 			if err := validateImageGroup(c, change.Path, image); err != nil {
 				return err
 			}
-			total += len(image.Data) + len(image.Link)
+			total += len(image.Data) + len(image.Link) + len(image.ACL)
 			for _, value := range image.Attributes {
 				attributes += len(value)
 			}

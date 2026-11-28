@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"maps"
 	"slices"
 	"strings"
 
@@ -145,14 +146,19 @@ func correctNativeMetadata(c Context, change TargetChange, observed Image, label
 }
 
 // CheckPreservable is the native planner's check of one edit: it refuses
-// group-exclusive modes of files and folders, replacements that would change a
-// target's group and files whose group native's staging folder cannot keep.
+// replacements of metadata native's replacement would not have
+// (nativeReplaceRefusal), group-exclusive modes of files and folders,
+// replacements that would change a target's group and files whose group
+// native's staging folder cannot keep.
 func CheckPreservable(
 	c Context,
 	edit Edit,
 	before, after Image,
 	staging string,
 ) error {
+	if err := nativeReplaceRefusal(edit, before, after); err != nil {
+		return err
+	}
 	// Native atomic writes can initially inherit the scratch directory's
 	// group. Until corrected under the checkpoint owner's exact-image gate,
 	// never expose permissions available only to that transient group. Native
@@ -184,6 +190,56 @@ func CheckPreservable(
 	}
 	if edit.Action != "remove" && before.Group != nil && *before.Group != group {
 		return groupChangeRefusal(edit.Path, before.Kind == ImageSymlink, *before.Group, group)
+	}
+	return nil
+}
+
+// nativeReplaceRefusal refuses an edit in which native writes a new file or
+// link in place of before, a file or link, that has what native's
+// replacement does not have and the pass after native (FinalizeNative) does
+// not put back: the hidden flag, an ACL, or an extended attribute but the
+// label, which nativeLabel puts back, and, on macOS, the four small ones
+// macOS adds that grant no access: download provenance and quarantine,
+// Finder flags and the last used date. It checks them in that order, names
+// the first it finds and gives the command that removes it.
+func nativeReplaceRefusal(edit Edit, before, after Image) error {
+	replaced := func(kind ImageKind) bool { return kind == ImageFile || kind == ImageSymlink }
+	if edit.Action == "remove" || !replaced(before.Kind) || !replaced(after.Kind) {
+		return nil
+	}
+	h := replacedFile
+	if before.Kind == ImageSymlink {
+		h = replacedLink
+	}
+	switch {
+	case before.Hidden:
+		return flagRefusal(edit.Path, platform.HiddenFlag, h)
+	case before.ACL != nil:
+		return Fail(
+			ExitBlocked,
+			"metadata",
+			display.Path(
+				edit.Path,
+			)+" has an ACL, "+h.lost()+h.retry(
+				platform.ACLRemoval(),
+				edit.Path,
+			),
+		)
+	}
+	dropped := []string{
+		platform.LabelAttribute,
+		"com.apple.provenance",
+		"com.apple.quarantine",
+		"com.apple.FinderInfo",
+		"com.apple.lastuseddate#PS",
+	}
+	if platform.ACLsAreAttributes {
+		dropped = dropped[:1]
+	}
+	for _, name := range slices.Sorted(maps.Keys(before.Attributes)) {
+		if !slices.Contains(dropped, name) {
+			return attributeRefusal(edit.Path, name, h)
+		}
 	}
 	return nil
 }

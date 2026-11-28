@@ -61,11 +61,11 @@ var noFollowOption = map[string]string{
 // sudo outside the user namespace.
 func attributeRemoval(name string) (kind string, remove []string) {
 	switch {
-	case name == "system.posix_acl_access":
+	case name == accessACLAttribute:
 		return "an ACL", []string{"setfacl", "-b"}
-	case name == "system.posix_acl_default":
+	case name == defaultACLAttribute:
 		return "a default ACL", []string{"setfacl", "-k"}
-	case name == "security.capability":
+	case name == capabilityAttribute:
 		return "file capabilities", []string{"sudo", "setcap", "-r"}
 	case strings.HasPrefix(name, "user."):
 		return "", []string{"setfattr", "-x", name}

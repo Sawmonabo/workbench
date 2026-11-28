@@ -3,8 +3,10 @@ package operation
 import (
 	"bytes"
 	"errors"
+	"maps"
 	"slices"
 	"strings"
+	"unicode/utf8"
 
 	"golang.org/x/sys/unix"
 
@@ -12,50 +14,43 @@ import (
 	"github.com/Sawmonabo/workbench/internal/platform"
 )
 
-// preservedAttributes are the extended attributes images carry. On macOS each
-// is small, grants no access and is commonly added by macOS: download
-// provenance and quarantine, Finder flags and the last used date. Every other
-// attribute blocks planning, and so does an ACL except where folderACL admits it.
-// Where ACLs are extended attributes (platform.ACLsAreAttributes), as on Linux,
-// only the security label (platform.LabelAttribute) is carried, as
-// carryLabel writes it, and attributeACL blocks every other attribute: an ACL
-// (system.posix_acl_access, system.posix_acl_default), file capabilities
-// (security.capability), and user.* and trusted.* attributes a replacement
-// would not have.
-var preservedAttributes = carriedAttributes()
+// carriedAttribute reports whether an image carries the extended attribute
+// name, which the target Workbench writes then has too and revert puts back:
+// every attribute, an ACL among them where ACLs are extended attributes
+// (platform.ACLsAreAttributes), but file capabilities
+// (platform.CapabilityAttribute), which only a process with CAP_SETFCAP may
+// set, so neither the replacement nor revert could have them, and a name
+// that is not UTF-8, which the checkpoint's JSON would change. The security
+// label is carried by carryLabel's rule.
+func carriedAttribute(name string) bool {
+	return name != "" && name != platform.CapabilityAttribute && utf8.ValidString(name)
+}
 
-// carriedAttributes is preservedAttributes: only the label where ACLs are
-// extended attributes.
-func carriedAttributes() []string {
-	if platform.ACLsAreAttributes {
-		return []string{platform.LabelAttribute}
-	}
-	return []string{
-		"com.apple.provenance",
-		"com.apple.quarantine",
-		"com.apple.FinderInfo",
-		"com.apple.lastuseddate#PS",
-	}
+// security is what a target's metadata check read that its image carries
+// beside its attributes: its ACL as the system keeps it, nil for none, and
+// whether it has the hidden flag.
+type security struct {
+	acl    []byte
+	hidden bool
 }
 
 // fileMetadata refuses metadata a target Workbench writes cannot carry: any
-// file flag a replacement would not have (all but platform.KeptFlags), the
-// flags that stop a replace among them, any ACL and, where ACLs are extended
-// attributes, any attribute but the label (attributeACL). h is what the
+// file flag but the hidden flag that a replacement would not have (all but
+// platform.KeptFlags), the flags that stop a replace among them, and an ACL
+// entry under which no file can replace it (replacedACL). h is what the
 // target is to the write.
-func fileMetadata(fd int, path string, h holder) error {
-	return metadata(fd, path, h, platform.KeptFlags, noACL)
+func fileMetadata(fd int, path string, h holder) (security, error) {
+	return metadata(fd, path, h, false)
 }
 
 // containerMetadata is fileMetadata for a folder that holds Workbench's own
-// files. Workbench never removes or replaces it, and writeDirectoryImage sets
-// its mode, group and attributes through a descriptor without touching its ACL
-// or flags, so it may keep the ACL entries folderACL admits and the flags a
-// folder Workbench writes into may keep (platform.FolderFlags) but the hidden
-// flag, which the checkpoint records only on a folder Workbench writes into.
-// Any attribute but the label still blocks where ACLs are extended attributes.
-func containerMetadata(fd int, path string) error {
-	return metadata(fd, path, changedFolder, platform.FolderFlags&^platform.HiddenFlag, folderACL)
+// files. Workbench never removes or replaces it and writeDirectoryImage changes
+// it in place, so it may keep the flags a folder Workbench writes into may
+// keep (platform.FolderFlags), and, since Workbench writes its own files in
+// it, only an ACL folderACL admits and, where ACLs are extended attributes,
+// no default ACL (attributeACL).
+func containerMetadata(fd int, path string) (security, error) {
+	return metadata(fd, path, changedFolder, true)
 }
 
 // parentMetadata admits the folder a target is written into. Workbench adds,
@@ -68,30 +63,52 @@ func containerMetadata(fd int, path string) error {
 // Where ACLs are extended attributes, any attribute there but the label
 // blocks planning, as on a target.
 func parentMetadata(fd int, path string) error {
-	return metadata(fd, path, parentFolder, platform.FolderFlags, folderACL)
+	_, err := metadata(fd, path, parentFolder, true)
+	return err
 }
 
-// metadata refuses fd at path off a native file system, with a flag outside
-// kept, or with an attribute or ACL its system cannot carry, as acl judges
-// the ACL; h is what path is to the write, which says why.
-func metadata(
-	fd int,
-	path string,
-	h holder,
-	kept uint32,
-	acl func(string, holder, []platform.ACE, bool, error) error,
-) error {
+// linkMetadata is fileMetadata for the link at path itself.
+func linkMetadata(path string) (security, error) {
+	return metadata(-1, path, replacedLink, false)
+}
+
+// metadata refuses fd at path, or the link path itself when h is
+// replacedLink, off a native file system, with a flag outside those it may
+// keep, or with an ACL its rule refuses; h is what path is to the write,
+// which says why. A folder Workbench writes files into, when written, may
+// keep platform.FolderFlags, the ACL folderACL admits and the attributes
+// attributeACL admits; a target the flags a replacement has
+// (platform.KeptFlags) and the hidden flag, and the ACL replacedACL admits.
+// It returns the ACL and the hidden flag it read.
+func metadata(fd int, path string, h holder, written bool) (security, error) {
+	kept, acl := platform.KeptFlags|platform.HiddenFlag, replacedACL
+	if written {
+		kept, acl = platform.FolderFlags, folderACL
+	}
 	if err := privateFilesystem(path); err != nil {
-		return err
+		return security{}, err
 	}
-	if flags, err := platform.FileFlags(fd, ""); err != nil || flags&^kept != 0 {
-		return flagsRefusal(path, h, flags&^kept, err)
+	selector := ""
+	if h == replacedLink {
+		fd, selector = -1, path
 	}
-	if err := attributeACL(fd, path, h); err != nil {
-		return err
+	flags, err := platform.FileFlags(fd, selector)
+	if err != nil || flags&^kept != 0 {
+		return security{}, flagsRefusal(path, h, flags&^kept, err)
 	}
-	entries, present, err := targetACL(fd, path, h)
-	return acl(path, h, entries, present, err)
+	if written {
+		if err = attributeACL(fd, path, h); err != nil {
+			return security{}, err
+		}
+	}
+	found, err := targetACL(fd, selector, path, h)
+	if err == nil {
+		err = acl(path, h, found.Entries)
+	}
+	if err != nil {
+		return security{}, err
+	}
+	return security{acl: found.Data, hidden: flags&platform.HiddenFlag != 0}, nil
 }
 
 // flagsRefusal refuses path, which is h to the write, whose flags could not
@@ -113,10 +130,7 @@ func flagsRefusal(path string, h holder, flags uint32, err error) error {
 // folder and its standard folders such as ~/Library; it only stops the folder
 // itself from being deleted. A refusal names the entry by its number in
 // ls -le, which chmod -a# removes.
-func folderACL(path string, h holder, entries []platform.ACE, _ bool, err error) error {
-	if err != nil {
-		return err
-	}
+func folderACL(path string, h holder, entries []platform.ACE) error {
 	const (
 		inherits     = 1<<5 | 1<<6        // KAUTH_ACE_FILE_INHERIT, KAUTH_ACE_DIRECTORY_INHERIT
 		kind         = 0xf                // KAUTH_ACE_KINDMASK
@@ -141,68 +155,70 @@ func folderACL(path string, h holder, entries []platform.ACE, _ bool, err error)
 	return nil
 }
 
-// linkMetadata is fileMetadata for the link at path itself.
-func linkMetadata(path string) error {
-	if err := privateFilesystem(path); err != nil {
-		return err
+// replacedACL refuses, on a file or link Workbench writes a new one in place
+// of, an ACL entry that denies deleting it, which also its replacement would
+// carry: no file can be renamed over such a file, nor can the replacement be
+// renamed into its place or removed (vnode_authorize_delete in xnu's
+// vfs_subr.c), as KAUTH_VNODE_DELETE and the generic rights that include it
+// (KAUTH_ACE_GENERIC_ALL, KAUTH_ACE_GENERIC_WRITE, sys/kauth.h) say. It names
+// the entry by its number in ls -le, which chmod -a# removes. Every other
+// entry is carried. A folder Workbench changes in place keeps any ACL.
+func replacedACL(path string, h holder, entries []platform.ACE) error {
+	if !h.replaced() {
+		return nil
 	}
-	if flags, err := platform.FileFlags(-1, path); err != nil || flags&^platform.KeptFlags != 0 {
-		return flagsRefusal(path, replacedLink, flags&^platform.KeptFlags, err)
+	const (
+		kind   = 0xf                  // KAUTH_ACE_KINDMASK
+		deny   = 2                    // KAUTH_ACE_DENY
+		delete = 1<<4 | 1<<21 | 1<<23 // KAUTH_VNODE_DELETE, KAUTH_ACE_GENERIC_ALL, KAUTH_ACE_GENERIC_WRITE
+	)
+	for i, entry := range entries {
+		if entry.Flags&kind == deny && entry.Rights&delete != 0 {
+			return Fail(
+				ExitBlocked,
+				"metadata",
+				display.Path(path)+" has an ACL entry that denies deleting it, "+h.locked()+
+					h.retry(platform.ACLEntryRemoval(i), path),
+			)
+		}
 	}
-	if err := attributeACL(-1, path, replacedLink); err != nil {
-		return err
-	}
-	entries, present, err := targetACL(-1, path, replacedLink)
-	return noACL(path, replacedLink, entries, present, err)
+	return nil
 }
 
-// noACL rejects any ACL, even an empty one, on a target Workbench writes:
-// the replacement would not carry it, nor would revert put it back on a
-// folder. platform.ACLRemoval removes it.
-func noACL(path string, h holder, _ []platform.ACE, present bool, err error) error {
-	if err == nil && present {
-		return Fail(
-			ExitBlocked,
-			"metadata",
-			display.Path(path)+" has an ACL, "+h.lost()+h.retry(platform.ACLRemoval(), path),
-		)
-	}
-	return err
-}
-
-// targetACL reads the ACL of fd, or of the link path itself when h is
-// replacedLink, failing closed when it cannot be read or its layout is
-// unknown.
-func targetACL(fd int, path string, h holder) ([]platform.ACE, bool, error) {
-	selector := ""
-	if h == replacedLink {
-		fd, selector = -1, path
-	}
-	entries, present, err := platform.FileSecurity(fd, selector)
+// targetACL reads the ACL of fd, or of the link selector itself when it is
+// not empty, failing closed when it cannot be read or its layout is unknown.
+// path is the target the ACL is read for and h what it is to the write.
+func targetACL(fd int, selector, path string, h holder) (platform.ACL, error) {
+	acl, err := platform.FileSecurity(fd, selector)
 	switch {
 	case errors.Is(err, platform.ErrUnsupportedACL):
 		shown := display.Path(path)
-		return nil, false, Fail(
+		return platform.ACL{}, Fail(
 			ExitBlocked,
 			"metadata",
 			shown+" has an ACL in a form Workbench does not read,"+
 				" so it cannot tell what the ACL allows"+h.retry(platform.ACLRemoval(), path),
 		)
 	case err != nil:
-		return nil, false, Fail(
+		return platform.ACL{}, Fail(
 			ExitBlocked,
 			"metadata",
 			"Cannot read the ACL of "+display.Path(path)+": "+err.Error(),
 		)
 	}
-	return entries, present, nil
+	return acl, nil
 }
 
 // attributeACL refuses, where ACLs are extended attributes
-// (platform.ACLsAreAttributes), fd, or path itself when fd is negative, when it
-// has an extended attribute images do not carry, or its names cannot be read:
-// FileSecurity sees no ACL there, and an ACL is such an attribute. The label
-// alone passes, by its exact name. h is what path is to the write.
+// (platform.ACLsAreAttributes), the folder fd at path, which Workbench writes
+// files into, when its attribute names cannot be read or it has one the
+// files written there could take up: FileSecurity sees no ACL there, and a
+// default ACL (platform.DefaultACLAttribute), which each file made in the
+// folder inherits, is such an attribute. As the folder a target is written
+// into (parentFolder) it refuses every attribute but the label, by its exact
+// name; as a folder of Workbench's own files it changes (changedFolder), the
+// default ACL alone, carrying the others, as folderACL refuses the entries
+// files made in a macOS folder inherit.
 func attributeACL(fd int, path string, h holder) error {
 	if !platform.ACLsAreAttributes {
 		return nil
@@ -212,8 +228,12 @@ func attributeACL(fd int, path string, h holder) error {
 		return attributeReadError(path, "", err)
 	}
 	for _, name := range names {
-		if !slices.Contains(preservedAttributes, name) {
+		switch {
+		case name == platform.LabelAttribute:
+		case h == parentFolder:
 			return attributeRefusal(path, name, h)
+		case name == platform.DefaultACLAttribute:
+			return attributeRefusal(path, name, parentFolder)
 		}
 	}
 	return nil
@@ -290,7 +310,7 @@ func readImageAttributes(fd int, path string, h holder) (map[string][]byte, erro
 		if name == "" {
 			continue
 		}
-		if !slices.Contains(preservedAttributes, name) {
+		if !carriedAttribute(name) {
 			return nil, attributeRefusal(path, name, h)
 		}
 		var data [4096]byte
@@ -316,39 +336,81 @@ func readImageAttributes(fd int, path string, h holder) (map[string][]byte, erro
 	return attributes, nil
 }
 
-// writeImageAttributes gives fd, or the link at path when fd is negative,
-// exactly the attributes of an image, apart from the label: carryLabel writes
-// an image's label, and one the image lacks is left as the system gave it,
-// since SELinux lets no one remove a label.
-func writeImageAttributes(fd int, path string, attributes map[string][]byte, h holder) error {
-	existing, err := readImageAttributes(fd, path, h)
+// writeImageAttributes gives fd, or the link at link when fd is negative,
+// exactly the attributes of an image, apart from the label, setting only
+// those whose value differs: carryLabel writes an image's label, and one the
+// image lacks is left as the system gave it, since SELinux lets no one remove
+// a label. The access ACL (platform.AccessACLAttribute) comes last: setting
+// it sets the mode from the ACL, which may take away the write permission a
+// user.* attribute needs (xattr_permission in fs/xattr.c). path is the target
+// they are written for, which is h to the write and which a failure names
+// with the attribute (carryFailure).
+func writeImageAttributes(
+	fd int,
+	link, path string,
+	attributes map[string][]byte,
+	h holder,
+) error {
+	at := path
+	if fd < 0 {
+		at = link
+	}
+	existing, err := readImageAttributes(fd, at, h)
 	if err != nil {
 		return err
 	}
-	for name := range existing {
+	for _, name := range slices.Sorted(maps.Keys(existing)) {
 		if _, ok := attributes[name]; ok || name == platform.LabelAttribute {
 			continue
 		}
 		if fd < 0 {
-			err = unix.Lremovexattr(path, name)
+			err = unix.Lremovexattr(at, name)
 		} else {
 			err = unix.Fremovexattr(fd, name)
 		}
 		if err != nil {
-			return err
+			return carryFailure(path, h, true, "the extended attribute "+shellWord(name), err)
 		}
 	}
-	for name, data := range attributes {
+	names := slices.Sorted(maps.Keys(attributes))
+	if i := slices.Index(names, platform.AccessACLAttribute); i >= 0 {
+		names = append(slices.Delete(names, i, i+1), platform.AccessACLAttribute)
+	}
+	for _, name := range names {
+		data := attributes[name]
+		current, held := existing[name]
 		switch {
 		case name == platform.LabelAttribute:
-			err = carryLabel(fd, path, existing, data)
+			err = carryLabel(fd, at, existing, data)
+		case held && bytes.Equal(current, data):
 		case fd < 0:
-			err = unix.Lsetxattr(path, name, data, 0)
+			err = unix.Lsetxattr(at, name, data, 0)
 		default:
 			err = unix.Fsetxattr(fd, name, data, 0)
 		}
 		if err != nil {
-			return err
+			return carryFailure(path, h, false, "the extended attribute "+shellWord(name), err)
+		}
+	}
+	return nil
+}
+
+// writeImageSecurity gives fd, or the link at link when fd is negative, the
+// hidden flag and then the ACL of desired, each only where current, what it
+// holds, differs. They come after the attributes and the mode, as their
+// writes need neither, and the ACL comes last: an entry in it that denies its
+// owner writing extended attributes would stop that write (xnu's
+// vnode_authorize_callback), and its owner may set a flag and an ACL whatever
+// the mode and the ACL allow. path and h are as for writeImageAttributes.
+func writeImageSecurity(fd int, link, path string, current, desired Image, h holder) error {
+	if current.Hidden != desired.Hidden {
+		if err := platform.SetHidden(fd, link, desired.Hidden); err != nil {
+			return carryFailure(path, h, !desired.Hidden, "the hidden flag", err)
+		}
+	}
+	if !bytes.Equal(current.ACL, desired.ACL) {
+		if err := platform.SetFileSecurity(fd, link, desired.ACL); err != nil {
+			return carryFailure(path, h, desired.ACL == nil, "its ACL", err)
 		}
 	}
 	return nil

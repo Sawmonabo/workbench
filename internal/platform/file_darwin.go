@@ -2,6 +2,7 @@ package platform
 
 import (
 	"encoding/binary"
+	"slices"
 	"unsafe"
 
 	"golang.org/x/sys/unix"
@@ -60,11 +61,15 @@ const folderFlags uint32 = hiddenFlag
 // is no ACL), flags and 24-byte entries. An error is the call's errno, or
 // ErrUnsupportedACL for an unexpected layout, so a caller fails closed.
 //
+// ACL's Data is the kauth_filesec up to its last entry, the size setattrlist
+// takes; a list shorter than its entry count, or of more than 128 entries
+// (KAUTH_ACL_MAX_ENTRIES), fails as unsupported.
+//
 // x/sys/unix wraps setattrlist but not getattrlist or fgetattrlist, so they
 // go through libcCall6; switch once x/sys adds the wrappers. Each pointer
 // becomes a uintptr inside the call's argument list, as the unsafe rules
 // require.
-func fileSecurity(fd int, path string) (entries []ACE, present bool, err error) {
+func fileSecurity(fd int, path string) (ACL, error) {
 	attributes := unix.Attrlist{
 		Bitmapcount: unix.ATTR_BIT_MAP_COUNT,
 		Commonattr:  unix.ATTR_CMN_EXTENDED_SECURITY,
@@ -82,9 +87,9 @@ func fileSecurity(fd int, path string) (entries []ACE, present bool, err error) 
 			0,
 		)
 	} else {
-		pointer, pathErr := unix.BytePtrFromString(path)
-		if pathErr != nil {
-			return nil, false, pathErr
+		pointer, err := unix.BytePtrFromString(path)
+		if err != nil {
+			return ACL{}, err
 		}
 		_, _, errno = libcCall6(
 			getattrlist,
@@ -97,35 +102,114 @@ func fileSecurity(fd int, path string) (entries []ACE, present bool, err error) 
 		)
 	}
 	if errno != 0 {
-		return nil, false, errno
+		return ACL{}, errno
 	}
 	length := int(binary.LittleEndian.Uint32(data[0:4]))
 	offset := 4 + int(int32(binary.LittleEndian.Uint32(data[4:8])))
 	size := int(binary.LittleEndian.Uint32(data[8:12]))
 	if size == 0 {
-		return nil, false, nil
+		return ACL{}, nil
 	}
-	if length > len(data) || offset < 12 || size < 44 || offset+size > length {
-		return nil, false, ErrUnsupportedACL
+	if length > len(data) || offset < 12 || size < filesecHeader || offset+size > length {
+		return ACL{}, ErrUnsupportedACL
 	}
 	security := data[offset : offset+size]
 	count := binary.LittleEndian.Uint32(security[36:40])
-	if binary.LittleEndian.Uint32(security[:4]) != 0x012cc16d {
-		return nil, false, ErrUnsupportedACL
+	if binary.LittleEndian.Uint32(security[:4]) != filesecMagic {
+		return ACL{}, ErrUnsupportedACL
 	}
-	if count == 0xffffffff {
-		return nil, false, nil
+	if count == filesecNoACL {
+		return ACL{}, nil
 	}
-	if count > 128 || size < 44+24*int(count) {
-		return nil, false, ErrUnsupportedACL
+	if count > 128 || size < filesecHeader+aceSize*int(count) {
+		return ACL{}, ErrUnsupportedACL
 	}
-	entries = make([]ACE, count)
-	for i := range entries {
-		entry := security[44+24*i:]
-		entries[i] = ACE{
+	acl := ACL{
+		Data:    slices.Clone(security[:filesecHeader+aceSize*int(count)]),
+		Entries: make([]ACE, count),
+	}
+	for i := range acl.Entries {
+		entry := security[filesecHeader+aceSize*i:]
+		acl.Entries[i] = ACE{
 			Flags:  binary.LittleEndian.Uint32(entry[16:20]),
 			Rights: binary.LittleEndian.Uint32(entry[20:24]),
 		}
 	}
-	return entries, true, nil
+	return acl, nil
+}
+
+// The kauth_filesec layout of sys/kauth.h: its magic, the entry count that
+// means no ACL, the bytes before the first entry (the magic, owner and group
+// GUIDs, entry count and flags) and one kauth_ace's.
+const (
+	filesecMagic  = 0x012cc16d
+	filesecNoACL  = 0xffffffff
+	filesecHeader = 44
+	aceSize       = 24
+)
+
+// setFileSecurity writes data, or a kauth_filesec of KAUTH_FILESEC_NOACL
+// entries for nil, as ATTR_CMN_EXTENDED_SECURITY with fsetattrlist, or
+// setattrlist with FSOPT_NOFOLLOW for a path. Its buffer is the attribute's
+// attrreference, whose offset counts from the reference itself, then the
+// kauth_filesec, whose size setattrlist checks against the entry count it
+// holds (vfs_attrlist.c). x/sys/unix wraps setattrlist but not fsetattrlist,
+// which goes through libcCall6, its pointers becoming uintptrs inside the
+// call's argument list, as the unsafe rules require.
+func setFileSecurity(fd int, path string, data []byte) error {
+	if data == nil {
+		data = make([]byte, filesecHeader)
+		binary.LittleEndian.PutUint32(data[:4], filesecMagic)
+		binary.LittleEndian.PutUint32(data[36:40], filesecNoACL)
+	}
+	buffer := make([]byte, 8+len(data))
+	binary.LittleEndian.PutUint32(buffer[:4], 8)
+	binary.LittleEndian.PutUint32(buffer[4:8], uint32(len(data)))
+	copy(buffer[8:], data)
+	return setAttributes(fd, path, unix.ATTR_CMN_EXTENDED_SECURITY, buffer)
+}
+
+// setHidden sets or clears UF_HIDDEN in the flags fstat, or lstat for a
+// path, reads, with fchflags, or setattrlist's ATTR_CMN_FLAGS and
+// FSOPT_NOFOLLOW for a path, which is how libSystem's lchflags changes a
+// link's own flags.
+func setHidden(fd int, path string, hidden bool) error {
+	flags, err := fileFlags(fd, path)
+	if err != nil {
+		return err
+	}
+	if hidden {
+		flags |= hiddenFlag
+	} else {
+		flags &^= hiddenFlag
+	}
+	if path == "" {
+		return unix.Fchflags(fd, int(flags))
+	}
+	buffer := make([]byte, 4)
+	binary.LittleEndian.PutUint32(buffer, flags)
+	return setAttributes(-1, path, unix.ATTR_CMN_FLAGS, buffer)
+}
+
+// setAttributes writes the common attribute common from buffer with
+// fsetattrlist on fd, or setattrlist with FSOPT_NOFOLLOW on path when path is
+// not empty.
+func setAttributes(fd int, path string, common uint32, buffer []byte) error {
+	attributes := unix.Attrlist{Bitmapcount: unix.ATTR_BIT_MAP_COUNT, Commonattr: common}
+	if path != "" {
+		return unix.Setattrlist(path, &attributes, buffer, unix.FSOPT_NOFOLLOW)
+	}
+	_, _, errno := libcCall6(
+		fsetattrlist,
+		uintptr(fd),
+		uintptr(unsafe.Pointer(&attributes)),
+		uintptr(unsafe.Pointer(&buffer[0])),
+		uintptr(len(buffer)),
+		0,
+		0,
+	)
+	if errno != 0 {
+		return errno
+	}
+	return nil
 }

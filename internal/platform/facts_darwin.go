@@ -75,11 +75,17 @@ const groupFromFolder = true
 // extended attributes, and FileSecurity reads it.
 const aclsAreAttributes = false
 
+// accessACLAttribute is empty: macOS keeps ACLs apart from the attributes.
+const accessACLAttribute = ""
+
 // defaultACLAttribute is empty: macOS marks an ACL entry inherited instead.
 const defaultACLAttribute = ""
 
 // labelAttribute is empty: no macOS attribute holds a security label.
 const labelAttribute = ""
+
+// capabilityAttribute is empty: macOS has no file capabilities.
+const capabilityAttribute = ""
 
 // touchIDPossible is true: sudo can be set up to ask for Touch ID here.
 const touchIDPossible = true

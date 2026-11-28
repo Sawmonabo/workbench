@@ -62,9 +62,11 @@ func enforceNativeMetadata(
 	current := Image{Kind: observed.Kind, Mode: uint32(stat.Mode) & 0o777}
 	currentGroup := uint32(stat.Gid)
 	current.Group = &currentGroup
-	if err = c.openMetadata(fd, path, observed.Kind == ImageDirectory); err != nil {
+	held, err := c.openMetadata(fd, path, observed.Kind == ImageDirectory)
+	if err != nil {
 		return err
 	}
+	current.ACL, current.Hidden = held.acl, held.hidden
 	current.Attributes, err = readImageAttributes(
 		fd,
 		path,
@@ -99,7 +101,8 @@ func enforceNativeMetadata(
 }
 
 // writeDirectoryImage creates name when absent, then sets the desired
-// attributes, group and mode through a descriptor. It never replaces a
+// attributes, group, mode, hidden flag and ACL through a descriptor, each
+// that differs from current, the image it holds. It never replaces a
 // non-directory.
 func writeDirectoryImage(fd int, name, path string, current, desired Image) error {
 	if current.Kind != ImageAbsent && current.Kind != ImageDirectory {
@@ -122,6 +125,7 @@ func writeDirectoryImage(fd int, name, path string, current, desired Image) erro
 	defer func() { _ = unix.Close(directoryFD) }()
 	if err = writeImageAttributes(
 		directoryFD,
+		"",
 		path,
 		desired.Attributes,
 		changedFolder,
@@ -131,14 +135,17 @@ func writeDirectoryImage(fd int, name, path string, current, desired Image) erro
 	if err = setImageGroup(directoryFD, *desired.Group); err != nil {
 		return err
 	}
-	return unix.Fchmod(directoryFD, desired.Mode)
+	if err = unix.Fchmod(directoryFD, desired.Mode); err != nil {
+		return err
+	}
+	return writeImageSecurity(directoryFD, "", path, current, desired, changedFolder)
 }
 
 // stageLinkImage creates the desired symlink at temporary beside path, with
-// its group, attributes and mode, ready to replace the target. Each is set on
-// the link itself, never on the file it points to. The mode comes last: on
-// macOS writing a link's attributes needs its owner's write permission, which
-// the desired mode may not give.
+// its group, attributes, mode, hidden flag and ACL, ready to replace the
+// target. Each is set on the link itself, never on the file it points to.
+// The mode follows the attributes: on macOS writing a link's attributes needs
+// its owner's write permission, which the desired mode may not give.
 func stageLinkImage(fd int, temporary, path string, desired Image) error {
 	if err := unix.Symlinkat(desired.Link, fd, temporary); err != nil {
 		return err
@@ -154,17 +161,27 @@ func stageLinkImage(fd int, temporary, path string, desired Image) error {
 		}
 	}
 	link := filepath.Join(filepath.Dir(path), temporary)
-	if err := writeImageAttributes(-1, link, desired.Attributes, replacedLink); err != nil {
+	if err := writeImageAttributes(-1, link, path, desired.Attributes, replacedLink); err != nil {
 		return err
 	}
-	if uint32(stat.Mode)&0o777 == desired.Mode {
-		return nil
+	if uint32(stat.Mode)&0o777 != desired.Mode {
+		if err := platform.SetLinkMode(fd, temporary, desired.Mode); err != nil {
+			return err
+		}
 	}
-	return platform.SetLinkMode(fd, temporary, desired.Mode)
+	return writeImageSecurity(-1, link, path, Image{}, desired, replacedLink)
 }
 
-// stageFileImage writes the desired bytes, group, mode and attributes to a new
-// private file at temporary and syncs it, ready to replace the target.
+// stageFileImage writes the desired bytes, group, attributes, mode, hidden
+// flag and ACL to a new private file at temporary and syncs it, ready to
+// replace the target. The attributes come before the mode: writing them needs
+// write permission, on Linux for a user.* attribute (xattr_permission in
+// fs/xattr.c) and on macOS for any, which the desired mode may not give; and
+// on Linux setting an ACL's attribute sets the mode from the ACL
+// (posix_acl_update_mode), so the mode set after it is the image's, with the
+// ACL's mask rewritten from it as chmod rewrites it (posix_acl_chmod). A new
+// file holds no ACL and no flag: the folder rules refuse a folder whose ACL
+// passes to the files made in it.
 func stageFileImage(fd int, temporary, path string, desired Image) error {
 	flags := unix.O_WRONLY | unix.O_CREAT | unix.O_EXCL | unix.O_NOFOLLOW | unix.O_CLOEXEC
 	fileFD, err := unix.Openat(fd, temporary, flags, 0o600)
@@ -177,10 +194,13 @@ func stageFileImage(fd int, temporary, path string, desired Image) error {
 		err = setImageGroup(fileFD, *desired.Group)
 	}
 	if err == nil {
+		err = writeImageAttributes(fileFD, "", path, desired.Attributes, replacedFile)
+	}
+	if err == nil {
 		err = file.Chmod(os.FileMode(desired.Mode))
 	}
 	if err == nil {
-		err = writeImageAttributes(fileFD, path, desired.Attributes, replacedFile)
+		err = writeImageSecurity(fileFD, "", path, Image{}, desired, replacedFile)
 	}
 	if err == nil {
 		err = file.Sync()
@@ -189,6 +209,30 @@ func stageFileImage(fd int, temporary, path string, desired Image) error {
 		err = closeErr
 	}
 	return err
+}
+
+// carryFailure is the failure of giving what to the file or link Workbench
+// writes in place of path, or the folder path itself, as h says, or of taking
+// it off when remove, which the system refused with err. It names the
+// metadata, never its value.
+func carryFailure(path string, h holder, remove bool, what string, err error) error {
+	shown := display.Path(path)
+	subject := shown
+	switch h {
+	case replacedFile:
+		subject = "the file Workbench writes in place of " + shown
+	case replacedLink:
+		subject = "the link Workbench writes in place of " + shown
+	case changedFolder, parentFolder:
+	}
+	message := "Cannot give " + subject + " " + what + ": " + err.Error()
+	if remove {
+		message = "Cannot take " + what + " off " + subject + ": " + err.Error()
+	}
+	if h.replaced() {
+		message += ", so Workbench left " + shown + " as it is"
+	}
+	return Fail(ExitBlocked, "metadata", message)
 }
 
 func writeImage(c Context, path string, expected, desired Image) error {

@@ -70,6 +70,13 @@ const GroupFromFolder = groupFromFolder
 // attributes, and false on macOS, whose ACLs FileSecurity reads.
 const ACLsAreAttributes = aclsAreAttributes
 
+// AccessACLAttribute is the extended attribute that holds a file's ACL where
+// ACLs are extended attributes: system.posix_acl_access on Linux, setting
+// which also sets the mode's permission bits from the ACL
+// (posix_acl_update_mode in fs/posix_acl.c), and empty on macOS, whose ACLs
+// FileSecurity reads.
+const AccessACLAttribute = accessACLAttribute
+
 // DefaultACLAttribute is the extended attribute that holds a folder's default
 // ACL, which each file and folder made in it inherits:
 // system.posix_acl_default on Linux, and empty on macOS, whose inherited ACL
@@ -82,6 +89,13 @@ const DefaultACLAttribute = defaultACLAttribute
 // label stays on disk while SELinux is off, and empty on macOS, whose files
 // carry no such attribute.
 const LabelAttribute = labelAttribute
+
+// CapabilityAttribute is the extended attribute that holds a program's file
+// capabilities, the privileges it gets when it runs, which only a process
+// with CAP_SETFCAP may set (cap_inode_setxattr in security/commoncap.c), so
+// a user could not set it back: security.capability on Linux, and empty on
+// macOS, which has none.
+const CapabilityAttribute = capabilityAttribute
 
 // TouchIDPossible reports whether sudo can be set up to ask for Touch ID
 // here: true on macOS, false on Linux.

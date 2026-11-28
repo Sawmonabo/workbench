@@ -247,10 +247,10 @@ func (p *preparation) folderMode(c operation.Context, target string, action byte
 		)
 	}
 	// Revert must be able to restore the mode, so the checkpoint has to record
-	// the folder. It admits what macOS puts on ~/Library/Application Support
-	// (the "deny delete" ACL) and on ~/Library above it (the hidden flag, the
-	// same ACL); a folder with other flags, ACLs or attributes is refused with
-	// the chmod to run.
+	// the folder, with its attributes, ACL and hidden flag, such as the "deny
+	// delete" ACL macOS puts on ~/Library/Application Support and the hidden
+	// flag on ~/Library. A folder whose flags or ACL the folder rules refuse
+	// (containerMetadata) is refused with the chmod to run.
 	if _, err = operation.ReadImage(c, target); err != nil {
 		// A refusal names the folder and its cause in its own words; another
 		// error is said after the folder.

@@ -40,8 +40,22 @@ func renameAt(fd int, from, to string, exclusive bool) error {
 // fileSecurity reports no ACL: Linux keeps POSIX ACLs as the extended
 // attributes system.posix_acl_access and system.posix_acl_default, which
 // ExtendedAttributeNames lists.
-func fileSecurity(_ int, _ string) (entries []ACE, present bool, err error) {
-	return nil, false, nil
+func fileSecurity(_ int, _ string) (ACL, error) { return ACL{}, nil }
+
+// setFileSecurity has no ACL to write but nil, which is none.
+func setFileSecurity(_ int, _ string, data []byte) error {
+	if data != nil {
+		return unix.EOPNOTSUPP
+	}
+	return nil
+}
+
+// setHidden has no hidden flag to set.
+func setHidden(_ int, _ string, hidden bool) error {
+	if hidden {
+		return unix.EOPNOTSUPP
+	}
+	return nil
 }
 
 // fileFlags reads fd's inode flags with FS_IOC_GETFLAGS, whose answer the
