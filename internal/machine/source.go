@@ -256,7 +256,8 @@ func SourceSnapshot(
 		return nil, operation.SourceIdentity{}, operation.Fail(
 			operation.ExitBlocked,
 			"source",
-			"No verified Workbench release is active; install one with workbench update before planning",
+			"No verified Workbench release is active",
+			operation.Fix("workbench", "update"),
 		)
 	}
 	files, err := readSource(source)
@@ -287,7 +288,8 @@ func SourceSnapshot(
 		return nil, operation.SourceIdentity{}, operation.Fail(
 			operation.ExitBlocked,
 			"source_trust",
-			"Release source has no release.json identity; reinstall the release",
+			"The active release has no release.json",
+			operation.FixText("reinstall the release"),
 		)
 	}
 }

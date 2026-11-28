@@ -77,10 +77,7 @@ func MergeVSCodeSettings(existing, managedJSON []byte) ([]byte, error) {
 	}
 	merged := slices.Concat(prefix, doc.Pack())
 	if !yieldsSettings(merged[len(prefix):], want) {
-		return nil, refuseVSCode(
-			"it could not be updated without changing anything else " +
-				"(the edit did not give the old settings plus the managed ones)",
-		)
+		return nil, refuseVSCode("the edit would change more than the managed settings")
 	}
 	return merged, nil
 }

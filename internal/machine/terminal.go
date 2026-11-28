@@ -59,10 +59,7 @@ func SetTerminalDefault(existing []byte, guid, name string) ([]byte, error) {
 	want["defaultProfile"] = guid
 	edited := slices.Concat(prefix, doc.Pack())
 	if !yieldsSettings(edited[len(prefix):], want) {
-		return nil, refuseTerminal(
-			"it could not be updated without changing anything else " +
-				"(the edit did not give the old settings with only defaultProfile changed)",
-		)
+		return nil, refuseTerminal("the edit would change more than defaultProfile")
 	}
 	return edited, nil
 }

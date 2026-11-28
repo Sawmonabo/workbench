@@ -119,7 +119,8 @@ func Doctor(ctx context.Context, c operation.Context) ([]operation.Component, er
 				operation.ExitBlocked,
 				"dependency",
 				"Doctor found something Workbench cannot run without",
-				operation.Cause("each line marked blocked names it; doctor repaired nothing"),
+				operation.Cause("each line marked blocked names it"),
+				operation.Changed("nothing"),
 			)
 		}
 	}

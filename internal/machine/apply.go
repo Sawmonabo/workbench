@@ -14,7 +14,7 @@ import (
 // NothingToApply is the message of the unchanged configuration result when
 // every file matches and the selection equals the saved one, so Apply returned
 // before approving or writing anything.
-const NothingToApply = "Every file already matches and no effect is checked; nothing to apply"
+const NothingToApply = "Every file already matches and no effect is checked"
 
 // Apply shares native preparation with preview and obtains fresh exact images
 // under the operation locks before granting the native engine write authority.
@@ -196,7 +196,7 @@ func (a *applyRun) withoutCheckpoint(state *operation.State) error {
 			return operation.Fail(
 				operation.ExitPartial,
 				"state",
-				"Apply completed; configuration identity finalization failed",
+				"Cannot record the finished apply in Workbench's state",
 			)
 		}
 	}
@@ -281,7 +281,8 @@ func (a *applyRun) withCheckpoint(state *operation.State) error {
 		return operation.Fail(
 			operation.ExitPartial,
 			"state",
-			"Configuration applied; state finalization failed, retained checkpoint remains available",
+			"Cannot record the finished apply in Workbench's state",
+			operation.Kept("the apply's checkpoint"),
 		)
 	}
 	if err = a.saveSelection(plan); err != nil {
@@ -329,7 +330,7 @@ func (a *applyRun) saveSelection(plan operation.Plan) error {
 		return operation.Fail(
 			operation.ExitPartial,
 			"state",
-			"Applied; saving the effect selection failed",
+			"Cannot save the finished apply's step choices",
 		)
 	}
 	return nil
@@ -386,15 +387,21 @@ func provisioningFailure(c operation.Context, err error) error {
 		return operation.Fail(
 			operation.ExitInterrupted,
 			"interrupted",
-			"Interrupted; what already ran is kept, and running "+c.WorkbenchCommand()+
-				" apply again finishes the rest.",
+			"Interrupted",
+			operation.Kept("what already ran"),
+			operation.FixText(c.WorkbenchCommand()+" apply"),
 		)
 	}
-	return operation.Fail(
+	headline, body := operation.Explained(err)
+	return operation.FailWith(
 		operation.ExitPartial,
 		"partial",
-		"Setup did not finish ("+err.Error()+"); the other steps ran and what they did is kept. "+
-			"The output above says why; fix that, then run "+c.WorkbenchCommand()+" apply again.",
+		"Setup did not finish",
+		operation.Explain(operation.Cause(headline)).With(body).With(operation.Explain(
+			operation.Kept("what the other steps did"),
+			operation.FixText("correct what the output above names"),
+			operation.FixText(c.WorkbenchCommand()+" apply"),
+		)),
 	)
 }
 
@@ -415,7 +422,8 @@ func (a *applyRun) reportEffects(plan operation.Plan) error {
 		operation.ExitBlocked,
 		"effects",
 		"A step could not be done (marked blocked above)",
-		operation.Changed("everything else; the next apply tries the step again"),
+		operation.Changed("everything else"),
+		operation.FixText(a.c.WorkbenchCommand()+" apply"),
 	)
 }
 

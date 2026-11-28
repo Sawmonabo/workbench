@@ -136,10 +136,7 @@ func checkMbx(
 	case ticked && newerDotted(pin.Version, have):
 		line.Status = operation.StatusPending
 		line.Message = "mbx " + have + " in ~/.local/bin (pinned " + pin.Version + ")"
-		line.Body = operation.Explain(
-			operation.Line{Label: "apply", Text: "installs " + pin.Version},
-			operation.Fix("workbench", "apply"),
-		)
+		line.Body = operation.Explain(operation.Fix("workbench", "apply"))
 	default:
 		line.Message = "mbx " + have + " in ~/.local/bin (pinned " + pin.Version + ")"
 	}
@@ -589,8 +586,11 @@ func staleSelectionWarnings(saved Selection, effects []operation.Effect) []opera
 		) {
 			warnings = append(
 				warnings,
-				operation.Warn("Saved choice "+name+" is not offered here and is "+
-					"ignored; workbench apply --reset forgets it"),
+				operation.Warn(
+					"Saved choice "+name+" is not offered here",
+					operation.Outcome("it is ignored"),
+					operation.Fix("workbench", "apply", "--reset"),
+				),
 			)
 		}
 	}

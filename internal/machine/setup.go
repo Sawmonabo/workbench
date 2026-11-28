@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"slices"
 
+	"github.com/Sawmonabo/workbench/internal/display"
 	"github.com/Sawmonabo/workbench/internal/operation"
 	"github.com/Sawmonabo/workbench/internal/release"
 )
@@ -121,7 +122,8 @@ func keepIdentical(target string, data []byte, mode os.FileMode) error {
 	differs := operation.Fail(
 		operation.ExitConflict,
 		"dependency_conflict",
-		"Existing private tool differs; it was retained",
+		display.Path(target)+" differs from the tool Workbench installs",
+		operation.Kept("the file as it is"),
 	)
 	file, err := operation.OpenRegularFile(target)
 	if err != nil {
@@ -160,7 +162,8 @@ func writeNewOrIdentical(target string, data []byte, mode os.FileMode) error {
 			return operation.Fail(
 				operation.ExitConflict,
 				"dependency_conflict",
-				"Unexpected entry "+partial+" beside a private tool; it was retained",
+				"Unexpected "+display.Path(partial)+" beside a tool Workbench installs",
+				operation.Kept("the entry as it is"),
 			)
 		}
 		if err = os.Remove(partial); err != nil {
@@ -203,7 +206,8 @@ func writeNewOrIdentical(target string, data []byte, mode os.FileMode) error {
 		return operation.Fail(
 			operation.ExitConflict,
 			"dependency_conflict",
-			"A private tool appeared while it was being installed; it was retained",
+			display.Path(target)+" appeared while Workbench installed it",
+			operation.Kept("the file that appeared"),
 		)
 	}
 	if err != nil {

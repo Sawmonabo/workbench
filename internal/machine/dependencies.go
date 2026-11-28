@@ -181,7 +181,8 @@ func probeVersion(ctx context.Context, c operation.Context, name, path string) (
 		return "", operation.Fail(
 			operation.ExitFailed,
 			"dependency",
-			"Version/capability probe failed; existing tool retained",
+			"Cannot read the version of "+name,
+			operation.Kept("the installed "+name),
 		)
 	}
 	return toolVersion.FindString(output.Stdout), nil

@@ -73,7 +73,8 @@ func readSelection(raw []byte) (Selection, error) {
 		return Selection{}, operation.Fail(
 			operation.ExitInvalid,
 			"answers",
-			"Machine answers are not valid TOML; original input retained",
+			"Machine answers are not valid TOML",
+			operation.Kept("the original input"),
 		)
 	}
 	// Until migration 0006 has renamed them in the file, the saved choices

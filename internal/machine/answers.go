@@ -55,14 +55,16 @@ func decodeAnswers(raw []byte) (Answers, error) {
 		return nil, operation.Fail(
 			operation.ExitInvalid,
 			"answers",
-			"Machine answers are not valid TOML; original input retained",
+			"Machine answers are not valid TOML",
+			operation.Kept("the original input"),
 		)
 	}
 	if config["data"] == nil {
 		return nil, operation.Fail(
 			operation.ExitInvalid,
 			"answers",
-			"Machine config must contain a [data] table; adopt answers without native hooks or commands",
+			"Machine config must contain a [data] table",
+			operation.FixText("keep the answers in a [data] table, without hooks or commands"),
 		)
 	}
 	for key := range config {
@@ -70,7 +72,8 @@ func decodeAnswers(raw []byte) (Answers, error) {
 			return nil, operation.Fail(
 				operation.ExitInvalid,
 				"answers",
-				"Machine config may contain only [data] and [effects] tables; adopt answers without native hooks or commands",
+				"Machine config may contain only [data] and [effects] tables",
+				operation.FixText("remove the other tables, with any hooks or commands"),
 			)
 		}
 	}
@@ -127,11 +130,8 @@ func CheckAsk(c operation.Context, ask []string) error {
 			return operation.Fail(
 				operation.ExitInvalid,
 				"ask",
-				fmt.Sprintf(
-					"%q is not one of this machine's answers; answers ask takes %s",
-					key,
-					strings.Join(askable, ", "),
-				),
+				fmt.Sprintf("%q is not one of this machine's answers", key),
+				operation.Line{Label: "takes", Text: strings.Join(askable, ", ")},
 			)
 		}
 	}
@@ -146,8 +146,8 @@ func Askable(c operation.Context) ([]string, error) {
 		return nil, operation.Fail(
 			operation.ExitInvalid,
 			"ask",
-			"answers ask changes saved answers, and this machine has none; "+
-				c.WorkbenchCommand()+" apply asks every question",
+			"This machine has no saved answers for answers ask to change",
+			operation.FixText(c.WorkbenchCommand()+" apply"),
 		)
 	}
 	answers, err := readAnswers(raw)
@@ -172,8 +172,9 @@ func validateAnswers(c operation.Context, a Answers) error {
 		return operation.Fail(
 			operation.ExitInvalid,
 			"answers",
-			"Machine answers have keys Workbench does not ask for: "+strings.Join(unknown, ", ")+
-				"; remove them from the [data] table",
+			"Machine answers have keys Workbench does not ask for",
+			operation.Line{Label: "keys", Text: strings.Join(unknown, ", ")},
+			operation.FixText("remove them from the [data] table"),
 		)
 	}
 	return answerMissing(c, operation.ExitInvalid, a, a.invalidKey())
@@ -188,17 +189,22 @@ func answerMissing(c operation.Context, code operation.Exit, a Answers, key stri
 		return nil
 	}
 	command := c.WorkbenchCommand()
-	message := "Machine answer " + key + " is missing; " + command + " apply at a terminal, " +
-		"without --local-build, asks it, or save it with " + command + " answers import FILE"
-	if _, saved := a[key]; saved && slices.Contains(derivedAnswers, key) {
-		message = "Machine answer " + key + " does not match machine_role or this host; " +
-			"save the answers again with " + command + " answers import FILE"
-	} else if saved {
-		message = "Machine answer " + key + " is invalid; " + command + " answers ask " + key +
-			" asks it again at a terminal, or save a valid one with " + command +
-			" answers import FILE"
+	message := "Machine answer " + key + " is missing"
+	fixes := []operation.Part{
+		operation.FixText("run " + command + " apply at a terminal, without --local-build"),
+		operation.FixText("or " + command + " answers import FILE"),
 	}
-	return operation.Fail(code, "answers", message)
+	if _, saved := a[key]; saved && slices.Contains(derivedAnswers, key) {
+		message = "Machine answer " + key + " does not match machine_role or this host"
+		fixes = []operation.Part{operation.FixText(command + " answers import FILE")}
+	} else if saved {
+		message = "Machine answer " + key + " is invalid"
+		fixes = []operation.Part{
+			operation.FixText("run " + command + " answers ask " + key + " at a terminal"),
+			operation.FixText("or " + command + " answers import FILE"),
+		}
+	}
+	return operation.Fail(code, "answers", message, fixes...)
 }
 
 // Unasked refuses (exit 3) the saved answers in seed when the questionnaire

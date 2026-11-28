@@ -212,7 +212,8 @@ func acquireTool(
 		return operation.Dependency{}, operation.Fail(
 			operation.ExitInvalid,
 			"dependency_trust",
-			"Management archive checksum mismatch; executable was not used",
+			"The downloaded "+name+" does not match its pinned checksum",
+			operation.Outcome("Workbench did not use it"),
 		)
 	}
 	binary, err := toolArchive(data, name)
@@ -513,7 +514,8 @@ func TomlkitPath(c operation.Context, requirements Requirements) (string, error)
 			return operation.Fail(
 				operation.ExitBlocked,
 				"tomlkit",
-				"Unexpected private library files or links; refuse Python imports",
+				"Unexpected "+name+" in Workbench's TOML Kit",
+				operation.Outcome("Workbench imports nothing from it"),
 			)
 		}
 		return nil

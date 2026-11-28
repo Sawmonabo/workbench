@@ -327,12 +327,12 @@ func (p *preparation) checkPrerequisites(
 	if !found {
 		command := c.WorkbenchCommand()
 		fixes := []operation.Part{
-			operation.FixText("run " + command + " apply at a terminal to answer them"),
-			operation.FixText(command + " answers import FILE"),
+			operation.FixText("run " + command + " apply at a terminal"),
+			operation.FixText("or " + command + " answers import FILE"),
 		}
 		if c.Native.Developer {
 			// apply --local-build never asks the questions.
-			fixes = fixes[1:]
+			fixes = []operation.Part{operation.FixText(command + " answers import FILE")}
 		}
 		return nil, operation.Fail(
 			operation.ExitBlocked,

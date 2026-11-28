@@ -62,7 +62,10 @@ func (p *preparation) planUpdates(
 	if err != nil {
 		p.Plan.Warnings = append(
 			p.Plan.Warnings,
-			operation.Warn("Updates were not checked; Homebrew's outdated check failed"),
+			operation.Warn(
+				"Updates were not checked",
+				operation.Cause("Homebrew's outdated check failed"),
+			),
 		)
 		return
 	}

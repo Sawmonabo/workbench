@@ -156,7 +156,8 @@ func (p *preparation) planAgentUpdates(
 		p.Plan.Warnings = append(
 			p.Plan.Warnings,
 			operation.Warn(
-				"Codex and Claude Code updates were not checked; versions.toml could not be read",
+				"Codex and Claude Code updates were not checked",
+				operation.Cause("versions.toml could not be read"),
 			),
 		)
 		return
@@ -179,7 +180,7 @@ func (p *preparation) planAgentUpdates(
 					operation.Line{
 						Label: "copies",
 						Text: strings.Join(
-							append([]string{install.path}, install.others...),
+							showPaths(c, append([]string{install.path}, install.others...)),
 							", ",
 						),
 					},
@@ -211,11 +212,23 @@ func (p *preparation) planAgentUpdates(
 			})
 			continue
 		}
-		warning := agent.name + " at " + install.path + " did not come from npm in nvm's default Node or from its own installer; Workbench leaves its updates to you"
+		why := []operation.Part{operation.Cause(
+			"it did not come from npm in nvm's default Node or from its own installer",
+		)}
 		if install.launcher != "" {
-			warning = agent.name + " at " + install.path + " runs its installer's release through a launcher of your own, which the installer leaves alone (its own is " + install.launcher + "); Workbench leaves its updates to you"
+			why = []operation.Part{
+				operation.Cause("it runs its installer's release through a launcher of your " +
+					"own, which the installer leaves alone"),
+				operation.Line{Label: "installer's launcher", Text: c.ShowPath(install.launcher)},
+			}
 		}
-		p.Plan.Warnings = append(p.Plan.Warnings, operation.Warn(warning))
+		p.Plan.Warnings = append(
+			p.Plan.Warnings,
+			operation.Warn(
+				"Workbench leaves "+agent.name+" at "+c.ShowPath(install.path)+" to you",
+				why...,
+			),
+		)
 	}
 	wg.Wait()
 	for i, agent := range agents {
@@ -225,15 +238,17 @@ func (p *preparation) planAgentUpdates(
 			p.Plan.Warnings = append(
 				p.Plan.Warnings,
 				operation.Warn(
-					agent.name+" updates were not checked; the newest version on its "+channels[i]+
-						" channel could not be looked up",
+					agent.name+" updates were not checked",
+					operation.Cause("the newest version on its "+channels[i]+
+						" channel could not be looked up"),
 				),
 			)
 		case targets[i] == "":
 			p.Plan.Warnings = append(
 				p.Plan.Warnings,
 				operation.Warn(
-					agent.name+" updates were not checked; versions.toml does not pin "+agent.pin+" to a version",
+					agent.name+" updates were not checked",
+					operation.Cause("versions.toml does not pin "+agent.pin+" to a version"),
 				),
 			)
 		case installs[i].method == "native" && p.claudeFloorAbove(c.Home, targets[i]):
@@ -255,8 +270,9 @@ func (p *preparation) claudeFloorAbove(home, target string) bool {
 	p.Plan.Warnings = append(
 		p.Plan.Warnings,
 		operation.Warn(
-			"Claude Code is not updated to "+target+": its settings set minimumVersion "+minimum+
-				", below which claude install installs nothing",
+			"Claude Code is not updated to "+target,
+			operation.Cause("its settings set minimumVersion "+minimum+
+				", below which claude install installs nothing"),
 		),
 	)
 	return true
@@ -275,7 +291,9 @@ func (p *preparation) planAgentUpdate(
 		p.Plan.Warnings = append(
 			p.Plan.Warnings,
 			operation.Warn(
-				agent.name+" "+install.version+" was not compared with "+target+", which are not both version numbers; it is left as it is",
+				agent.name+" "+install.version+" was not compared with "+target,
+				operation.Cause("they are not both version numbers"),
+				operation.Outcome("it is left as it is"),
 			),
 		)
 		return
@@ -691,7 +709,7 @@ func (p *preparation) agentEnvironment(
 			stop()
 			if err != nil {
 				if err = reportBlocked(report, name, fmt.Sprintf(
-					"Claude Code was not updated to %s: its signed release manifest could not be checked (%s); the next apply tries again",
+					"Claude Code %s's signed release manifest could not be checked (%s)",
 					update.version,
 					strings.Join(strings.Fields(err.Error()), " "),
 				)); err != nil {
@@ -714,6 +732,15 @@ func (p *preparation) agentEnvironment(
 		return environment, nil
 	}
 	return append(environment, "WORKBENCH_AGENT_UPDATES="+strings.Join(updates, " ")), nil
+}
+
+// showPaths is each of paths as people read it, from c's home.
+func showPaths(c operation.Context, paths []string) []string {
+	shown := make([]string, len(paths))
+	for i, path := range paths {
+		shown[i] = c.ShowPath(path)
+	}
+	return shown
 }
 
 // reportBlocked records in report, the file the scripts report to, that the
