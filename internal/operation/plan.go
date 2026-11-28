@@ -231,7 +231,7 @@ type Consent struct {
 	CompleteInputs bool
 	// Replan is the commands that make and approve a new plan of the same
 	// run, the fix lines of a refusal of a plan nobody approved and of an
-	// approval that no longer matches.
+	// approval that does not match the plan as it is.
 	Replan []Part
 	// Confirm must display the same plan and only prompt on an actual terminal,
 	// and give up with ctx's error when ctx ends. JSON/noninteractive callers
