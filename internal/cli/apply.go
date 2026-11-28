@@ -293,10 +293,12 @@ func applyMachine(
 // approvedPlan is, for an apply given --approve-plan DIGEST, the plan as apply
 // --dry-run makes it, from the machine as it is, and an error unless DIGEST
 // is that plan's: setup has not run, so one that does not match is refused
-// before anything is downloaded, installed, saved, locked or given a mode, and
-// a tool the plan needs that is missing gets the dry run's refusal. The plan
-// that matches is the one applied, which the apply checks again under its
-// locks. Without --approve-plan it plans nothing and gives an empty plan.
+// before anything is downloaded, installed, saved, locked or given a mode, but
+// for a folder of Workbench's own files its owner may not read or search,
+// which the plan reads and so gives 0700, and a tool the plan needs that is
+// missing gets the dry run's refusal. The plan that matches is the one
+// applied, which the apply checks again under its locks. Without
+// --approve-plan it plans nothing and gives an empty plan.
 func approvedPlan(cmd *cobra.Command, c operation.Context, o *options) (operation.Plan, error) {
 	if o.approvePlan == "" {
 		return operation.Plan{}, nil

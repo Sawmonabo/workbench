@@ -57,8 +57,9 @@ using.
   neither the group nor other users may write in, on the machine's own file
   system, and one that is not is refused in the same words at both paths;
   an entry that writes at the new path sets such a folder to 0700 when it is
-  not, at the old path the checks make and change nothing, and a folder the
-  release before made there passes them. Every entry that asks
+  not, at the old path the checks make nothing and change nothing but the
+  mode of a folder its owner may not read or search, which gets 0700, and a
+  folder the release before made there passes them. Every entry that asks
   whether a watcher or an import holds a lock (that function, a pre hook,
   `workbench migrate` and `doctor`, `agent costs status`) asks with a shared
   lock taken without waiting for an instant: only an exclusive lock refuses

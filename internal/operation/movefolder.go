@@ -83,7 +83,7 @@ func CanMoveFolder(from, to string) (can bool, err error) {
 	}
 	if info, err := os.Lstat(from); err != nil {
 		return false, err
-	} else if err = trustedFolder("permissions", from, info, -1); err != nil {
+	} else if err = trustedFolder("permissions", from, info, -1, from); err != nil {
 		return false, err
 	}
 	if swaps, err := platform.CanSwap(from); err == nil && !swaps {

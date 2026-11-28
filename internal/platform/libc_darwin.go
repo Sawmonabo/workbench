@@ -12,12 +12,13 @@ import (
 // through the runtime's syscall.syscall6 and the trampolines in libc_darwin.s,
 // whose addresses these variables hold.
 var (
-	getattrlist, fgetattrlist, fsetattrlist, procPidRusage uintptr
-	procPidinfo, procListChildPids, hostStatistics64       uintptr
-	machHostSelf, sysctl, mbrUIDToUUID                     uintptr
+	getattrlist, getattrlistat, fgetattrlist, fsetattrlist uintptr
+	procPidRusage, procPidinfo, procListChildPids          uintptr
+	hostStatistics64, machHostSelf, sysctl, mbrUIDToUUID   uintptr
 )
 
 //go:cgo_import_dynamic libc_getattrlist getattrlist "/usr/lib/libSystem.B.dylib"
+//go:cgo_import_dynamic libc_getattrlistat getattrlistat "/usr/lib/libSystem.B.dylib"
 //go:cgo_import_dynamic libc_fgetattrlist fgetattrlist "/usr/lib/libSystem.B.dylib"
 //go:cgo_import_dynamic libc_fsetattrlist fsetattrlist "/usr/lib/libSystem.B.dylib"
 //go:cgo_import_dynamic libc_proc_pid_rusage proc_pid_rusage "/usr/lib/libSystem.B.dylib"

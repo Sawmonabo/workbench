@@ -67,13 +67,13 @@ Distinguish implemented code, observed checks and unqualified release targets.
   again (ADR 0020). A second exception: Workbench gives its own files the
   mode it makes them with. A folder of its own files that is this user's and
   that neither its group nor other users can write in, by its mode or its
-  ACL, gets mode 0700 from a command that writes there, also one its owner
-  cannot read or search (a command that only reads or previews uses it as it
-  is, and refuses one its owner cannot read or search, naming the `chmod
-  700`; so does every command for the config, data, state and cache
-  folders themselves, which each reads before it may write), and `update`
-  gives a tool file that holds exactly its pinned bytes
-  the mode it is installed with. A folder others can write in, and a tool
+  ACL, gets mode 0700 from a command that writes there (a command that only
+  reads or previews uses it as it is), and one its owner cannot read or
+  search, the config, data, state and cache folders themselves included,
+  gets 0700 from every command that needs it, before anything in it is
+  read and saying nothing: the one change a command that only reads, or is
+  refused, makes. `update` gives a tool file that holds exactly its pinned
+  bytes the mode it is installed with. A folder others can write in, and a tool
   file with other bytes, stay refused and untouched; at an earlier path such
   a folder is neither moved nor locked. A file or link
   Workbench or chezmoi replaces with one of its kind keeps its ACL, extended
@@ -157,7 +157,8 @@ Distinguish implemented code, observed checks and unqualified release targets.
   the plan with `plan_digest`; `workbench apply --approve-plan DIGEST`
   applies exactly that plan and exits 4 if the machine, release or saved
   selection changed since, having written nothing: no download, no tool
-  installed, no file rewritten and no mode changed. `workbench answers import FILE --dry-run --json`
+  installed, no file rewritten and no mode changed but 0700 for a folder of
+  Workbench's own files its owner could not read or search. `workbench answers import FILE --dry-run --json`
   and `--approve-plan` work the same way. `--yes` is for a person who trusts
   the saved selection, not for a caller that did not read the plan; it never
   asks, so use it only when new effects may take their defaults. A coding agent

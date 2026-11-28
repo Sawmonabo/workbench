@@ -48,7 +48,8 @@ func RenameAt(fd int, from, to string, exclusive bool) error {
 }
 
 // FileSecurity returns the ACL of fd, or of path itself, not a link's
-// target, when path is not empty. An error is the call's errno, or
+// target, when path is not empty: a relative path in the folder fd, or in the
+// working directory when fd is -1. An error is the call's errno, or
 // ErrUnsupportedACL for security data whose layout it does not recognize, so
 // a caller fails closed. On Linux it always reports no ACL and no error:
 // POSIX ACLs there are extended attributes (ACLsAreAttributes), which

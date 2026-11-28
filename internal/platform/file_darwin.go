@@ -55,8 +55,10 @@ const keptFlags uint32 = 0
 // folderFlags is UF_HIDDEN alone.
 const folderFlags uint32 = hiddenFlag
 
-// fileSecurity reads the ACL with getattrlist, or fgetattrlist for fd alone:
-// Darwin does not expose ACLs through listxattr. getattrlist's
+// fileSecurity reads the ACL with getattrlistat and FSOPT_NOFOLLOW, relative
+// to the folder fd or, when fd is -1, to the working directory (AT_FDCWD,
+// which getattrlist(2) says makes it getattrlist), or fgetattrlist for fd
+// alone: Darwin does not expose ACLs through listxattr. getattrlist's
 // extended-security attribute contains kauth_filesec (sys/kauth.h): magic,
 // owner and group GUIDs, then the entry count (KAUTH_FILESEC_NOACL when there
 // is no ACL), flags and 24-byte entries. An error is the call's errno, or
@@ -66,7 +68,7 @@ const folderFlags uint32 = hiddenFlag
 // takes; a list shorter than its entry count, or of more than 128 entries
 // (KAUTH_ACL_MAX_ENTRIES), fails as unsupported.
 //
-// x/sys/unix wraps setattrlist but not getattrlist or fgetattrlist, so they
+// x/sys/unix wraps setattrlist but not getattrlistat or fgetattrlist, so they
 // go through libcCall6; switch once x/sys adds the wrappers. Each pointer
 // becomes a uintptr inside the call's argument list, as the unsafe rules
 // require.
@@ -92,14 +94,17 @@ func fileSecurity(fd int, path string) (ACL, error) {
 		if err != nil {
 			return ACL{}, err
 		}
+		if fd < 0 {
+			fd = unix.AT_FDCWD
+		}
 		_, _, errno = libcCall6(
-			getattrlist,
+			getattrlistat,
+			uintptr(fd),
 			uintptr(unsafe.Pointer(pointer)),
 			uintptr(unsafe.Pointer(&attributes)),
 			uintptr(unsafe.Pointer(&data[0])),
 			uintptr(len(data)),
 			unix.FSOPT_NOFOLLOW,
-			0,
 		)
 	}
 	if errno != 0 {

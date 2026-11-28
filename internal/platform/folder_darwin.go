@@ -9,13 +9,13 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-// openFolder is open(2) with O_SEARCH, or O_RDONLY when that is refused
-// with EACCES, and O_DIRECTORY and O_NOFOLLOW.
-func openFolder(path string) (*os.File, error) {
+// openFolderAt is openat(2) of path in the folder dir with O_SEARCH, or
+// O_RDONLY when that is refused with EACCES, and O_DIRECTORY and O_NOFOLLOW.
+func openFolderAt(dir int, path string) (*os.File, error) {
 	const flags = unix.O_DIRECTORY | unix.O_NOFOLLOW | unix.O_CLOEXEC
-	fd, err := unix.Open(path, unix.O_SEARCH|flags, 0)
+	fd, err := unix.Openat(dir, path, unix.O_SEARCH|flags, 0)
 	if errors.Is(err, unix.EACCES) {
-		fd, err = unix.Open(path, unix.O_RDONLY|flags, 0)
+		fd, err = unix.Openat(dir, path, unix.O_RDONLY|flags, 0)
 	}
 	if err != nil {
 		return nil, err
@@ -25,6 +25,28 @@ func openFolder(path string) (*os.File, error) {
 
 // chmodFolder is fchmod(2).
 func chmodFolder(f *os.File, mode os.FileMode) error { return f.Chmod(mode) }
+
+// chmodFolderAt is fstatat(2) and fchmodat(2), both with
+// AT_SYMLINK_NOFOLLOW, then openFolderAt.
+func chmodFolderAt(
+	dir *os.File,
+	name string,
+	judged os.FileInfo,
+	mode os.FileMode,
+) (*os.File, error) {
+	fd := int(dir.Fd())
+	var stat unix.Stat_t
+	if err := unix.Fstatat(fd, name, &stat, unix.AT_SYMLINK_NOFOLLOW); err != nil {
+		return nil, err
+	}
+	if !sameFolder(judged, &stat) {
+		return nil, ErrFolderReplaced
+	}
+	if err := unix.Fchmodat(fd, name, ModeBits(mode), unix.AT_SYMLINK_NOFOLLOW); err != nil {
+		return nil, err
+	}
+	return openFolderAt(fd, name)
+}
 
 // The kauth rights of sys/kauth.h besides those in file_darwin.go that let a
 // principal change who may write in a folder: KAUTH_VNODE_WRITE_SECURITY and

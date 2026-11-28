@@ -47,19 +47,34 @@ func testRoot(t *testing.T) string {
 // Prevent running another user's program as this one: a folder of
 // Workbench's own files that its group or other users can write in may hold
 // what one of them put there, such as a program in place of a tool Workbench
-// runs. Setting it to 0700 would keep that in it, private and trusted, so a
-// write must refuse the folder and leave its mode as it is.
-func TestMakeOwnFolderRefusesAFolderOthersCanWrite(t *testing.T) {
+// runs. Giving it 0700, as a write does and as a command that only reads does
+// for a folder its owner cannot read or search, would keep that in it,
+// private and trusted, so both must refuse the folder and leave its mode as
+// it is: also one its owner can neither read nor search, which macOS opens
+// no descriptor for and which is judged by its name in the folder above.
+func TestOwnFolderRefusesAFolderOthersCanWrite(t *testing.T) {
 	root := testRoot(t)
 	for name, mode := range map[string]os.FileMode{
-		"group":  0o775,
-		"other":  0o757,
-		"sticky": 0o777 | os.ModeSticky,
+		"group":             0o775,
+		"other":             0o757,
+		"sticky":            0o777 | os.ModeSticky,
+		"group, unreadable": 0o320,
+		"group, write only": 0o220,
+		"group alone":       0o020,
+		"other alone":       0o002,
 	} {
 		folder := filepath.Join(root, name)
 		folderAt(t, folder, mode)
 		if err := makeOwnFolder("permissions", folder); err == nil {
-			t.Errorf("%s: a folder of mode %v was taken", name, mode)
+			t.Errorf("%s: a write took a folder of mode %v", name, mode)
+		}
+		assertMode(t, folder, mode)
+		info, err := os.Lstat(folder)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err = ownFolder("permissions", folder, info); err == nil {
+			t.Errorf("%s: a read took a folder of mode %v", name, mode)
 		}
 		assertMode(t, folder, mode)
 	}
@@ -84,9 +99,10 @@ func TestMakeOwnFolderNeverFollowsALink(t *testing.T) {
 }
 
 // Prevent changing the machine before the person approves anything: doctor,
-// a dry run and every other check that only reads must leave Workbench's
-// folders as they are, so a folder others cannot write in but whose mode is
-// not 0700 is used with its mode unchanged.
+// a dry run and every other check that only reads must leave a folder of
+// Workbench's own files that its owner can read and search as it is, so a
+// folder others cannot write in but whose mode is not 0700 is used with its
+// mode unchanged.
 func TestFolderChecksThatOnlyReadChangeNothing(t *testing.T) {
 	root := testRoot(t)
 	state := filepath.Join(root, "state")

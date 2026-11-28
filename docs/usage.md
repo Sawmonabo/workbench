@@ -343,10 +343,11 @@ not yours, the second the `chmod` that ends it:
 
 An ACL entry gets `chmod -N …/notes` as its second line. An entry that
 writes there (the hooks, the watcher, `agent guard history --keep`) sets
-such a folder to 0700 when it is not, also one you cannot read or search;
+a folder that others cannot write in to 0700 when it has another mode;
 the view, `agent guard history` and `agent guard logs`, which only read,
-and every entry at the old path leave its mode as it is, and refuse one you
-cannot read or search with `chmod 700` as the fix. An old folder that others
+and every entry at the old path leave its mode as it is, but for one you
+cannot read or search, which every entry, and every other command, gives
+0700 before it looks in it, saying nothing. An old folder that others
 can write in is neither moved nor locked. An entry asks whether a watcher or an import works in a folder with a
 shared lock on that folder's lock file, which only an exclusive lock
 refuses: the watcher's or the import's own, or, for an instant, that of an
@@ -818,7 +819,8 @@ approved from a dry run cannot apply a different selection. If the machine, the
 release or the saved selection changed since, `--approve-plan` exits 4 with
 `The approved digest does not match the current plan` and the fix `review a
 new plan`, and changes nothing: it downloads and installs nothing, rewrites no
-file and changes no folder's mode. `--approve-plan` is listed in `--help`. From a checkout, add
+file and changes no folder's mode, but for a folder of Workbench's own files
+that you cannot read or search, which gets 0700 so the plan can be read. `--approve-plan` is listed in `--help`. From a checkout, add
 `--local-build` to both `apply` calls. Keep it and `--destination` identical between
 them. `--yes` is for a person who trusts your saved choices, not for a caller that
 did not read the plan, and a coding agent is refused it. When Workbench's own tools

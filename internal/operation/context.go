@@ -100,7 +100,9 @@ type Options struct {
 // Languages are the values --language takes.
 var Languages = []string{"python", "javascript", "typescript", "rust", "go"}
 
-// Resolve reads paths only: it never creates runtime directories or answers.
+// Resolve reads paths only: it never creates runtime directories or answers,
+// and changes nothing but the mode of a runtime directory its owner may not
+// read or search, which gets 0700 (see [ownFolder]).
 func Resolve(options Options) (Context, error) {
 	c := Context{ReadOnly: options.ReadOnly}
 	home, err := os.UserHomeDir()
