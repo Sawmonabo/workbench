@@ -43,6 +43,12 @@ func ClaudeSettings(home string) []ClaudeSettingsFile {
 	return claudeSettings(ClaudeDir(home))
 }
 
+// ClaudeUserSettings is the user's settings.json, in [ClaudeDir], which holds
+// the hooks Workbench installs.
+func ClaudeUserSettings(home string) string {
+	return filepath.Join(ClaudeDir(home), "settings.json")
+}
+
 // claudeSettings are the user's settings.json in dir, then the managed
 // settings files, each read as readClaudeSettings reads it; a missing or
 // skipped one is left out.

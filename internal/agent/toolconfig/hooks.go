@@ -21,6 +21,7 @@ const (
 	HookMissing   = "missing"   // not installed as Workbench installs it
 	HookUntrusted = "untrusted" // installed, but the tool has not recorded it as trusted
 	HookDisabled  = "disabled"  // installed and trusted, but turned off in the tool
+	HookSkipped   = "skipped"   // the tool skips the settings file that would hold it
 )
 
 // HookCommand is one hook Workbench installs in a tool: the event it runs on and a
@@ -31,9 +32,11 @@ type HookCommand struct {
 }
 
 // ClaudeHooks reports, for each of hooks, whether Claude Code's settings.json runs
-// it on its event synchronously: HookOK, else HookMissing. An async hook does
-// not count: Claude Code kills a background hook still running when a session
-// ends in headless (-p) mode, and Workbench's hooks return within
+// it on its event synchronously: HookOK, else HookMissing, or HookSkipped for
+// every hook when the file is there but Claude Code skips it (see
+// readClaudeSettings), so it runs none of the hooks the file holds. An async
+// hook does not count: Claude Code kills a background hook still running when
+// a session ends in headless (-p) mode, and Workbench's hooks return within
 // milliseconds anyway. Claude Code has no hook trust or per-hook switch.
 func ClaudeHooks(home string, hooks []HookCommand) []string {
 	var settings struct {
@@ -44,10 +47,17 @@ func ClaudeHooks(home string, hooks []HookCommand) []string {
 			} `json:"hooks"`
 		} `json:"hooks"`
 	}
-	if raw, err := os.ReadFile(filepath.Join(ClaudeDir(home), "settings.json")); err == nil {
+	path := ClaudeUserSettings(home)
+	out := make([]string, len(hooks))
+	if raw, err := os.ReadFile(path); err == nil {
+		if _, read := readClaudeSettings(path); !read {
+			for i := range out {
+				out[i] = HookSkipped
+			}
+			return out
+		}
 		_ = json.Unmarshal(raw, &settings)
 	}
-	out := make([]string, len(hooks))
 	for i, want := range hooks {
 		out[i] = HookMissing
 		for _, group := range settings.Hooks[want.Event] {

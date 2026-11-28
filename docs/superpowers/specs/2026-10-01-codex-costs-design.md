@@ -413,7 +413,9 @@ any bin folder and its quoting count) and its entry
 records the hash computed the same way, `disabled` when the entry sets
 `enabled = false`, `untrusted` when it records no hash or another one (as
 after Codex changed its normalization), and `missing` without the command.
-`toolconfig.ClaudeHooks` reports `ok` or `missing`. `costs status` prints the
+`toolconfig.ClaudeHooks` reports `ok` or `missing`, or `skipped` for every
+hook while Claude Code skips the whole `settings.json` for a setting it
+refuses (it skips a file with an error entirely), which doctor names. `costs status` prints the
 state words, adding `(workbench apply)` once to a hooks line with a `missing`
 or `untrusted` event, and `costs status --json` gives each event's state as a
 string.
