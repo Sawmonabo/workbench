@@ -82,15 +82,15 @@ type Migration struct {
 	Leaves   func(left []string) string // nil: Run's files are named with keeps
 }
 
-// Registry lists every migration in number order. A released migration is
+// registry lists every migration in number order. A released migration is
 // never renumbered or removed; adding one is a numbered file and a line here.
-var Registry = []Migration{
+var registry = []Migration{
 	costsFolders,
 	completionCache,
 	oldCostsCache,
 	oldGuardLog,
 	WorkTokens,
-	StepNames,
+	stepNames,
 	AgentFolders,
 	priceLists,
 }
@@ -108,8 +108,8 @@ var OldLocationVariables = []string{
 // IDs are the registry's IDs, which the apply passes to the installed binary
 // as WORKBENCH_MIGRATIONS so it can say which ones it doesn't know.
 func IDs() []string {
-	ids := make([]string, len(Registry))
-	for i, m := range Registry {
+	ids := make([]string, len(registry))
+	for i, m := range registry {
 		ids[i] = m.ID
 	}
 	return ids
@@ -154,8 +154,8 @@ type Finding struct {
 
 // Check runs every migration's Check, in number order.
 func Check(l Locations) []Finding {
-	findings := make([]Finding, len(Registry))
-	for i, m := range Registry {
+	findings := make([]Finding, len(registry))
+	for i, m := range registry {
 		status, detail := m.Check(l)
 		findings[i] = Finding{m, status, detail}
 	}
@@ -175,7 +175,7 @@ func due(f Finding) bool { return f.Status == Pending || f.Status == Unfinished 
 // doesn't know is named, and the run then fails as blocked.
 func Run(ctx context.Context, l Locations, wanted []string, say func(string)) error {
 	say("checking")
-	newer := Unknown(wanted)
+	newer := unknown(wanted)
 	for _, id := range newer {
 		say(id + ": " + needsNewer)
 	}
@@ -291,8 +291,8 @@ func unfinished(ids []string, exit operation.Exit) error {
 // needsNewer is what is said of a migration the installed binary doesn't know.
 const needsNewer = "needs a newer installed workbench"
 
-// Unknown are the IDs in wanted that this binary's registry doesn't hold.
-func Unknown(wanted []string) []string {
+// unknown are the IDs in wanted that this binary's registry doesn't hold.
+func unknown(wanted []string) []string {
 	return slices.DeleteFunc(slices.Clone(wanted), func(id string) bool {
 		return slices.Contains(IDs(), id)
 	})
@@ -329,7 +329,7 @@ func Probe(l Locations, wanted []string) []string {
 			lines = append(lines, "migrations: = "+f.ID+": "+f.Detail)
 		}
 	}
-	for _, id := range Unknown(wanted) {
+	for _, id := range unknown(wanted) {
 		lines = append(lines, "migrations: ? "+id+" "+needsNewer+" (workbench update)")
 	}
 	if len(lines) == 0 {

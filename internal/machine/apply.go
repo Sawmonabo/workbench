@@ -321,7 +321,7 @@ func (a *applyRun) saveSelection(plan operation.Plan) error {
 	if selection.equal(saved) {
 		return nil
 	}
-	if err = WriteSelection(a.m, a.c.Native.Config, selection); err != nil {
+	if err = writeSelection(a.m, a.c.Native.Config, selection); err != nil {
 		return operation.Fail(
 			operation.ExitPartial,
 			"state",

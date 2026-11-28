@@ -10,18 +10,18 @@ import (
 	"github.com/Sawmonabo/workbench/internal/operation"
 )
 
-// stepNames are the step names 0006 renames in the saved choices, each with
+// renamedSteps are the step names 0006 renames in the saved choices, each with
 // the name the step has.
-var stepNames = [][2]string{{"costs-ingest", "agent-costs-ingest"}}
+var renamedSteps = [][2]string{{"costs-ingest", "agent-costs-ingest"}}
 
 // choiceLists are the lists of the [effects] table that hold step names.
 var choiceLists = []string{"skip", "select", "decided"}
 
-// StepNames renames the saved choices of machine.toml's [effects] table to
+// stepNames renames the saved choices of machine.toml's [effects] table to
 // the names the steps have, so a step the owner turned off stays off. Until
 // it has run, [RenameSteps] gives every reader the same names without
 // writing.
-var StepNames = Migration{
+var stepNames = Migration{
 	ID:    "0006-step-names",
 	Title: "Rename the saved choice for Record AI usage",
 	Doing: "renaming the saved choice for Record AI usage",
@@ -89,13 +89,16 @@ func renameChoices(config map[string]any) bool {
 // nil list stays nil.
 func RenameSteps(names []string) []string {
 	if !slices.ContainsFunc(names, func(name string) bool {
-		return slices.ContainsFunc(stepNames, func(pair [2]string) bool { return pair[0] == name })
+		return slices.ContainsFunc(
+			renamedSteps,
+			func(pair [2]string) bool { return pair[0] == name },
+		)
 	}) {
 		return names
 	}
 	renamed := make([]string, 0, len(names))
 	for _, name := range names {
-		for _, pair := range stepNames {
+		for _, pair := range renamedSteps {
 			if name == pair[0] {
 				name = pair[1]
 			}

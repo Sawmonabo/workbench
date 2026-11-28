@@ -174,12 +174,12 @@ func openFirst(lay Layout, comment string, before, closing *hujson.Extra) {
 // it was written before: on a line of its own at the indentation of the others
 // in a multi-line array, after ", " in a one-line one.
 func AppendElement(arr *hujson.Array, lay Layout, value any) error {
-	return InsertElement(arr, lay, len(arr.Elements), value)
+	return insertElement(arr, lay, len(arr.Elements), value)
 }
 
-// InsertElement adds value to arr as its entry number index, laid out like
+// insertElement adds value to arr as its entry number index, laid out like
 // AppendElement.
-func InsertElement(arr *hujson.Array, lay Layout, index int, value any) error {
+func insertElement(arr *hujson.Array, lay Layout, index int, value any) error {
 	text, err := lay.render(value)
 	if err != nil {
 		return err
@@ -296,7 +296,7 @@ func RewriteArray(arr *hujson.Array, lay Layout, entries []Entry) error {
 	}
 	for position, entry := range entries {
 		if entry.Keep < 0 {
-			if err := InsertElement(arr, lay, position, entry.Value); err != nil {
+			if err := insertElement(arr, lay, position, entry.Value); err != nil {
 				return err
 			}
 		}

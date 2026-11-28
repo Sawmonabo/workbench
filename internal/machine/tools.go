@@ -529,7 +529,7 @@ func staleTools(
 ) ([]operation.Edit, error) {
 	pinned := map[string][]string{}
 	for _, metadata := range kept {
-		requirements, err := ParseRequirements([]byte(metadata.Versions))
+		requirements, err := parseRequirements([]byte(metadata.Versions))
 		if err != nil {
 			return nil, nil
 		}

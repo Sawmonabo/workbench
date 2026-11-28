@@ -111,8 +111,8 @@ func encodeMachineConfig(answers Answers, selection Selection) ([]byte, error) {
 	return toml.Marshal(config)
 }
 
-// WriteSelection saves selection beside the answers already in config.
-func WriteSelection(m *operation.Mutation, config string, selection Selection) error {
+// writeSelection saves selection beside the answers already in config.
+func writeSelection(m *operation.Mutation, config string, selection Selection) error {
 	raw, err := ReadMachineConfig(config)
 	if err != nil {
 		return err

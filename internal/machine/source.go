@@ -112,7 +112,7 @@ func SelectedSource(c operation.Context) (map[string][]byte, error) {
 
 // SourceRequirements reads the pins from a machine source snapshot.
 func SourceRequirements(files map[string][]byte) (Requirements, error) {
-	requirements, err := ParseRequirements(files[VersionsFile])
+	requirements, err := parseRequirements(files[VersionsFile])
 	if err == nil {
 		err = requirements.validate()
 	}
@@ -175,9 +175,9 @@ func (r Requirements) validate() error {
 	return nil
 }
 
-// ParseRequirements reads the management pins from a versions.toml. Setup
+// parseRequirements reads the management pins from a versions.toml. Setup
 // management uses versions.uv and the first versions.python_pinned.
-func ParseRequirements(data []byte) (Requirements, error) {
+func parseRequirements(data []byte) (Requirements, error) {
 	var file struct {
 		Versions struct {
 			UV           string   `toml:"uv"`
@@ -223,10 +223,10 @@ func ParseRequirements(data []byte) (Requirements, error) {
 	}, nil
 }
 
-// SourceDigest identifies machine source content: the SHA-256 of one
+// sourceDigest identifies machine source content: the SHA-256 of one
 // "<sha256>  <path>" line per file, sorted by path, as sha256sum prints them.
 // scripts/package-release.py computes the same digest for release.json.
-func SourceDigest(files map[string][]byte) string {
+func sourceDigest(files map[string][]byte) string {
 	names := make([]string, 0, len(files))
 	for name := range files {
 		names = append(names, name)
@@ -268,7 +268,7 @@ func SourceSnapshot(
 		return nil, operation.SourceIdentity{}, err
 	case identity.Release != "":
 		if releaseSource == "" || identity.ContentDigest != releaseSource ||
-			SourceDigest(files) != releaseSource {
+			sourceDigest(files) != releaseSource {
 			return nil, operation.SourceIdentity{}, operation.Fail(
 				operation.ExitBlocked,
 				"source_trust",
@@ -279,7 +279,7 @@ func SourceSnapshot(
 	case developer:
 		identity = operation.SourceIdentity{
 			Release:       "developer",
-			ContentDigest: SourceDigest(files),
+			ContentDigest: sourceDigest(files),
 		}
 		return files, identity, nil
 	default:
