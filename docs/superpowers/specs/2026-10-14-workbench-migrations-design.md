@@ -727,7 +727,7 @@ other files still move.
   else the command writes:
   - `Paths.Open` runs it for every caller, so no caller opens a ledger past
     it: the reports and `costs status` open the ledger once through
-    `openIngested` (`internal/cli/costs.go`), which hands it to
+    `openIngested` (`internal/cli/agentcosts.go`), which hands it to
     `costs.Status`
   - the worker, in `Ingest`, runs its own gate, the one that moves the files,
     before `bindSession` and before its import lock, then opens the ledger
