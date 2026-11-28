@@ -331,17 +331,18 @@ moves it. Wherever the guard folder is, the hooks, the watcher, `agent guard`,
 real folders (not links), yours, that neither your group nor other users can
 write in, on the machine's own file system, and refuse it otherwise in the
 same words: a folder that others can write in, by its mode or, on a Mac, by
-an ACL entry, is refused with two fix lines, the first to move aside what is
-not yours, the second the `chmod` that ends it:
+an ACL entry, is refused with three fix lines: the `find` that lists what is
+not yours, to move it aside, then the `chmod` that ends it:
 
 ```text
 ✗ …/notes has mode 0775
     cause  other users can write in it, so what it holds may not be Workbench's
-    fix    move aside what find …/notes -not -user NAME lists
+    fix    find …/notes -not -user NAME
+           move aside what it lists
            chmod 700 …/notes
 ```
 
-An ACL entry gets `chmod -N …/notes` as its second line. An entry that
+An ACL entry gets `chmod -N …/notes` as its last line. An entry that
 writes there (the hooks, the watcher, `agent guard history --keep`) sets
 a folder that others cannot write in to 0700 when it has another mode;
 the view, `agent guard history` and `agent guard logs`, which only read,

@@ -543,17 +543,19 @@ func notFolderRefusal(category, path string, info os.FileInfo) error {
 // othersWriteRefusal refuses path, a folder of Workbench's own files that its
 // group or other users may write in, as headline and cause say. What it holds
 // may not be Workbench's, so the command of words that ends that, typed
-// alone, would keep in it what another user put there: the fix first moves
-// aside what is not this user's, as find lists it, then runs that command on
-// path.
+// alone, would keep in it what another user put there: the fix first gives
+// the find that lists what is not this user's, to move aside, then that
+// command on path.
 func othersWriteRefusal(path, headline, cause string, words ...string) error {
 	return Fail(
 		ExitInvalid,
 		"permissions",
 		headline,
 		Cause(cause),
-		FixText("move aside what find "+shellHomePath(path)+" -not -user "+
-			shellWord(userName(uint32(os.Geteuid())))+" lists"),
+		FixText(
+			"find "+shellHomePath(path)+" -not -user "+shellWord(userName(uint32(os.Geteuid()))),
+		),
+		FixText("move aside what it lists"),
 		FixPath(path, words...),
 	)
 }
