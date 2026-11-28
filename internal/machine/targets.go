@@ -3,6 +3,7 @@ package machine
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -248,13 +249,20 @@ func (p *preparation) folderMode(c operation.Context, target string, action byte
 	// same ACL); a folder with other flags, ACLs or attributes is refused with
 	// the chmod to run.
 	if _, err = operation.ReadImage(c, target); err != nil {
+		// A refusal names the folder and its cause in its own words; another
+		// error is said after the folder.
+		shown, cause := c.ShowPath(target), err.Error()
+		reason := shown + " holds Workbench's own files, and Workbench cannot record it" +
+			" to undo the mode the plan gives it: " + cause
+		if problem, ok := errors.AsType[*operation.Error](err); ok {
+			reason = problem.Message
+		}
 		return operation.Fail(
 			operation.ExitBlocked,
 			"scope",
 			fmt.Sprintf(
-				"%s holds Workbench's own files, and Workbench cannot record it to undo the mode the plan gives it: %s. Instead, you can run chmod %04o %s to give it that mode yourself, then retry",
-				c.ShowPath(target),
-				strings.TrimSuffix(err.Error(), "."),
+				"%s. Instead, you can run chmod %04o %s to give it the configuration's mode yourself, then retry",
+				strings.TrimSuffix(reason, "."),
 				desired.Perm,
 				c.ShellPath(target),
 			),
