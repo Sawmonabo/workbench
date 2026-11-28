@@ -13,6 +13,7 @@ import (
 	"github.com/charmbracelet/x/ansi"
 
 	"github.com/Sawmonabo/workbench/internal/agent/guard"
+	"github.com/Sawmonabo/workbench/internal/operation"
 )
 
 // heldRow is a finished command the history holds, as the view keeps it: its
@@ -44,7 +45,8 @@ type viewHistory struct {
 	dated        bool
 	day          string
 	widths       []int
-	problem      string
+	problem      string           // the guard's sentence of a history it cannot read
+	refusal      *operation.Error // or the refusal of the guard folder that stops it
 	damaged      []guard.DamagedCopy
 	gen          int
 	reading      bool
@@ -238,9 +240,11 @@ func (m *guardView) tookHistory(msg historyMsg) tea.Cmd {
 		go func() { _ = old.Close() }()
 	}
 	h.db, h.path = msg.db, msg.path
-	h.keep, h.dated, h.day, h.problem = msg.keep, msg.dated, msg.day, ""
+	h.keep, h.dated, h.day, h.problem, h.refusal = msg.keep, msg.dated, msg.day, "", nil
 	h.damaged = msg.damaged
-	if msg.err != nil {
+	if refusal, ok := errors.AsType[*operation.Error](msg.err); ok {
+		h.refusal = refusal
+	} else if msg.err != nil {
 		h.problem = guard.HistoryUnreadable(msg.err, filepath.Dir(msg.path))
 	}
 	// Rows held go, and their generation moves on, only when there were

@@ -187,7 +187,7 @@ func (m *guardView) statusLines() []string {
 				dry, commands),
 		))
 	}
-	notes = append(notes, operation.WarnAll(m.historyWarnings(time.Now())...)...)
+	notes = append(notes, m.historyWarnings(time.Now())...)
 	if len(notes) == 0 {
 		return []string{""}
 	}
@@ -207,19 +207,35 @@ func (m *guardView) statusLines() []string {
 // histories are kept, the sentence the watcher says of them, from the copies
 // and their times, which the move sets (see guard.MoveDamaged) and a watcher
 // reads too.
-func (m *guardView) historyWarnings(now time.Time) []string {
+//
+// A refusal of the guard folder stands under the headline that the history
+// is unreadable as its cause, with its own lines and fix, which the note of
+// why no watcher answers already gives when it is the same refusal.
+func (m *guardView) historyWarnings(now time.Time) []operation.Warning {
 	if text := m.snap.HistoryError; m.connected && text != "" {
-		return []string{text}
+		return operation.WarnAll(text)
 	}
-	var texts []string
+	var notes []operation.Warning
 	if m.hist.problem != "" {
-		texts = append(texts, m.hist.problem)
+		notes = append(notes, operation.Warn(m.hist.problem))
+	}
+	if refusal := m.hist.refusal; refusal != nil {
+		note := operation.Warn(historyUnreadable)
+		if m.connected || !sameNote(capitalized(refusal.Message), refusal.Body,
+			m.problem.Message, m.problem.Body) {
+			note.Body = operation.Explain(operation.Cause(refusal.Message)).With(refusal.Body)
+		}
+		notes = append(notes, note)
 	}
 	if text := guard.HistoryDamaged(m.hist.damaged, now); text != "" {
-		texts = append(texts, text)
+		notes = append(notes, operation.Warn(text))
 	}
-	return texts
+	return notes
 }
+
+// historyUnreadable is the headline of a history the view cannot read
+// because the guard folder is refused.
+const historyUnreadable = "Guard history unreadable"
 
 // menuBox is the stop menu: a box titled with the row's command line and its
 // memory, or the number of tagged rows, and the two stops, the chosen one marked.

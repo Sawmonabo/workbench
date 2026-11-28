@@ -48,8 +48,33 @@ var (
 // nothing answers on its socket: doctor's headline, cause and fix (see
 // guard.WatcherSilentHeadline).
 var watcherSilent = operation.Warning{
-	Message: strings.ToUpper(guard.WatcherSilentHeadline[:1]) + guard.WatcherSilentHeadline[1:],
+	Message: capitalized(guard.WatcherSilentHeadline),
 	Body:    guard.WatcherSilentBody,
+}
+
+// watcherUnknown is what doctor says, and the view with its first letter
+// capitalized, when whether a watcher runs cannot be told (see
+// guard.WatcherRuns): a refusal of the guard folder in its own headline and
+// body, any other error as the cause.
+func watcherUnknown(err error) (string, operation.Body) {
+	return refusalOr(err, "cannot tell whether the watcher runs")
+}
+
+// refusalOr is err as a headline and body: a refusal's own, as doctor says
+// it, any other error as the cause under headline.
+func refusalOr(err error, headline string) (string, operation.Body) {
+	if refusal, ok := errors.AsType[*operation.Error](err); ok {
+		return refusal.Message, refusal.Body
+	}
+	return headline, operation.Explain(operation.Cause(err.Error()))
+}
+
+// capitalized is a doctor line's headline as the view's sentence starts it.
+func capitalized(headline string) string {
+	if headline == "" {
+		return ""
+	}
+	return strings.ToUpper(headline[:1]) + headline[1:]
 }
 
 // waitSnapshot waits for the watcher's next snapshot, or for the end of the
@@ -88,14 +113,18 @@ func connectWatcher() tea.Msg {
 		runs, lockErr := guard.WatcherRuns()
 		switch {
 		case lockErr != nil:
-			return connectedMsg{problem: operation.Warn(
-				"Cannot tell whether the watcher runs: " + lockErr.Error())}
+			headline, body := watcherUnknown(lockErr)
+			return connectedMsg{problem: operation.Warning{
+				Message: capitalized(headline),
+				Body:    body,
+			}}
 		case runs:
 			return connectedMsg{problem: watcherSilent}
 		}
 		return connectedMsg{problem: watcherAbsent}
 	case err != nil:
-		return connectedMsg{problem: operation.Warn("Cannot reach the watcher: " + err.Error())}
+		headline, body := refusalOr(err, "Cannot reach the watcher")
+		return connectedMsg{problem: operation.Warning{Message: capitalized(headline), Body: body}}
 	}
 	if err = client.Hello(); err == nil {
 		return connectedMsg{client: client}
@@ -110,7 +139,9 @@ func connectWatcher() tea.Msg {
 	// A watcher answered the dial, so one runs: it may be exiting or handing
 	// over, which the next attempt finds out.
 	return connectedMsg{problem: operation.Warn(
-		"The watcher did not finish connecting: " + err.Error())}
+		"The watcher did not finish connecting",
+		operation.Cause(err.Error()),
+	)}
 }
 
 // take shows a new snapshot: a finished command that left its pending list

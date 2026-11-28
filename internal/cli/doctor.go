@@ -217,11 +217,7 @@ func guardWatcher(ctx context.Context) operation.Component {
 	switch {
 	case err != nil:
 		line.Status = operation.StatusConflict
-		line.Message = "cannot tell whether the watcher runs"
-		line.Body = operation.Explain(operation.Cause(err.Error()))
-		if refusal, ok := errors.AsType[*operation.Error](err); ok {
-			line.Message, line.Body = refusal.Message, refusal.Body
-		}
+		line.Message, line.Body = watcherUnknown(err)
 		return line
 	case !runs:
 		line.Status = operation.StatusSkipped
