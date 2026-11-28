@@ -340,7 +340,8 @@ func (a *applyRun) withCheckpoint(state *operation.State, settled *operation.Set
 
 // reportSettled adds the result line of an earlier operation that did not
 // finish, which this apply settled: an apply's pass after chezmoi finished,
-// with the files that took it, or a revert this apply took the place of.
+// with the files that took it, a revert this apply took the place of, one
+// whose folder is gone, or one that left nothing to finish.
 func (a *applyRun) reportSettled(settled *operation.Settled) {
 	if settled == nil {
 		return
@@ -352,6 +353,11 @@ func (a *applyRun) reportSettled(settled *operation.Settled) {
 		Body:    operation.Explain(operation.Outcome("Workbench finished it")),
 	}
 	switch {
+	case settled.Removed != "":
+		gone := a.c.ShowPath(settled.Root) + " " + settled.Removed
+		component.Body = operation.Explain(
+			operation.Outcome(gone + ", so Workbench recorded it as finished"),
+		)
 	case settled.Gone:
 		component.Body = operation.Explain(
 			operation.Outcome("its checkpoint is gone, so Workbench could not check its files"),
@@ -359,6 +365,8 @@ func (a *applyRun) reportSettled(settled *operation.Settled) {
 	case settled.Revert:
 		component.Message = "Revert " + settled.ID + " did not finish earlier"
 		component.Body = operation.Explain(operation.Outcome("every file now matches this plan"))
+	case len(settled.Finished) == 0:
+		component.Body = operation.Explain(operation.Outcome("Workbench recorded it as finished"))
 	}
 	if finished := settled.Finished; len(finished) > 0 {
 		const named = 3

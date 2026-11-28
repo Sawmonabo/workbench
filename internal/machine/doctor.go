@@ -197,7 +197,8 @@ func installed(c operation.Context, state *operation.State) []operation.Componen
 // unfinishedApply is the operation state records as unfinished, in the words
 // the plan of the next apply to its destination shows it in
 // ([operation.Unfinished.Note]), with the command that applies there; where
-// that plan is refused, its refusal.
+// that plan is refused, its refusal. One whose destination is gone gets no
+// command: any apply records it as finished.
 func unfinishedApply(c operation.Context, state *operation.State) operation.Component {
 	partial := state.PartialOperation
 	scoped := c
@@ -210,7 +211,7 @@ func unfinishedApply(c operation.Context, state *operation.State) operation.Comp
 		note := unfinished.Note(scoped)
 		component.Message, component.Body = note.Message, note.Body
 	}
-	if len(component.Fix) == 0 {
+	if len(component.Fix) == 0 && (unfinished == nil || unfinished.Removed == "") {
 		component.Body = component.With(
 			operation.Explain(operation.FixText(c.ApplyCommand(partial.Scope.Root))),
 		)

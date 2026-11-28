@@ -9,13 +9,15 @@ import (
 )
 
 // Settled is the unfinished operation the state recorded in a scope, which
-// [SettleUnfinished] settled: its ID, whether it is a revert, whether its
-// checkpoint is gone, so nothing of it could be checked, and the paths of the
+// [SettleUnfinished] settled: its ID and its scope's root, whether it is a
+// revert, whether its checkpoint is gone, so nothing of it could be checked,
+// how the root's folder is gone ([Unfinished.Removed]), and the paths of the
 // files the settling gave what they lacked.
 type Settled struct {
-	ID       string
+	ID, Root string
 	Revert   bool
 	Gone     bool
+	Removed  string
 	Finished []string
 }
 
@@ -23,7 +25,8 @@ type Settled struct {
 // unfinished in m's scope, as [PlanUnfinished] found it for the plan this
 // apply rechecked under the same lock, before the apply replaces or clears
 // that record; it returns nil for a nil u. It first removes what a stopped
-// writer of the scope staged beside its targets (removeStagedFiles). For an
+// writer of the scope staged beside its targets (removeStagedFiles); one
+// whose folder is gone leaves nothing there to remove or finish. For an
 // apply that stopped after chezmoi wrote and before Workbench's pass after
 // it, it gives each file u names what it lacks, in place, and leaves its
 // content alone (settleTarget), so none of it is lost once the record goes:
@@ -42,8 +45,8 @@ func SettleUnfinished(m *Mutation, u *Unfinished) (*Settled, error) {
 		return nil, nil
 	}
 	c := m.context
-	settled := &Settled{ID: u.ID, Revert: u.Revert, Gone: u.Gone}
-	if u.Gone {
+	settled := &Settled{ID: u.ID, Root: u.Root, Revert: u.Revert, Gone: u.Gone, Removed: u.Removed}
+	if u.Gone || u.Removed != "" {
 		return settled, nil
 	}
 	if err := removeStagedIn(c); err != nil {
@@ -76,7 +79,7 @@ func SettleUnfinished(m *Mutation, u *Unfinished) (*Settled, error) {
 		problem.Code,
 		problem.Category,
 		problem.Message,
-		problem.With(Explain(Changed(shownPaths(settled.Finished)))),
+		problem.With(Explain(Changed(shownPaths(c, settled.Finished)))),
 	)
 }
 
@@ -120,13 +123,13 @@ func (cp *Checkpoint) observeSettled(targets []int) error {
 	return cp.saveJournal()
 }
 
-// shownPaths names up to three paths as people read them, then how many
-// more there are.
-func shownPaths(paths []string) string {
+// shownPaths names up to three paths as c shows them, then how many more
+// there are.
+func shownPaths(c Context, paths []string) string {
 	const shown = 3
 	names := make([]string, 0, shown+1)
 	for _, path := range paths[:min(len(paths), shown)] {
-		names = append(names, display.Path(path))
+		names = append(names, c.ShowPath(path))
 	}
 	if len(paths) > shown {
 		names = append(names, fmt.Sprintf("%d more", len(paths)-shown))

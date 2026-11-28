@@ -3,7 +3,6 @@ package operation
 import (
 	"bytes"
 	"encoding/json"
-	"fmt"
 	"maps"
 	"slices"
 
@@ -28,13 +27,23 @@ type Unfinished struct {
 	// nothing to finish; Gone when the operation's checkpoint is gone, so
 	// nothing of it can be checked.
 	Revert, Gone bool
+	// Removed is how the folder at Root is gone since the operation, after
+	// its name ("is not there", "is a file"), so nothing of the operation is
+	// left to finish there and any apply settles it; empty while it is there.
+	Removed string
 	// Targets are the files settling gives what they lack, in the order the
 	// checkpoint records them.
 	Targets []UnfinishedTarget
+	// Missing are the files whose outcome the journal does not know that are
+	// not there, where the apply writes them: someone removed them
+	// after, or the folder they were in.
+	Missing []string
 	// cp is the operation's checkpoint and unknown the index of each of its
 	// targets whose outcome its journal does not know.
 	cp      *Checkpoint
 	unknown []int
+	// linked is set when a link takes Root's place or leads to it.
+	linked bool
 }
 
 // UnfinishedTarget is a file of an unfinished apply that lacks what its
@@ -52,13 +61,31 @@ type UnfinishedTarget struct {
 
 // PlanUnfinished reads, in c's scope, the operation state records as
 // unfinished there, and what settling it does (see [Unfinished]); it returns
-// nil when state records none for c's scope. A file the settling cannot give
-// what it lacks is refused here, as the settling would refuse it.
+// nil when state records none for c's scope. The record of a scope whose
+// folder is gone ([PartialOperation.gone]) is read in any scope, which
+// settles it: nothing of it is left to finish there. A folder of c's scope
+// Workbench cannot look up is refused. A file the settling cannot give what
+// it lacks is refused here, as the settling would refuse it.
 func PlanUnfinished(c Context, state *State) (*Unfinished, error) {
-	if state == nil || state.PartialOperation == nil || state.PartialOperation.Scope != c.Scope {
+	if state == nil || state.PartialOperation == nil {
 		return nil, nil
 	}
-	u := &Unfinished{ID: state.PartialOperation.ID, Root: c.Scope.Root}
+	partial := state.PartialOperation
+	removed, err := partial.gone()
+	switch {
+	case err != nil && partial.Scope == c.Scope:
+		return nil, err
+	case err == nil && removed.is != "":
+		return &Unfinished{
+			ID:      partial.ID,
+			Root:    partial.Scope.Root,
+			Removed: removed.is,
+			linked:  removed.linked,
+		}, nil
+	case partial.Scope != c.Scope:
+		return nil, nil
+	}
+	u := &Unfinished{ID: partial.ID, Root: c.Scope.Root}
 	checkpoints, err := loadCheckpoints(c)
 	if err != nil {
 		return nil, err
@@ -85,6 +112,10 @@ func PlanUnfinished(c Context, state *State) (*Unfinished, error) {
 		current, err := ReadImage(c, change.Path)
 		if err != nil {
 			return nil, err
+		}
+		if current.Kind == ImageAbsent && change.After.Kind != ImageAbsent {
+			u.Missing = append(u.Missing, change.Path)
+			continue
 		}
 		missing := lacksOf(change, current)
 		if missing.none() {
@@ -144,7 +175,7 @@ func groupRefusal(c Context, id string, refused []lackedGroup) error {
 		if len(groups) > 1 {
 			which, those = "groups "+display.List(groups), "those groups"
 		}
-		headline = shownPaths(paths) + " lack their " + which
+		headline = shownPaths(c, paths) + " lack their " + which
 		cause = "apply " + id + " stopped after chezmoi wrote them, and you are not a member of " +
 			which + ", so Workbench cannot give them " + those
 	}
@@ -188,17 +219,19 @@ func (u *Unfinished) target(path string) *UnfinishedTarget {
 	return nil
 }
 
-// Input binds u to a plan: the operation, its checkpoint's journal as it
-// stands, and each file's image now and once settled. A plan made before
-// any of them changed, or before the record went, does not match it.
+// Input binds u to a plan: the operation, how its folder is gone, its
+// checkpoint's journal as it stands, each file's current and settled image,
+// and the files that are not there. A plan made before any of them changed,
+// or before the record went, does not match it.
 func (u *Unfinished) Input() Input {
 	type target struct{ Path, Current, Settled string }
 	bound := struct {
-		ID, Root, Checkpoint string
-		Revert, Gone         bool
-		Sequence             uint64
-		Targets              []target
-	}{ID: u.ID, Root: u.Root, Revert: u.Revert, Gone: u.Gone}
+		ID, Root, Checkpoint, Removed string
+		Revert, Gone                  bool
+		Sequence                      uint64
+		Targets                       []target
+		Missing                       []string
+	}{ID: u.ID, Root: u.Root, Removed: u.Removed, Revert: u.Revert, Gone: u.Gone, Missing: u.Missing}
 	if u.cp != nil {
 		bound.Checkpoint, bound.Sequence = u.cp.ID, u.cp.journal.Sequence
 	}
@@ -214,7 +247,7 @@ func (u *Unfinished) Input() Input {
 
 // Note is u as a plan and doctor show it: that the operation did not finish,
 // and what the next apply does about it, with each file it finishes and what
-// that file lacks.
+// that file lacks, and the files that are not there.
 func (u *Unfinished) Note(c Context) Warning {
 	what := "Apply "
 	if u.Revert {
@@ -222,6 +255,16 @@ func (u *Unfinished) Note(c Context) Warning {
 	}
 	headline := what + u.ID + " to " + c.ShowPath(u.Root) + " did not finish"
 	switch {
+	case u.Removed != "":
+		cause := "the destination " + u.Removed + ", so none of the files the apply wrote is left to finish"
+		if u.linked {
+			cause = "the destination " + u.Removed + ", so Workbench cannot finish the files the apply wrote there"
+		}
+		return Warn(
+			headline,
+			Cause(cause),
+			Outcome("the next apply records it as finished and keeps its checkpoint"),
+		)
 	case u.Gone:
 		return Warn(
 			headline,
@@ -233,16 +276,17 @@ func (u *Unfinished) Note(c Context) Warning {
 			headline,
 			Outcome("the next apply takes its place and writes each file as it plans"),
 		)
-	case len(u.Targets) == 0:
+	case len(u.Targets) == 0 && len(u.Missing) == 0:
 		return Warn(
 			headline,
 			Outcome("each file it wrote is finished; the next apply records it as finished"),
 		)
 	}
-	parts := []Part{
-		Cause(
+	var parts []Part
+	if len(u.Targets) > 0 {
+		parts = append(parts, Cause(
 			"it stopped after chezmoi wrote files, before Workbench gave them what chezmoi leaves out",
-		),
+		))
 	}
 	// One line for the files that lack the same, in the order the first of
 	// them comes in.
@@ -256,26 +300,26 @@ func (u *Unfinished) Note(c Context) Warning {
 		paths[what] = append(paths[what], t.Path)
 	}
 	for _, what := range lacks {
-		const shown = 3
 		files := paths[what]
-		names := make([]string, 0, shown+1)
-		for _, path := range files[:min(len(files), shown)] {
-			names = append(names, c.ShowPath(path))
-		}
-		if len(files) > shown {
-			names = append(names, fmt.Sprintf("%d more", len(files)-shown))
-		}
 		verb := " lacks its "
 		if len(files) > 1 {
 			verb = " lack their "
 		}
-		parts = append(parts, Line{Label: "files", Text: display.List(names) + verb + what})
+		parts = append(parts, Line{Label: "files", Text: shownPaths(c, files) + verb + what})
 	}
-	return Warn(headline, append(
-		parts,
-		Outcome("the next apply gives each file what it lacks before it writes anything, "+
-			"and leaves its content as it is"),
-	)...)
+	if len(u.Missing) > 0 {
+		verb := " is not there"
+		if len(u.Missing) > 1 {
+			verb = " are not there"
+		}
+		parts = append(parts, Line{Label: "files", Text: shownPaths(c, u.Missing) + verb})
+	}
+	result := "the next apply records it as finished"
+	if len(u.Targets) > 0 {
+		result = "the next apply gives each file what it lacks before it writes anything, " +
+			"and leaves its content as it is"
+	}
+	return Warn(headline, append(parts, Outcome(result))...)
 }
 
 // lacking is what a target of an unfinished apply lacks of what its approved

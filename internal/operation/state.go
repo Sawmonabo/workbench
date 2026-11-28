@@ -2,13 +2,16 @@ package operation
 
 import (
 	"bytes"
+	"cmp"
 	"encoding/json"
+	"errors"
 	"path/filepath"
 	"regexp"
 	"slices"
 	"time"
 
 	"github.com/Sawmonabo/workbench/internal/display"
+	"golang.org/x/sys/unix"
 )
 
 // State describes current selections only. Checkpoint/image validation belongs
@@ -40,14 +43,19 @@ type PartialOperation struct {
 // Unfinished returns the blocked error when the state records an unfinished
 // operation that c's scope may not replace: one for another scope or, when own
 // is given, one whose ID is not in own. Its fix is the apply of the recorded
-// destination, which finishes that operation first. Callers check it before
-// overwriting PartialOperation, which holds a single record.
+// destination, which finishes that operation first. One whose folder is gone
+// ([PartialOperation.gone]) leaves nothing to finish, and any apply or revert
+// replaces it. Callers check it before overwriting PartialOperation, which
+// holds a single record.
 func (s *State) Unfinished(c Context, own ...string) error {
 	if s == nil || s.PartialOperation == nil {
 		return nil
 	}
 	partial := s.PartialOperation
 	if partial.Scope == c.Scope && (len(own) == 0 || slices.Contains(own, partial.ID)) {
+		return nil
+	}
+	if removed, err := partial.gone(); err == nil && removed.is != "" {
 		return nil
 	}
 	return Fail(
@@ -57,6 +65,62 @@ func (s *State) Unfinished(c Context, own ...string) error {
 		Cause("it must finish before another apply or revert"),
 		FixText(c.ApplyCommand(partial.Scope.Root)),
 	)
+}
+
+// removal is how the folder of an unfinished operation's scope is gone, as a
+// person reads it after the folder's name: is is "is not there", "is a file"
+// or the like, empty while the folder is there. linked is set when a link
+// takes its place or leads to it: its files may be elsewhere, but no scope
+// Workbench resolves is that one.
+type removal struct {
+	is     string
+	linked bool
+}
+
+// gone is how the folder p's scope names is gone since p's record: not
+// there (a folder above it may be a file), of another kind, or reached
+// through a link, so that no scope Workbench resolves is p's any more, and
+// nothing of p is left to finish there. The error is a folder Workbench is
+// kept from looking up ([ExistingDirectory]'s refusal): it cannot tell.
+func (p PartialOperation) gone() (removal, error) {
+	root := p.Scope.Root
+	canonical, err := ExistingDirectory(root)
+	if err == nil && canonical == root {
+		return removal{}, nil
+	}
+	var stat unix.Stat_t
+	statErr := unix.Lstat(root, &stat)
+	switch {
+	case errors.Is(statErr, unix.ENOENT) || errors.Is(statErr, unix.ENOTDIR):
+		return removal{is: "is not there"}, nil
+	case statErr != nil:
+		return removal{}, cmp.Or(err, FileError(root, statErr))
+	}
+	format := uint32(stat.Mode & unix.S_IFMT)
+	switch {
+	case format == unix.S_IFLNK:
+		return removal{is: "is a link", linked: true}, nil
+	case format != unix.S_IFDIR:
+		return removal{is: "is " + kindName(format)}, nil
+	case err == nil:
+		return removal{is: "is reached through a link", linked: true}, nil
+	}
+	return removal{}, err
+}
+
+// validFormat checks that s is a known kind and its root an absolute, clean
+// path, as a record names a scope.
+func (s Scope) validFormat() error {
+	if (s.Kind != "machine" && s.Kind != "project") || !filepath.IsAbs(s.Root) ||
+		filepath.Clean(s.Root) != s.Root {
+		return Fail(
+			ExitInvalid,
+			"scope",
+			"Invalid scope",
+			Cause("a scope is a machine or project folder given by its absolute path"),
+		)
+	}
+	return nil
 }
 
 var (
@@ -117,7 +181,7 @@ func (s State) Validate() error {
 		if !operationID.MatchString(s.PartialOperation.ID) {
 			return Fail(ExitInvalid, "state_format", "Malformed partial operation identity")
 		}
-		if err := s.PartialOperation.Scope.Validate(); err != nil {
+		if err := s.PartialOperation.Scope.validFormat(); err != nil {
 			return err
 		}
 	}

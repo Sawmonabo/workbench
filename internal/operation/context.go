@@ -215,12 +215,19 @@ func ExistingDirectory(path string) (string, error) {
 	}
 	canonical, err := filepath.EvalSymlinks(absolute)
 	if err != nil {
+		// A folder above it that keeps this user out is named, with its fix.
+		var parts []Part
+		if errors.Is(err, fs.ErrPermission) {
+			parts = unreachable(absolute, true, err)
+		}
+		if parts == nil {
+			parts = []Part{Cause(causeAt(absolute, err))}
+		}
 		return "", Fail(
 			ExitInvalid,
 			"path",
 			"Cannot find the folder "+display.Path(absolute),
-			Cause(causeAt(absolute, err)),
-		)
+			parts...)
 	}
 	info, err := os.Stat(canonical)
 	if err != nil {
@@ -689,16 +696,11 @@ func (c Context) validateImagePath(path string) error {
 }
 
 // Validate checks that s is a known kind rooted at an existing canonical
-// directory.
+// directory: the scope an operation runs in. A scope a record names, whose
+// folder may be gone since, is checked by [Scope.validFormat].
 func (s Scope) Validate() error {
-	if (s.Kind != "machine" && s.Kind != "project") || !filepath.IsAbs(s.Root) ||
-		filepath.Clean(s.Root) != s.Root {
-		return Fail(
-			ExitInvalid,
-			"scope",
-			"Invalid scope",
-			Cause("a scope is a machine or project folder given by its absolute path"),
-		)
+	if err := s.validFormat(); err != nil {
+		return err
 	}
 	canonical, err := ExistingDirectory(s.Root)
 	if err != nil || canonical != s.Root {

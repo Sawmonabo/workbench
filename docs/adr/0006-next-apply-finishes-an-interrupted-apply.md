@@ -58,6 +58,22 @@ run.
   what it lacks, and binds the record and both images of each file, so a change
   between the dry run and the apply stops the apply (exit 4). `doctor` says the
   same in the same words, with the command that applies to that destination.
+- A destination whose folder is gone since the stop (not there, a file or a
+  link in its place, or reached through a link) leaves nothing of the apply
+  to finish, and no destination Workbench resolves is that one. Every command
+  reads the record. The plan of any apply, and `doctor`, say how the
+  destination is gone (`the destination is not there, so none of the files
+  the apply wrote is left to finish`) and that the next apply records it as
+  finished and keeps its checkpoint; the plan binds that, and the apply
+  clears the record. `doctor` gives no command for it: any apply does it. A
+  folder Workbench is kept from looking up, below a folder the user cannot
+  search, cannot be told from one that is there: the record keeps blocking
+  other destinations, and the apply command of its destination names that
+  folder and the `chmod` or `sudo chown` that opens it.
+- A file of the interrupted apply that is not there, in a destination that is
+  (made again empty, or the file removed), lacks nothing: the warning names it
+  (`files ~/dest/.zshrc and 14 more are not there`), and the next apply
+  writes what its plan shows and records the apply as finished.
 - Finishing gives each file what it lacks in place, a file or folder through
   a descriptor and a link by its path, and leaves its content alone, whether
   chezmoi wrote it or someone edited it afterwards. What it holds of that metadata with another value stays, as
