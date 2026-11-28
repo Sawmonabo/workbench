@@ -14,23 +14,16 @@ import (
 	"github.com/Sawmonabo/workbench/internal/operation"
 )
 
-// transcriptRooter is a source that says where its transcripts live, so a
-// hook's transcript path names the tool it fired for.
-type transcriptRooter interface {
-	TranscriptRoots(home string) []string
-}
-
 // toolOfTranscript is the tool whose transcript root contains path.
 func toolOfTranscript(home, path string) (Tool, bool) {
 	if path == "" {
 		return Tool{}, false
 	}
 	for _, tool := range Tools {
-		rooter, ok := tool.Source.(transcriptRooter)
-		if !ok {
+		if tool.Source == nil {
 			continue
 		}
-		for _, root := range rooter.TranscriptRoots(home) {
+		for _, root := range tool.Source.TranscriptRoots(home) {
 			if within(root, path) {
 				return tool, true
 			}

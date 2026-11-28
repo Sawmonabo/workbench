@@ -107,7 +107,7 @@ func status(ctx context.Context, ledger *Ledger, paths Paths) (StatusInfo, error
 					status.ConfigMove = &move
 				}
 			}
-			if counter, ok := tool.Source.(interface{ Skipped(string) int }); ok {
+			if counter, ok := tool.Source.(skipCounter); ok {
 				status.Skipped = counter.Skipped(paths.Home)
 			}
 		}

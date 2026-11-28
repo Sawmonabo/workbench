@@ -163,10 +163,8 @@ func ingestLocked(ctx context.Context, paths Paths, opts IngestOptions) (string,
 		if tool.Source == nil {
 			continue
 		}
-		var accounts, labels map[string]string
-		if directory, ok := tool.Source.(accountDirectory); ok {
-			accounts = directory.Accounts(paths.Home)
-		}
+		accounts := tool.Source.Accounts(paths.Home)
+		var labels map[string]string
 		if directory, ok := tool.Source.(labelDirectory); ok {
 			labels = directory.Labels(paths.Home)
 		}
@@ -438,11 +436,9 @@ func rereadIfRevised(ctx context.Context, ledger *Ledger, tool Tool, home string
 	if !ok {
 		return nil
 	}
-	rooter, ok := tool.Source.(transcriptRooter)
-	if !ok {
-		return nil
-	}
-	return ledger.ForgetFiles(ctx, tool.Name, source.ParseRevision(), rooter.TranscriptRoots(home))
+	return ledger.ForgetFiles(
+		ctx, tool.Name, source.ParseRevision(), tool.Source.TranscriptRoots(home),
+	)
 }
 
 // readAhead bounds how far reads run ahead of the commits: the size of the

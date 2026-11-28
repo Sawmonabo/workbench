@@ -14,12 +14,20 @@ import (
 // Source is one AI tool whose transcripts the ledger records. Everything a
 // source knows is about its own files and prices; it never writes.
 type Source interface {
-	Name() string                               // "claude", "codex"
-	Transcripts(home string) ([]string, error)  // files to ingest
+	Name() string                              // "claude", "codex"
+	Transcripts(home string) ([]string, error) // files to ingest
+	// TranscriptRoots are the folders the transcripts live in, so a hook's
+	// transcript path names the tool it fired for.
+	TranscriptRoots(home string) []string
 	Parse(line []byte, file *FileState) []Usage // usage rows in one line
 	SignIn(
 		home string,
 	) SignIn // the tool's current sign-in; the zero SignIn when none
+	// Accounts maps each id by which the tool's transcripts name an account
+	// (Usage.AccountKey) to the email of the sign-in that holds it, for every
+	// sign-in the tool keeps, not only the current one. Ingest uses it for
+	// rows whose transcript names the account.
+	Accounts(home string) map[string]string
 	Builtin() RateCard                 // prices shipped with Workbench
 	PricingURL() string                // official price page, "" when none
 	ParsePricing(page string) RateCard // that page's prices
@@ -36,14 +44,6 @@ type Source interface {
 // means nothing is known.
 type SignIn struct {
 	Account, Subscription, Label string
-}
-
-// accountDirectory is a source whose transcripts name an account by the tool's
-// own id (Usage.AccountKey): Accounts maps each such id to the email of the
-// sign-in that holds it, for every sign-in the tool keeps, not only the
-// current one. Ingest uses it for rows whose transcript names the account.
-type accountDirectory interface {
-	Accounts(home string) map[string]string
 }
 
 // signInDirectory is a source that keeps earlier sign-ins on disk: SignIns
@@ -92,6 +92,12 @@ type tierServer interface {
 	ServedTier(home string) func(model, tier string) string
 }
 
+// skipCounter is a source with transcripts it cannot read (Codex's
+// compressed rollouts): Skipped counts them, for the status.
+type skipCounter interface {
+	Skipped(home string) int
+}
+
 // Usage is one billed response, whatever tool produced it.
 type Usage struct {
 	Tool, RequestID, Model, Project, Session, Account    string
@@ -122,7 +128,7 @@ type Usage struct {
 	// AccountKey is the tool's own id of the account that answered, when the
 	// transcript names it (Codex's creator_account_id, the ChatGPT account id;
 	// Claude Code's credential_org, the organization uuid), "" otherwise.
-	// Ingest resolves it to an email through accountDirectory.
+	// Ingest resolves it to an email through Source.Accounts.
 	AccountKey string
 
 	// SubscriptionEvidence is "transcript" when the source decided the
