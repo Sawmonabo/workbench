@@ -1,22 +1,22 @@
-// Package jsonc edits JSON with comments in place, the way an editor does: a
-// changed value or a new member is written into the text its owner wrote, and
-// everything else keeps its bytes, comments, key order, indentation and line
-// endings included. It owns the layout rules both the project extension
-// recommendations and the VS Code settings merge follow, so a new member is
-// laid out like its siblings at any depth and never packed onto one line of a
-// multi-line object.
+// Package jsonc reads JSON with comments and edits it in place, the way an
+// editor does: a changed value or a new member is written into the text its
+// owner wrote, and everything else keeps its bytes, comments, key order,
+// indentation and line endings included. It owns the layout rules both the
+// project extension recommendations and the VS Code settings merge follow, so
+// a new member is laid out like its siblings at any depth and never packed
+// onto one line of a multi-line object.
 //
-// It sits on the operation package only for the error type its refusals share
-// with the rest of Workbench.
+// It refuses a document with plain errors ([ErrNotObject], [ErrUnquotedKey],
+// [ErrDuplicateKey]), and each caller words the refusal for the file it reads.
 package jsonc
 
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"slices"
 	"strings"
 
-	"github.com/Sawmonabo/workbench/internal/operation"
 	"github.com/tailscale/hujson"
 )
 
@@ -198,37 +198,62 @@ func Plain(doc hujson.Value) []byte {
 	return plain.Pack()
 }
 
-// UniqueKeys refuses an object, at any depth, with a key that is not a quoted
-// string or that repeats: which value wins would be a guess.
-func UniqueKeys(value hujson.Value) error {
+// The documents [DecodeObject] refuses, besides text hujson cannot parse and
+// values encoding/json cannot decode, whose errors it returns as they are.
+var (
+	// ErrNotObject is a document that is not an object.
+	ErrNotObject = errors.New("jsonc: the document is not an object")
+	// ErrUnquotedKey is an object key that is not a quoted string.
+	ErrUnquotedKey = errors.New("jsonc: an object key is not a quoted string")
+	// ErrDuplicateKey is an object key that repeats: which value wins would
+	// be a guess.
+	ErrDuplicateKey = errors.New("jsonc: an object key repeats")
+)
+
+// DecodeObject parses data as JSON with comments and decodes it, as standard
+// JSON, into v. It refuses a document that is not an object, and one with a
+// key, at any depth, that is not a quoted string or that repeats. doc is the
+// parsed document, for an edit in place.
+func DecodeObject(data []byte, v any) (doc hujson.Value, err error) {
+	doc, err = Parse(data)
+	if err != nil {
+		return hujson.Value{}, err
+	}
+	if _, isObject := doc.Value.(*hujson.Object); !isObject {
+		return hujson.Value{}, ErrNotObject
+	}
+	if err = uniqueKeys(doc); err != nil {
+		return hujson.Value{}, err
+	}
+	if err = json.Unmarshal(Plain(doc), v); err != nil {
+		return hujson.Value{}, err
+	}
+	return doc, nil
+}
+
+// uniqueKeys refuses an object, at any depth, with a key that is not a quoted
+// string or that repeats.
+func uniqueKeys(value hujson.Value) error {
 	switch node := value.Value.(type) {
 	case *hujson.Object:
 		seen := map[string]bool{}
 		for _, member := range node.Members {
 			name, ok := member.Name.Value.(hujson.Literal)
 			if !ok || name.Kind() != '"' {
-				return operation.Fail(
-					operation.ExitInvalid,
-					"jsonc",
-					"JSONC object keys must be quoted strings",
-				)
+				return ErrUnquotedKey
 			}
 			key := name.String()
 			if seen[key] {
-				return operation.Fail(
-					operation.ExitInvalid,
-					"jsonc",
-					"Duplicate JSONC keys require manual repair",
-				)
+				return ErrDuplicateKey
 			}
 			seen[key] = true
-			if err := UniqueKeys(member.Value); err != nil {
+			if err := uniqueKeys(member.Value); err != nil {
 				return err
 			}
 		}
 	case *hujson.Array:
 		for _, element := range node.Elements {
-			if err := UniqueKeys(element); err != nil {
+			if err := uniqueKeys(element); err != nil {
 				return err
 			}
 		}

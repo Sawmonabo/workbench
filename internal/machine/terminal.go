@@ -2,7 +2,6 @@ package machine
 
 import (
 	"bytes"
-	"encoding/json"
 	"maps"
 	"regexp"
 	"slices"
@@ -140,23 +139,10 @@ func readTerminalSettings(existing []byte) (hujson.Value, map[string]any, error)
 		// only a file Terminal has written.
 		return hujson.Value{}, nil, refuseTerminal("it is empty")
 	}
-	doc, err := jsonc.Parse(body)
-	if err != nil {
-		return hujson.Value{}, nil, refuseTerminal(
-			"it is not valid JSON or JSONC (" + oneLine(err.Error()) + ")",
-		)
-	}
-	if _, isObject := doc.Value.(*hujson.Object); !isObject {
-		return hujson.Value{}, nil, refuseTerminal("it is not a JSON object")
-	}
-	if err = jsonc.UniqueKeys(doc); err != nil {
-		return hujson.Value{}, nil, refuseTerminal(err.Error())
-	}
 	var have map[string]any
-	if err = json.Unmarshal(jsonc.Plain(doc), &have); err != nil {
-		return hujson.Value{}, nil, refuseTerminal(
-			"it is not valid JSON or JSONC (" + oneLine(err.Error()) + ")",
-		)
+	doc, err := jsonc.DecodeObject(body, &have)
+	if err != nil {
+		return hujson.Value{}, nil, refuseTerminal(settingsReason(err))
 	}
 	return doc, have, nil
 }

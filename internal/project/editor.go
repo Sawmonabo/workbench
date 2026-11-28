@@ -4,6 +4,7 @@ import (
 	"context"
 	_ "embed"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -241,20 +242,10 @@ func mergeExtensionLists(data []byte, extensionPolicy map[string][]string) ([]by
 	if len(data) == 0 {
 		data = []byte("{}\n")
 	}
-	doc, err := jsonc.Parse(data)
-	if err != nil {
-		return nil, operation.Fail(operation.ExitInvalid, "jsonc", "Invalid extensions JSONC")
-	}
-	if err = jsonc.UniqueKeys(doc); err != nil {
-		return nil, err
-	}
 	var existing map[string]json.RawMessage
-	if json.Unmarshal(jsonc.Plain(doc), &existing) != nil || existing == nil {
-		return nil, operation.Fail(
-			operation.ExitInvalid,
-			"jsonc",
-			"Extension recommendations require an object",
-		)
+	doc, err := jsonc.DecodeObject(data, &existing)
+	if err != nil {
+		return nil, operation.Fail(operation.ExitInvalid, "jsonc", extensionsReason(err))
 	}
 	values := make(map[string][]string)
 	for _, key := range extensionKeys {
@@ -305,19 +296,26 @@ func mergeExtensionLists(data []byte, extensionPolicy map[string][]string) ([]by
 	return addExtensions(doc, additions)
 }
 
+// extensionsReason is why an extensions file that [jsonc.DecodeObject]
+// refused is left as it is.
+func extensionsReason(err error) string {
+	switch {
+	case errors.Is(err, jsonc.ErrNotObject):
+		return "Extension recommendations require an object"
+	case errors.Is(err, jsonc.ErrUnquotedKey):
+		return "JSONC object keys must be quoted strings"
+	case errors.Is(err, jsonc.ErrDuplicateKey):
+		return "Duplicate JSONC keys require manual repair"
+	}
+	return "Invalid extensions JSONC"
+}
+
 // addExtensions writes additions into doc, the project's validated extensions
 // file, in the style of the user's own text.
 func addExtensions(doc hujson.Value, additions []extensionAddition) ([]byte, error) {
 	// Nothing of the user's is in an empty file, so it is laid out like any new JSON file.
 	owned := jsonc.OwnsLayout(doc)
-	root, isObject := doc.Value.(*hujson.Object)
-	if !isObject {
-		return nil, operation.Fail(
-			operation.ExitInvalid,
-			"jsonc",
-			"Extension recommendations require an object",
-		)
-	}
+	root, _ := doc.Value.(*hujson.Object) // DecodeObject refused any other document
 	lay := jsonc.RootLayout(doc, "  ")
 	for _, addition := range additions {
 		if addition.whole {

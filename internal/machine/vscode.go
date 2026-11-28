@@ -3,6 +3,7 @@ package machine
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"maps"
 	"reflect"
 	"slices"
@@ -61,21 +62,12 @@ func MergeVSCodeSettings(existing, managedJSON []byte) ([]byte, error) {
 		}
 		return slices.Concat(prefix, fresh), nil
 	}
-	doc, err := jsonc.Parse(body)
-	if err != nil {
-		return nil, refuseVSCode("it is not valid JSON or JSONC (" + oneLine(err.Error()) + ")")
-	}
-	root, isObject := doc.Value.(*hujson.Object)
-	if !isObject {
-		return nil, refuseVSCode("it is not a JSON object")
-	}
-	if err = jsonc.UniqueKeys(doc); err != nil {
-		return nil, refuseVSCode(err.Error())
-	}
 	var have map[string]any
-	if err = json.Unmarshal(jsonc.Plain(doc), &have); err != nil {
-		return nil, refuseVSCode("it is not valid JSON or JSONC (" + oneLine(err.Error()) + ")")
+	doc, err := jsonc.DecodeObject(body, &have)
+	if err != nil {
+		return nil, refuseVSCode(settingsReason(err))
 	}
+	root, _ := doc.Value.(*hujson.Object) // DecodeObject refused any other document
 	want := mergeSettings(have, managed)
 	if reflect.DeepEqual(want, have) {
 		return existing, nil
@@ -98,6 +90,20 @@ func refuseVSCode(reason string) error {
 	return operation.Fail(operation.ExitBlocked, "vscode_settings", reason)
 }
 
+// settingsReason is why a settings file that [jsonc.DecodeObject] refused is
+// left as it is.
+func settingsReason(err error) string {
+	switch {
+	case errors.Is(err, jsonc.ErrNotObject):
+		return "it is not a JSON object"
+	case errors.Is(err, jsonc.ErrUnquotedKey):
+		return "JSONC object keys must be quoted strings"
+	case errors.Is(err, jsonc.ErrDuplicateKey):
+		return "Duplicate JSONC keys require manual repair"
+	}
+	return "it is not valid JSON or JSONC (" + oneLine(err.Error()) + ")"
+}
+
 func oneLine(text string) string {
 	return strings.Join(strings.Fields(text), " ")
 }
@@ -115,12 +121,9 @@ func newVSCodeSettings(managed map[string]any) ([]byte, error) {
 // yieldsSettings reports that text is valid JSONC without repeated keys whose
 // settings are want.
 func yieldsSettings(text []byte, want map[string]any) bool {
-	doc, err := hujson.Parse(text)
-	if err != nil || jsonc.UniqueKeys(doc) != nil {
-		return false
-	}
 	var got map[string]any
-	return json.Unmarshal(jsonc.Plain(doc), &got) == nil && reflect.DeepEqual(got, want)
+	_, err := jsonc.DecodeObject(text, &got)
+	return err == nil && reflect.DeepEqual(got, want)
 }
 
 // mergeSettings is the settings that result from setting managed in have,
