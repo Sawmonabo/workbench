@@ -175,7 +175,7 @@ func checkStagedGroup(c Context, path, staging string) error {
 		ExitBlocked,
 		"metadata",
 		fmt.Sprintf(
-			"Native stages %s in Workbench's temporary folder, of group %s, and you are not a "+
+			"chezmoi stages %s in Workbench's temporary folder, of group %s, and you are not a "+
 				"member of group %s, which its folder gives new files; give that folder one of "+
 				"your groups (chgrp), or set TMPDIR to a folder that gives new files group %s",
 			c.ShowPath(path), groupName(staged), groupName(group), groupName(group),

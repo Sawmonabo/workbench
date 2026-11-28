@@ -111,16 +111,16 @@ func nativeOutput(c Context, change TargetChange) (Image, error) {
 		return Image{}, Fail(
 			ExitPartial,
 			"native_image",
-			shown+" differs from its approved image after native ran, so Workbench did not change its group or label",
+			shown+" differs from what the plan approved after chezmoi wrote it, so Workbench did not change its group or label",
 		)
 	}
 	if current.Kind == ImageSymlink && *current.Group != *change.After.Group {
 		return Image{}, Fail(
 			ExitBlocked,
 			"metadata",
-			display.Path(change.Path)+" is a link native gave group "+groupName(*current.Group)+
+			display.Path(change.Path)+" is a link chezmoi gave group "+groupName(*current.Group)+
 				", not "+groupName(*change.After.Group)+
-				", and Workbench does not correct a link's group; retained images require review",
+				", and Workbench does not change a link's group, so it left the link as it is",
 		)
 	}
 	return current, nil
@@ -138,7 +138,7 @@ func correctNativeMetadata(c Context, change TargetChange, observed Image, label
 		return Fail(
 			ExitPartial,
 			"native_image",
-			shown+" changed before Workbench gave it its group; stop for review",
+			shown+" changed after chezmoi wrote it, before Workbench gave it its group, so Workbench left it as it is",
 		)
 	}
 	return enforceNativeMetadata(c, change.Path, observed, *change.After.Group, label)

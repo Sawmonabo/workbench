@@ -26,7 +26,7 @@ func enforceNativeMetadata(
 			ExitBlocked,
 			"metadata",
 			display.Path(path)+" is "+imageKindName(observed.Kind)+
-				", and Workbench gives native's output its group only on a file or folder",
+				", and Workbench gives what chezmoi wrote its group only on a file or folder",
 		)
 	}
 	parent, name, err := imageParent(c, path)
@@ -52,10 +52,11 @@ func enforceNativeMetadata(
 	if int(stat.Uid) != os.Geteuid() || stat.Mode&0o7000 != 0 ||
 		(observed.Kind == ImageFile && (stat.Mode&unix.S_IFMT != unix.S_IFREG || stat.Nlink != 1)) ||
 		(observed.Kind == ImageDirectory && stat.Mode&unix.S_IFMT != unix.S_IFDIR) {
+		shown := display.Path(path)
 		return Fail(
 			ExitPartial,
 			"native_image",
-			display.Path(path)+" changed after native wrote it, before Workbench gave it its group",
+			shown+" changed after chezmoi wrote it, before Workbench gave it its group",
 		)
 	}
 	current := Image{Kind: observed.Kind, Mode: uint32(stat.Mode) & 0o777}
@@ -83,7 +84,7 @@ func enforceNativeMetadata(
 		return Fail(
 			ExitPartial,
 			"native_image",
-			shown+" differs from what native wrote, so Workbench did not change its group",
+			shown+" differs from what chezmoi wrote, so Workbench did not change its group",
 		)
 	}
 	if err = setImageGroup(fd, group); err != nil {
