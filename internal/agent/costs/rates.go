@@ -10,6 +10,19 @@ import (
 	"time"
 )
 
+// Rate is USD per million tokens for each token kind.
+type Rate struct {
+	Input        float64 `json:"input"`
+	Output       float64 `json:"output"`
+	CacheWrite5m float64 `json:"cache_write_5m"`
+	CacheWrite1h float64 `json:"cache_write_1h"`
+	CacheRead    float64 `json:"cache_read"`
+	Source       string  `json:"source"` // "override", "official", "calibrated" or "builtin"
+}
+
+// RateCard maps a model prefix to its rate.
+type RateCard map[string]Rate
+
 // sourceOrder ranks where a rate came from, for rates that are equally
 // specific; see Lookup.
 var sourceOrder = []string{"official", "calibrated", "builtin"}

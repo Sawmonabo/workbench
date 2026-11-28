@@ -176,32 +176,6 @@ type Block struct {
 	Models  []Row `json:"models"`
 }
 
-// Evidence counts rows by the level of evidence one field of them rests on.
-type Evidence struct {
-	Transcript int64 `json:"transcript"`
-	Session    int64 `json:"session"`
-	Observed   int64 `json:"observed"`
-	Inferred   int64 `json:"inferred"`
-	Unknown    int64 `json:"unknown"`
-}
-
-// add counts n rows at a level by its rank (EvidenceRank); any other rank
-// counts as unknown.
-func (e *Evidence) add(rank int, n int64) {
-	switch rank {
-	case 4:
-		e.Transcript += n
-	case 3:
-		e.Session += n
-	case 2:
-		e.Observed += n
-	case 1:
-		e.Inferred += n
-	default:
-		e.Unknown += n
-	}
-}
-
 // ReportOptions selects what a report covers; the zero value is the default
 // view (by project, in scope, cost descending).
 type ReportOptions struct {

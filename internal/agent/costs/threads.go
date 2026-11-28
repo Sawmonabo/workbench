@@ -9,6 +9,11 @@ import (
 	"slices"
 )
 
+// ThreadParent is a thread the file names as spawned by another: its
+// immediate parent, which is not always the root. The ledger walks these links
+// to the root thread that a hook binds a session under.
+type ThreadParent struct{ Thread, Parent string }
+
 // AddThreadParent records that tool's thread was spawned by parent, as the
 // thread's own file names it. It changes no row: ResolveAccounts, which
 // every run ends with, moves the rows stored under a parent to the root.

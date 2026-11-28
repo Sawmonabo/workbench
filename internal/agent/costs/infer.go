@@ -4,7 +4,27 @@ import (
 	"context"
 	"database/sql"
 	"sort"
+	"time"
 )
+
+// The kinds of AccountMark.
+const (
+	MarkLogin   = "login"   // a sign-in happened at Time
+	MarkAccount = "account" // the tool's own id of the signed-in account was Account at Time
+	MarkOrg     = "org"     // the signed-in organization was Org at Time
+	MarkPair    = "pair"    // a sign-in on disk holds account id Account in organization Org
+)
+
+// AccountMark is a record of who was signed in, for rows whose own records
+// name no account: a sign-in that starts a login stretch, an account id or an
+// organization seen during one, or a sign-in that pairs an account id with
+// its organization. ResolveAccounts infers a stretch's account from its marks
+// (accountBasis.inferred). Time is zero for a MarkPair.
+type AccountMark struct {
+	Kind         string
+	Time         time.Time
+	Account, Org string
+}
 
 // AddMark stores an account mark of tool, once. A mark not stored before
 // moves accountsMarked back to where its rows begin, so the next resolution

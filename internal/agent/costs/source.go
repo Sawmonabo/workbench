@@ -6,8 +6,6 @@ package costs
 import (
 	"encoding/json"
 	"errors"
-	"regexp"
-	"strings"
 	"time"
 
 	"github.com/Sawmonabo/workbench/internal/agent/toolconfig"
@@ -73,69 +71,25 @@ type reparser interface {
 	ParseRevision() string
 }
 
-// The evidence the account (email) and the subscription of a row each rest on,
-// strongest first; the ledger stores them as account_source and
-// subscription_source. A stronger copy of a row replaces a weaker one for that
-// field, an equal one keeps the stored value.
-const (
-	// the transcript named it (Codex: the plan, the creator account; Claude
-	// Code: the organization)
-	EvidenceTranscript = "transcript"
-	EvidenceSession    = "session"  // the sign-in a hook bound to the row's root session
-	EvidenceObserved   = "observed" // the sign-in observed on both sides of the row's time
-	// the account the tool's records put in the row's login stretch, which no
-	// record of the row itself names (accountBasis.inferred)
-	EvidenceInferred = "inferred"
-	EvidenceUnknown  = "unknown" // no evidence (a row keeps an email an earlier build stored, which no report shows)
-)
-
-// EvidenceRank orders the evidence levels: 4 transcript, 3 session, 2
-// observed, 1 inferred, 0 unknown or anything else.
-func EvidenceRank(evidence string) int {
-	switch evidence {
-	case EvidenceTranscript:
-		return 4
-	case EvidenceSession:
-		return 3
-	case EvidenceObserved:
-		return 2
-	case EvidenceInferred:
-		return 1
-	default:
-		return 0
-	}
+// markSource is a source that keeps account marks outside its transcripts
+// (Claude Code's prompt history and saved sign-ins); ingest stores them each
+// run. Marks returns what it found, and an error when it couldn't read all of
+// where they are kept.
+type markSource interface {
+	Marks(home string) ([]AccountMark, error)
 }
 
-// evidenceWords are the evidence levels by rank (EvidenceRank).
-var evidenceWords = [...]string{
-	EvidenceUnknown, EvidenceInferred, EvidenceObserved, EvidenceSession, EvidenceTranscript,
+// finisher is a source that saves its state once a read of a file ends,
+// instead of after each line that changes it.
+type finisher interface {
+	Finish(file *FileState)
 }
 
-// evidenceWord is the evidence level of a stored rank.
-func evidenceWord(rank int64) string {
-	if rank < 0 || rank >= int64(len(evidenceWords)) {
-		return EvidenceUnknown
-	}
-	return evidenceWords[rank]
-}
-
-// storedRank is EvidenceRank of a stored word, ok false for a word that is
-// no evidence level: EvidenceRank ranks it as unknown.
-func storedRank(word []byte) (rank int, ok bool) {
-	rank = EvidenceRank(string(word))
-	return rank, rank > 0 || string(word) == EvidenceUnknown
-}
-
-// ingestCommand matches the ingest hook's command as Workbench installs it:
-// the workbench executable, by name, by path or as a single-quoted path, then
-// "agent costs ingest" and nothing after.
-var ingestCommand = regexp.MustCompile(`(^|/)workbench'? agent costs ingest$`)
-
-// IngestHooks are the ingest hook on each session event, the hooks that keep
-// the ledger.
-var IngestHooks = []toolconfig.HookCommand{
-	{Event: "SessionStart", Command: ingestCommand},
-	{Event: "SessionEnd", Command: ingestCommand},
+// tierServer is a source whose tool may send a request at another tier than
+// the one selected for it: ServedTier says which, for a model and a selected
+// tier ("" for standard).
+type tierServer interface {
+	ServedTier(home string) func(model, tier string) string
 }
 
 // Usage is one billed response, whatever tool produced it.
@@ -185,18 +139,6 @@ type Usage struct {
 	CopyOf string
 }
 
-// The ledger keeps two series of tier changes per thread: when a selected
-// tier was set (keyed by the thread id), and when it took effect for the
-// thread's own turns (keyed turnTierKey(thread)).
-const turnTierPrefix = "turn:"
-
-func turnTierKey(thread string) string { return turnTierPrefix + thread }
-
-// TurnTierFrom is the TierFrom of a row priced at thread's running-turn tier
-// at time at (ledger layout), such as a subagent's tier fixed when it was
-// spawned.
-func TurnTierFrom(thread, at string) string { return turnTierKey(thread) + "@" + at }
-
 // FileState is what a source keeps between the lines of one transcript, and,
 // through Saved, between ingest runs.
 type FileState struct {
@@ -215,102 +157,6 @@ type FileState struct {
 	Marks []AccountMark
 
 	cache any // the source's decoded Saved during one read
-}
-
-// The kinds of AccountMark.
-const (
-	MarkLogin   = "login"   // a sign-in happened at Time
-	MarkAccount = "account" // the tool's own id of the signed-in account was Account at Time
-	MarkOrg     = "org"     // the signed-in organization was Org at Time
-	MarkPair    = "pair"    // a sign-in on disk holds account id Account in organization Org
-)
-
-// AccountMark is a record of who was signed in, for rows whose own records
-// name no account: a sign-in that starts a login stretch, an account id or an
-// organization seen during one, or a sign-in that pairs an account id with
-// its organization. ResolveAccounts infers a stretch's account from its marks
-// (accountBasis.inferred). Time is zero for a MarkPair.
-type AccountMark struct {
-	Kind         string
-	Time         time.Time
-	Account, Org string
-}
-
-// markSource is a source that keeps account marks outside its transcripts
-// (Claude Code's prompt history and saved sign-ins); ingest stores them each
-// run. Marks returns what it found, and an error when it couldn't read all of
-// where they are kept.
-type markSource interface {
-	Marks(home string) ([]AccountMark, error)
-}
-
-// finisher is a source that saves its state once a read of a file ends,
-// instead of after each line that changes it.
-type finisher interface {
-	Finish(file *FileState)
-}
-
-// ThreadParent is a thread the file names as spawned by another: its
-// immediate parent, which is not always the root. The ledger walks these links
-// to the root thread that a hook binds a session under.
-type ThreadParent struct{ Thread, Parent string }
-
-// TierChange is a thread switching service tier at a time; Tier is the
-// stored tier name, "" for standard. Turn marks the time the tier took effect
-// for the thread's own turns, rather than when it was selected. From, when
-// set, is a TierFrom whose tier the thread takes instead of Tier.
-type TierChange struct {
-	Thread string
-	Time   time.Time
-	Tier   string
-	Turn   bool
-	From   string
-}
-
-// splitTier splits "gpt-5.6-sol@fast", an id a Tiers tool's source composed,
-// into the model and its service tier:
-// the word after the last "@", a lowercase letter then lowercase letters,
-// digits, "_" or "-". An id without one is all model, tier "", so a dated
-// snapshot such as "claude-sonnet-4@20250514" keeps its date.
-func splitTier(model string) (base, tier string) {
-	if i := strings.LastIndex(model, "@"); i >= 0 && isTier(model[i+1:]) {
-		return model[:i], model[i+1:]
-	}
-	return model, ""
-}
-
-// isTier reports whether name can be a service tier in a model id.
-func isTier(name string) bool {
-	for i, c := range name {
-		switch {
-		case c >= 'a' && c <= 'z':
-		case i > 0 && (c >= '0' && c <= '9' || c == '_' || c == '-'):
-		default:
-			return false
-		}
-	}
-	return name != ""
-}
-
-// Rate is USD per million tokens for each token kind.
-type Rate struct {
-	Input        float64 `json:"input"`
-	Output       float64 `json:"output"`
-	CacheWrite5m float64 `json:"cache_write_5m"`
-	CacheWrite1h float64 `json:"cache_write_1h"`
-	CacheRead    float64 `json:"cache_read"`
-	Source       string  `json:"source"` // "override", "official", "calibrated" or "builtin"
-}
-
-// RateCard maps a model prefix to its rate.
-type RateCard map[string]Rate
-
-// Observation is one (tokens, cost) pair a tool recorded itself, for
-// calibration; tokens are in millions: input, output, cache write, cache read.
-type Observation struct {
-	Model  string
-	Tokens [4]float64
-	Cost   float64
 }
 
 // Tool is one tab of the report. A nil Source is a tool Workbench knows of

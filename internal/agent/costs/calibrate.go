@@ -2,6 +2,14 @@ package costs
 
 import "math"
 
+// Observation is one (tokens, cost) pair a tool recorded itself, for
+// calibration; tokens are in millions: input, output, cache write, cache read.
+type Observation struct {
+	Model  string
+	Tokens [4]float64
+	Cost   float64
+}
+
 // ---------------------------------------------------------------- calibration
 
 // calibrated solves rates from each tool's own (tokens, cost) pairs: at least
