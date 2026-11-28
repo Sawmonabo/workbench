@@ -22,6 +22,19 @@ import (
 // naming the file and the value. Before the old tables are dropped every
 // converted row is read back and compared with its old one (see checkSlim),
 // which step is told first.
+//
+// The loops over the rows (here, in slimPending and in checkSlim) run their
+// statements, one per row or per batch of rows, on ctx without its cancel
+// (quiet), and check ctx themselves between statements: the driver watches
+// each statement a cancel can reach, with a goroutine and a progress handler,
+// which adds a few percent to the CPU time of a large ledger's upgrade. A
+// cancel of ctx still rolls back the transaction, begun on ctx, which closes
+// the loops' rows. A statement on quiet runs only where no Scan into
+// [sql.RawBytes] holds a cursor of the transaction: here between a row's Next
+// and its Scan, which is why the names a row meets are stored with the next
+// batch. A held cursor cannot close, so the rollback waits for it, and the
+// database/sql of Go 1.26 makes a statement on quiet wait for the rollback:
+// none of the three would ever end.
 func slim(ctx context.Context, tx *sql.Tx, path string, step func(string)) error {
 	if err := execAll(ctx, tx,
 		"ALTER TABLE responses RENAME TO responses_6",
@@ -30,17 +43,18 @@ func slim(ctx context.Context, tx *sql.Tx, path string, step func(string)) error
 	); err != nil {
 		return err
 	}
-	names, err := newSlimNames(ctx, tx)
+	quiet := context.WithoutCancel(ctx)
+	names, err := newSlimNames(quiet, tx)
 	if err != nil {
 		return err
 	}
 	defer names.close()
-	insert, err := tx.PrepareContext(ctx, insertRows(slimBatch))
+	insert, err := tx.PrepareContext(quiet, insertRows(slimBatch))
 	if err != nil {
 		return err
 	}
 	defer func() { _ = insert.Close() }()
-	rows, err := tx.QueryContext(ctx, `SELECT rowid, `+textColumns+` FROM responses_6`)
+	rows, err := tx.QueryContext(quiet, `SELECT rowid, `+textColumns+` FROM responses_6`)
 	if err != nil {
 		return err
 	}
@@ -49,40 +63,23 @@ func slim(ctx context.Context, tx *sql.Tx, path string, step func(string)) error
 	dest := r.fields()
 	batch := make([]any, 0, slimBatch*len(dest))
 	for rows.Next() {
-		if err := rows.Scan(dest...); err != nil {
-			return err
-		}
-		accountRank, ok := storedRank(r.text[colAccountSource])
-		if !ok {
-			return slimRefusal(path, r, "the account evidence", colAccountSource)
-		}
-		subscriptionRank, ok := storedRank(r.text[colSubscriptionSource])
-		if !ok {
-			return slimRefusal(path, r, "the plan evidence", colSubscriptionSource)
-		}
-		var when any
-		if ts := r.text[colTime]; len(ts) > 0 {
-			ms, ok := parseStoredTime(string(ts))
-			if !ok {
-				return slimRefusal(path, r, "the time", colTime)
-			}
-			when = ms
-		}
-		batch = append(batch, r.rowid, packID(string(r.text[colID])))
-		for col := colTool; col <= colSubscription; col++ {
-			id, err := names.id(nameKinds[col], r.text[col])
-			if err != nil {
+		if len(batch) == cap(batch) {
+			if err := ctx.Err(); err != nil {
 				return err
 			}
-			batch = append(batch, id)
-		}
-		batch = append(batch, accountRank, subscriptionRank, when,
-			r.tokens[0], r.tokens[1], r.tokens[2], r.tokens[3], r.tokens[4])
-		if len(batch) == cap(batch) {
-			if _, err := insert.ExecContext(ctx, batch...); err != nil {
+			if err := names.store(quiet); err != nil {
+				return err
+			}
+			if _, err := insert.ExecContext(quiet, batch...); err != nil {
 				return err
 			}
 			batch = batch[:0]
+		}
+		if err := rows.Scan(dest...); err != nil {
+			return err
+		}
+		if batch, err = appendSlim(batch, path, &r, names); err != nil {
+			return err
 		}
 	}
 	if err := rows.Err(); err != nil {
@@ -91,8 +88,11 @@ func slim(ctx context.Context, tx *sql.Tx, path string, step func(string)) error
 	if err := rows.Close(); err != nil {
 		return err
 	}
+	if err := names.store(quiet); err != nil {
+		return err
+	}
 	if len(batch) > 0 {
-		if _, err := tx.ExecContext(ctx, insertRows(len(batch)/len(dest)), batch...); err != nil {
+		if _, err := tx.ExecContext(quiet, insertRows(len(batch)/len(dest)), batch...); err != nil {
 			return err
 		}
 	}
@@ -106,32 +106,65 @@ func slim(ctx context.Context, tx *sql.Tx, path string, step func(string)) error
 	return execAll(ctx, tx, "DROP TABLE responses_6", "DROP TABLE tier_pending_6", responseIndexes)
 }
 
-// slimPending converts tier_pending (see slim).
+// appendSlim appends r, a response of the ledger at path as version 6 stored
+// it, to batch as slim inserts it: its rowid, its packed key, its names' ids,
+// its evidence ranks, its time in milliseconds and its token counts.
+func appendSlim(batch []any, path string, r *textRow, names *slimNames) ([]any, error) {
+	accountRank, ok := storedRank(r.text[colAccountSource])
+	if !ok {
+		return nil, slimRefusal(path, *r, "the account evidence", colAccountSource)
+	}
+	subscriptionRank, ok := storedRank(r.text[colSubscriptionSource])
+	if !ok {
+		return nil, slimRefusal(path, *r, "the plan evidence", colSubscriptionSource)
+	}
+	var when any
+	if ts := r.text[colTime]; len(ts) > 0 {
+		ms, ok := parseStoredTime(string(ts))
+		if !ok {
+			return nil, slimRefusal(path, *r, "the time", colTime)
+		}
+		when = ms
+	}
+	batch = append(batch, r.rowid, packID(string(r.text[colID])))
+	for col := colTool; col <= colSubscription; col++ {
+		batch = append(batch, names.id(nameKinds[col], r.text[col]))
+	}
+	return append(batch, accountRank, subscriptionRank, when,
+		r.tokens[0], r.tokens[1], r.tokens[2], r.tokens[3], r.tokens[4]), nil
+}
+
+// slimPending converts tier_pending (see slim). Its Scan copies each row's
+// root, so that no Scan holds the cursor while the row is written.
 func slimPending(ctx context.Context, tx *sql.Tx, names *slimNames) error {
+	quiet := context.WithoutCancel(ctx) // see slim
 	insert, err := tx.PrepareContext(
-		ctx,
+		quiet,
 		"INSERT INTO tier_pending (request_id, root) VALUES (?, ?)",
 	)
 	if err != nil {
 		return err
 	}
 	defer func() { _ = insert.Close() }()
-	rows, err := tx.QueryContext(ctx, "SELECT request_id, root FROM tier_pending_6")
+	rows, err := tx.QueryContext(quiet, "SELECT request_id, root FROM tier_pending_6")
 	if err != nil {
 		return err
 	}
 	defer func() { _ = rows.Close() }()
 	for rows.Next() {
 		var id string
-		var root sql.RawBytes
+		var root []byte
 		if err := rows.Scan(&id, &root); err != nil {
 			return err
 		}
-		rootID, err := names.id(nameSession, root)
-		if err != nil {
+		if err := ctx.Err(); err != nil {
 			return err
 		}
-		if _, err := insert.ExecContext(ctx, packID(id), rootID); err != nil {
+		rootID := names.id(nameSession, root)
+		if err := names.store(quiet); err != nil {
+			return err
+		}
+		if _, err := insert.ExecContext(quiet, packID(id), rootID); err != nil {
 			return err
 		}
 	}
@@ -159,10 +192,10 @@ func slimRefusal(path string, r textRow, what string, col int) error {
 
 // slimNames are the names slim stores, numbered from 1 as it meets them.
 type slimNames struct {
-	ctx    context.Context
 	insert *sql.Stmt
 	ids    [nameSubscription + 1]map[string]int64
 	next   int64
+	met    []any // the id, kind and name of each name met since the last store
 }
 
 func newSlimNames(ctx context.Context, tx *sql.Tx) (*slimNames, error) {
@@ -170,7 +203,7 @@ func newSlimNames(ctx context.Context, tx *sql.Tx) (*slimNames, error) {
 	if err != nil {
 		return nil, err
 	}
-	n := &slimNames{ctx: ctx, insert: insert, next: 1}
+	n := &slimNames{insert: insert, next: 1}
 	for kind := range n.ids {
 		n.ids[kind] = map[string]int64{}
 	}
@@ -179,18 +212,27 @@ func newSlimNames(ctx context.Context, tx *sql.Tx) (*slimNames, error) {
 
 func (n *slimNames) close() { _ = n.insert.Close() }
 
-// id is the id of name, a name of kind, which it stores when it meets it
-// first.
-func (n *slimNames) id(kind int, name []byte) (int64, error) {
+// id is the id of name, a name of kind, numbered when it is met first; store
+// writes the names met.
+func (n *slimNames) id(kind int, name []byte) int64 {
 	if id, ok := n.ids[kind][string(name)]; ok {
-		return id, nil
+		return id
 	}
 	id := n.next
-	if _, err := n.insert.ExecContext(n.ctx, id, kind, string(name)); err != nil {
-		return 0, err
-	}
 	n.ids[kind][string(name)], n.next = id, id+1
-	return id, nil
+	n.met = append(n.met, id, kind, string(name))
+	return id
+}
+
+// store writes the names met since it last ran, on ctx.
+func (n *slimNames) store(ctx context.Context) error {
+	for met := n.met; len(met) > 0; met = met[3:] {
+		if _, err := n.insert.ExecContext(ctx, met[:3]...); err != nil {
+			return err
+		}
+	}
+	n.met = n.met[:0]
+	return nil
 }
 
 // textRow is a response as version 6 stored it, read for slim and checkSlim:
@@ -261,15 +303,16 @@ func checkSlim(ctx context.Context, tx *sql.Tx) error {
 	}
 	// Both tables in the order of their rowids, which slim kept: the rows
 	// pair up one by one.
+	quiet := context.WithoutCancel(ctx) // see slim
 	olds, err := tx.QueryContext(
-		ctx,
+		quiet,
 		`SELECT rowid, `+textColumns+` FROM responses_6 ORDER BY rowid`,
 	)
 	if err != nil {
 		return err
 	}
 	defer func() { _ = olds.Close() }()
-	news, err := tx.QueryContext(ctx, `SELECT id, `+packedColumns+` FROM responses ORDER BY id`)
+	news, err := tx.QueryContext(quiet, `SELECT id, `+packedColumns+` FROM responses ORDER BY id`)
 	if err != nil {
 		return err
 	}
@@ -279,6 +322,9 @@ func checkSlim(ctx context.Context, tx *sql.Tx) error {
 	oldDest, newDest := old.fields(), p.fields()
 	var buf []byte
 	for olds.Next() {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		if err := olds.Scan(oldDest...); err != nil {
 			return err
 		}
@@ -287,6 +333,8 @@ func checkSlim(ctx context.Context, tx *sql.Tx) error {
 			if err := news.Scan(newDest...); err != nil {
 				return err
 			}
+		} else if err := news.Err(); err != nil {
+			return err
 		}
 		var same bool
 		if same, buf, err = p.decodesTo(old, names, buf); !same || err != nil {
