@@ -48,15 +48,20 @@ var AgentFolders = Migration{
 	Check: func(l Locations) (Status, string, error) {
 		status := Done
 		var text []string
+		var refusal error
 		for _, s := range inspectAgentFolders(l) {
 			if s.due() {
 				status = Pending
 			}
-			if t := s.text(l.Home); t != "" {
+			if s.standing == refused && refusal == nil {
+				// The first folder refused is said as its refusal, with its
+				// fix; any other is named in the text.
+				refusal = s.err
+			} else if t := s.text(l.Home); t != "" {
 				text = append(text, t)
 			}
 		}
-		return status, strings.Join(text, " and "), nil
+		return status, strings.Join(text, " and "), refusal
 	},
 	Run: func(_ context.Context, l Locations) ([]string, error) {
 		// A move whose only failure is a file system that can't swap two
@@ -95,6 +100,9 @@ var AgentFolders = Migration{
 			}
 			switch {
 			case s.standing == unread:
+				errs = append(errs, s.err)
+			case s.standing == refused && operation.IsFolder(s.new):
+				// Beside a folder in use nothing moves it, so no move said why.
 				errs = append(errs, s.err)
 			case s.standing == movable && !failed:
 				// Its lock was free a moment ago and taken when the move tried it.
@@ -171,6 +179,7 @@ const (
 	noSwap                    // its file system can't swap two names, so it stays in use
 	besideNew                 // a folder is in use at the new path
 	unread                    // it, or a folder in it, can't be read
+	refused                   // others can write in it, so nothing in it is used
 )
 
 // folderState is what [agentFolder.inspect] found. For a folder beside the
@@ -196,20 +205,31 @@ func inspectAgentFolders(l Locations) []folderState {
 // waiting (see [operation.LockHeld]). A folder with no folder at its new path
 // whose file system can't swap it stays where it is whether or not a watcher
 // or an import works in it, which then never moves it either (see
-// [operation.CanMoveFolder]).
+// [operation.CanMoveFolder]). An old folder others can write in is refused,
+// whether it would move or is beside the folder in use, so a run neither moves
+// it nor deletes from it.
 func (f agentFolder) inspect() folderState {
 	s := folderState{agentFolder: f}
 	_, swapErr := operation.CanMoveFolder(f.old, f.new)
 	switch {
 	case !operation.IsFolder(f.old):
 		s.standing = moved
+	case swapErr != nil && !errors.Is(swapErr, platform.ErrSwapUnsupported):
+		s.standing, s.err = refused, swapErr
 	case errors.Is(swapErr, platform.ErrSwapUnsupported):
 		s.standing = noSwap
 	case f.lock != "" && operation.IsLockHeld(f.lock):
 		s.standing = inUse
 	case operation.IsFolder(f.new):
 		s.standing = besideNew
-		if s.gone, s.stays, s.err = sortOut(f.old); s.err != nil {
+		if s.err = operation.CheckPrivateDirectory(
+			filepath.Dir(f.old),
+			filepath.Base(f.old),
+		); s.err != nil {
+			s.standing = refused
+		} else if s.gone, s.stays, s.err = sortOut(
+			f.old,
+		); s.err != nil {
 			s.standing = unread
 		}
 	default:
@@ -223,7 +243,7 @@ func (f agentFolder) inspect() folderState {
 // (see [guard.Move]).
 func (s folderState) due() bool {
 	switch s.standing {
-	case movable, unread:
+	case movable, unread, refused:
 		return true
 	case besideNew:
 		return len(s.stays) == 0 || slices.ContainsFunc(s.gone, func(path string) bool {
@@ -247,6 +267,9 @@ func (s folderState) text(home string) string {
 		return "moves " + old + " to " + root
 	case unread:
 		return operation.Unread(home, s.old, s.err)
+	case refused:
+		headline, _ := operation.Explained(s.err)
+		return "leaves " + old + " where it is, as " + headline
 	case noSwap:
 		return "leaves " + old + " in use where it is, since its file system can't swap two names"
 	case inUse:

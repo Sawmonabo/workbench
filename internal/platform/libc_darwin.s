@@ -44,3 +44,8 @@ TEXT libc_sysctl_trampoline<>(SB),NOSPLIT,$0-0
 	JMP	libc_sysctl(SB)
 GLOBL	·sysctl(SB), RODATA, $8
 DATA	·sysctl(SB)/8, $libc_sysctl_trampoline<>(SB)
+
+TEXT libc_mbr_uid_to_uuid_trampoline<>(SB),NOSPLIT,$0-0
+	JMP	libc_mbr_uid_to_uuid(SB)
+GLOBL	·mbrUIDToUUID(SB), RODATA, $8
+DATA	·mbrUIDToUUID(SB)/8, $libc_mbr_uid_to_uuid_trampoline<>(SB)

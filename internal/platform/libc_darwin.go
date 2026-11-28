@@ -14,7 +14,7 @@ import (
 var (
 	getattrlist, fgetattrlist, fsetattrlist, procPidRusage uintptr
 	procPidinfo, procListChildPids, hostStatistics64       uintptr
-	machHostSelf, sysctl                                   uintptr
+	machHostSelf, sysctl, mbrUIDToUUID                     uintptr
 )
 
 //go:cgo_import_dynamic libc_getattrlist getattrlist "/usr/lib/libSystem.B.dylib"
@@ -26,6 +26,7 @@ var (
 //go:cgo_import_dynamic libc_host_statistics64 host_statistics64 "/usr/lib/libSystem.B.dylib"
 //go:cgo_import_dynamic libc_mach_host_self mach_host_self "/usr/lib/libSystem.B.dylib"
 //go:cgo_import_dynamic libc_sysctl sysctl "/usr/lib/libSystem.B.dylib"
+//go:cgo_import_dynamic libc_mbr_uid_to_uuid mbr_uid_to_uuid "/usr/lib/libSystem.B.dylib"
 
 // libcCall6 is the runtime's syscall.syscall6, which calls a libSystem
 // function on the system stack and returns errno when it returns -1.

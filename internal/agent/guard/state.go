@@ -283,6 +283,10 @@ func move(
 ) (moved bool, refused, err error) {
 	old := oldRoot(state)
 	if can, err := operation.CanMoveFolder(old, newRoot(state)); !can {
+		if err != nil && !errors.Is(err, platform.ErrSwapUnsupported) {
+			// A folder others can write in: no lock is made in it.
+			return false, nil, err
+		}
 		return false, err, nil
 	}
 	path := folders{}.at(old).lock()

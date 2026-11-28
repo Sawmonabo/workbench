@@ -10,6 +10,7 @@ import (
 	"syscall"
 
 	"github.com/Sawmonabo/workbench/internal/display"
+	"github.com/Sawmonabo/workbench/internal/platform"
 	"golang.org/x/sys/unix"
 )
 
@@ -18,10 +19,11 @@ func ensurePrivateDirectory(path string) error { return privateDirectory(path, t
 // privateDirectory requires the folder at path to be private: no link and
 // no file from it up, nothing above it that another user owns or may write
 // (see safeParents), on a file system that keeps it private, and a folder of
-// Workbench's own files as [ownFolder] requires. With create it first makes
-// it, 0700, when it is missing, then sets it to 0700 when it is not (see
-// [makeOwnFolder]); without, it changes nothing, and a missing folder fails
-// with an error matching fs.ErrNotExist.
+// Workbench's own files that others cannot write in (see [trustedFolder]).
+// With create it first makes it, 0700, when it is missing, then sets it to
+// 0700 when it is not (see [makeOwnFolder]); without, it changes nothing, the
+// folder must be one its owner may read and search (see [ownFolder]), and a
+// missing folder fails with an error matching fs.ErrNotExist.
 func privateDirectory(path string, create bool) error {
 	if err := safeOwnFolder("permissions", path); err != nil {
 		return err
@@ -42,37 +44,73 @@ func privateDirectory(path string, create bool) error {
 	return ownFolder("permissions", path, info)
 }
 
-// ownFolder refuses path, a folder that holds Workbench's own files and that
-// info describes, unless it is a folder, this user's, one its owner may read
-// and search, and one neither its group nor other users may write in: what
-// others can write in may not be Workbench's. Any other mode passes, so a
-// check that only reads uses such a folder as it is and a write sets it to
-// 0700 (see [makeOwnFolder]). category is the refusal's when path is not a
-// folder.
-func ownFolder(category, path string, info os.FileInfo) error {
+// trustedFolder refuses path, a folder that holds Workbench's own files and
+// that info describes, unless it is a folder, this user's, and one neither its
+// group nor other users may write in, by its mode or by its ACL (see
+// [platform.OthersMayWrite], read through fd, or at path when fd is -1): what
+// others can write in may not be Workbench's, so no command changes it or
+// uses it. category is the refusal's when path is not a folder.
+func trustedFolder(category, path string, info os.FileInfo, fd int) error {
 	if !info.IsDir() {
 		return notFolderRefusal(category, path, info)
 	}
 	if err := owned(path, info); err != nil {
 		return err
 	}
-	if mode := info.Mode().Perm(); mode&0o022 != 0 || mode&0o500 != 0o500 {
-		return folderModeRefusal(path, info.Mode())
+	if info.Mode().Perm()&0o022 != 0 {
+		return othersWriteRefusal(
+			path,
+			fmt.Sprintf("%s has mode %04o", display.Path(path), modeBits(info.Mode())),
+			"other users can write in it, so what it holds may not be Workbench's",
+			"chmod",
+			"700",
+		)
+	}
+	at := ""
+	if fd < 0 {
+		at = path
+	}
+	others, err := platform.OthersMayWrite(fd, at)
+	if err != nil {
+		return Fail(ExitInvalid, "permissions", "Cannot read the ACL of "+display.Path(path),
+			Cause(err.Error()))
+	}
+	if others {
+		return othersWriteRefusal(
+			path,
+			display.Path(path)+" has an ACL that lets other users write in it",
+			"what it holds may not be Workbench's",
+			"chmod",
+			"-N",
+		)
 	}
 	return nil
 }
 
-// makeOwnFolder applies [ownFolder] to the folder at path, for a path that
-// writes there, and then sets its mode to 0700 when it is not, keeping its
-// setuid, setgid and sticky bits. It checks and changes one descriptor,
-// opened without following a link, so the folder it checks is the folder it
-// changes. A link or a file there is refused as ownFolder refuses it.
+// ownFolder is [trustedFolder] for a check that only reads the folder, which
+// also needs its owner to be able to read and search it: a folder of another
+// mode passes, and is used as it is. A write sets such a folder, and one its
+// owner may not read or search, to 0700 (see [makeOwnFolder]).
+func ownFolder(category, path string, info os.FileInfo) error {
+	if err := trustedFolder(category, path, info, -1); err != nil {
+		return err
+	}
+	if info.Mode().Perm()&0o500 != 0o500 {
+		return unreadableRefusal(path, info.Mode())
+	}
+	return nil
+}
+
+// makeOwnFolder applies [trustedFolder] to the folder at path, for a path
+// that writes there, and then sets its mode to 0700 when it is not, keeping
+// its setuid, setgid and sticky bits, whether or not its owner may read or
+// search it. It checks and changes one descriptor, opened without following a
+// link and without needing to read the folder (see [platform.OpenFolder]), so
+// the folder it checks is the folder it changes. A link or a file there is
+// refused as trustedFolder refuses it, and a folder macOS opens no descriptor
+// for, as its owner may neither read nor search it, as [ownFolder] refuses it.
 func makeOwnFolder(category, path string) error {
-	folder, err := os.OpenFile(
-		path,
-		os.O_RDONLY|syscall.O_DIRECTORY|syscall.O_NOFOLLOW|syscall.O_CLOEXEC,
-		0,
-	)
+	folder, err := platform.OpenFolder(path)
 	if err != nil {
 		if info, statErr := os.Lstat(path); statErr == nil {
 			if refusal := ownFolder(category, path, info); refusal != nil {
@@ -86,23 +124,26 @@ func makeOwnFolder(category, path string) error {
 	if err != nil {
 		return err
 	}
-	if err = ownFolder(category, path, info); err != nil {
+	if err = trustedFolder(category, path, info, int(folder.Fd())); err != nil {
 		return err
 	}
 	if info.Mode().Perm() == 0o700 {
 		return nil
 	}
-	return folder.Chmod(info.Mode()&(os.ModeSetuid|os.ModeSetgid|os.ModeSticky) | 0o700)
+	return platform.ChmodFolder(
+		folder,
+		info.Mode()&(os.ModeSetuid|os.ModeSetgid|os.ModeSticky)|0o700,
+	)
 }
 
 // safeOwnFolder is safeParents for path, a folder that holds Workbench's own
-// files: a folder of this user's there is judged by [ownFolder] first, as
+// files: a folder of this user's there is judged by [trustedFolder] first, as
 // safeParents judges path before the folders above it, so one that others can
-// write in is refused in ownFolder's words. A link, a file or another user's
-// folder there is left to safeParents and the checks after it.
+// write in is refused in trustedFolder's words. A link, a file or another
+// user's folder there is left to safeParents and the checks after it.
 func safeOwnFolder(category, path string) error {
 	if info, err := os.Lstat(path); err == nil && info.IsDir() && ownedByUser(info) {
-		if err = ownFolder(category, path, info); err != nil {
+		if err = trustedFolder(category, path, info, -1); err != nil {
 			return err
 		}
 	}
@@ -188,10 +229,11 @@ func CheckPrivateDirectory(root, name string) error {
 
 // PrivateTree rejects redirected, borrowed or permissive private trees: no
 // folder from target up may be a link or a file, and each one within root
-// must be a folder of Workbench's own files as [ownFolder] requires. With
-// create it then sets each of those that is not 0700 to 0700 (see
-// [makeOwnFolder]) and makes the missing folders, 0700; without, it changes
-// nothing, and a missing one fails. It never follows a link. Unlike
+// must be a folder of Workbench's own files that others cannot write in (see
+// [trustedFolder]). With create it then sets each of those that is not 0700
+// to 0700 (see [makeOwnFolder]) and makes the missing folders, 0700; without,
+// it changes nothing, each must be one its owner may read and search (see
+// [ownFolder]), and a missing one fails. It never follows a link. Unlike
 // [PrivateDirectory] it can check without creating.
 func PrivateTree(root, target string, create bool) error {
 	if !filepath.IsAbs(root) || !Within(root, target) {
@@ -205,7 +247,7 @@ func PrivateTree(root, target string, create bool) error {
 	for current := target; ; current = filepath.Dir(current) {
 		info, err := os.Lstat(current)
 		if err == nil {
-			if err = treeFolder(root, current, info); err != nil {
+			if err = treeFolder(root, current, info, create); err != nil {
 				return err
 			}
 			if Within(root, current) {
@@ -236,13 +278,17 @@ func PrivateTree(root, target string, create bool) error {
 
 // treeFolder refuses current, a folder at or above a [PrivateTree] target
 // that info describes, unless it is a folder and, within root, a folder of
-// Workbench's own files as [ownFolder] requires.
-func treeFolder(root, current string, info os.FileInfo) error {
+// Workbench's own files as [trustedFolder] requires for a tree it writes
+// (create) and [ownFolder] for one it only reads.
+func treeFolder(root, current string, info os.FileInfo, create bool) error {
 	if !Within(root, current) {
 		if !info.IsDir() {
 			return notFolderRefusal("private_path", current, info)
 		}
 		return nil
+	}
+	if create {
+		return trustedFolder("private_path", current, info, -1)
 	}
 	return ownFolder("private_path", current, info)
 }
@@ -313,44 +359,18 @@ func removeDirectory(directory, trash, name string) error {
 	return os.RemoveAll(removed)
 }
 
-// Reject symlink parents rather than letting an override redirect private writes.
+// safeParents rejects path, and each folder above it, that would let
+// another user redirect or replace what Workbench writes there: a link, a
+// file above path, a folder another user than this one or root owns, and a
+// folder its group or other users may write in, by its mode (unless sticky,
+// so only an entry's owner may remove it) or by its ACL (see
+// [platform.OthersMayWrite]).
 func safeParents(path string) error {
 	for current := filepath.Clean(path); ; current = filepath.Dir(current) {
 		info, err := os.Lstat(current)
 		if err == nil {
-			if info.Mode()&os.ModeSymlink != 0 {
-				fix := "Workbench keeps its own files only in real folders, so make it one"
-				if current == path {
-					fix = "Workbench keeps its own files and folders as real ones, " +
-						"so put what the link points to in its place"
-				}
-				return Fail(ExitInvalid, "path", display.Path(current)+" is a link; "+fix)
-			}
-			if current != path && !info.IsDir() {
-				return Fail(
-					ExitInvalid,
-					"path",
-					display.Path(
-						current,
-					)+" is a file, not a folder, so Workbench cannot keep its files under it",
-				)
-			}
-			if !ownedByUserOrRoot(info) {
-				return Fail(
-					ExitInvalid,
-					"permissions",
-					display.Path(
-						current,
-					)+" belongs to another user; Workbench keeps its files only under folders you or root own",
-				)
-			}
-			if info.Mode().Perm()&0o022 != 0 && info.Mode()&os.ModeSticky == 0 {
-				return Fail(
-					ExitInvalid,
-					"permissions",
-					display.Path(current)+" is writable by other users; run chmod go-w "+
-						shellHomePath(current)+" and retry",
-				)
+			if err = safeParent(path, current, info); err != nil {
+				return err
 			}
 		} else if !errors.Is(err, fs.ErrNotExist) {
 			return Fail(ExitInvalid, "path", FileError(current, err).Error())
@@ -361,6 +381,49 @@ func safeParents(path string) error {
 	}
 }
 
+// safeParent is [safeParents] for current, path or a folder above it, that
+// info describes.
+func safeParent(path, current string, info os.FileInfo) error {
+	shown := display.Path(current)
+	switch {
+	case info.Mode()&os.ModeSymlink != 0 && current == path:
+		return Fail(ExitInvalid, "path", shown+" is a link",
+			Cause("Workbench keeps its own files and folders as real ones"),
+			FixText("put what the link points to in its place"))
+	case info.Mode()&os.ModeSymlink != 0:
+		return Fail(ExitInvalid, "path", shown+" is a link",
+			Cause("Workbench keeps its own files only in real folders"),
+			FixText("make it a folder"))
+	case current != path && !info.IsDir():
+		return Fail(ExitInvalid, "path", shown+" is a file, not a folder",
+			Cause("Workbench cannot keep its files under it"))
+	case !ownedByUserOrRoot(info):
+		return Fail(ExitInvalid, "permissions", shown+" belongs to another user",
+			Cause("Workbench keeps its files only under folders you or root own"))
+	case info.Mode().Perm()&0o022 != 0 && info.Mode()&os.ModeSticky == 0:
+		return Fail(ExitInvalid, "permissions", shown+" is writable by other users",
+			FixPath(current, "chmod", "go-w"))
+	case !info.IsDir():
+		return nil
+	}
+	others, err := platform.OthersMayWrite(-1, current)
+	switch {
+	case err != nil:
+		return Fail(ExitInvalid, "permissions", "Cannot read the ACL of "+shown, Cause(err.Error()))
+	case others:
+		return Fail(
+			ExitInvalid,
+			"permissions",
+			shown+" has an ACL that lets other users write in it",
+			FixPath(current, "ls", "-led"),
+			FixText(
+				"remove each entry it lists that allows another user or group to add or delete",
+			),
+		)
+	}
+	return nil
+}
+
 func owned(path string, info os.FileInfo) error {
 	if ownedByUser(info) {
 		return nil
@@ -369,7 +432,13 @@ func owned(path string, info os.FileInfo) error {
 	if !ok {
 		return Fail(ExitInvalid, "permissions", "Cannot tell who owns "+display.Path(path))
 	}
-	return Fail(ExitInvalid, "permissions", notYours(path, stat.Uid, false))
+	return Fail(
+		ExitInvalid,
+		"permissions",
+		display.Path(path)+" belongs to "+userName(stat.Uid),
+		Cause("Workbench writes only what you own"),
+		FixPath(path, "sudo", "chown", userName(uint32(os.Geteuid()))),
+	)
 }
 
 // ownedByUser reports whether info is of a file the current user owns.
@@ -391,35 +460,40 @@ func notFolderRefusal(category, path string, info os.FileInfo) error {
 	return Fail(
 		ExitInvalid,
 		category,
-		display.Path(path)+" is "+fileKind(info)+
-			", not a folder, so Workbench cannot keep its files there; move it aside and retry",
+		display.Path(path)+" is "+fileKind(info)+", not a folder",
+		Cause("Workbench keeps its own files in a folder there"),
+		FixText("move it aside"),
 	)
 }
 
-// folderModeRefusal refuses path, a folder of Workbench's own files of the
-// mode mode. When its group or other users may write in it, what it holds
-// may not be Workbench's, so a chmod alone would keep in it what another user
-// put there: the refusal names the find that lists what is not this user's,
-// to move aside before the chmod. Otherwise it is a folder its owner may not
-// read or search, which Workbench cannot use, and the chmod is enough.
-func folderModeRefusal(path string, mode os.FileMode) error {
-	shown := fmt.Sprintf("%s has mode %04o", display.Path(path), modeBits(mode))
-	if mode.Perm()&0o022 == 0 {
-		return Fail(
-			ExitInvalid,
-			"permissions",
-			shown+", and Workbench needs to read and search a folder of its own files"+
-				retry([]string{"chmod", "700"}, path),
-		)
-	}
-	folder := shellHomePath(path)
-	user := shellWord(userName(uint32(os.Geteuid())))
+// othersWriteRefusal refuses path, a folder of Workbench's own files that its
+// group or other users may write in, as headline and cause say. What it holds
+// may not be Workbench's, so the command of words that ends that, typed
+// alone, would keep in it what another user put there: the fix first moves
+// aside what is not this user's, as find lists it, then runs that command on
+// path.
+func othersWriteRefusal(path, headline, cause string, words ...string) error {
 	return Fail(
 		ExitInvalid,
 		"permissions",
-		shown+", so other users can write in it and what it holds may not be Workbench's; "+
-			"move aside what find "+folder+" -not -user "+user+" lists, "+
-			"then run chmod 700 "+folder+" and retry",
+		headline,
+		Cause(cause),
+		FixText("move aside what find "+shellHomePath(path)+" -not -user "+
+			shellWord(userName(uint32(os.Geteuid())))+" lists"),
+		FixPath(path, words...),
+	)
+}
+
+// unreadableRefusal refuses path, a folder of Workbench's own files of the
+// mode mode, which its owner may not read or search, for a check that only
+// reads it: Workbench cannot use it, and the chmod is enough.
+func unreadableRefusal(path string, mode os.FileMode) error {
+	return Fail(
+		ExitInvalid,
+		"permissions",
+		fmt.Sprintf("%s has mode %04o", display.Path(path), modeBits(mode)),
+		Cause("Workbench needs to read and search a folder of its own files"),
+		FixPath(path, "chmod", "700"),
 	)
 }
 

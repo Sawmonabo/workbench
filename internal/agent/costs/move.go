@@ -139,6 +139,13 @@ func moveAgentFolders(
 	// an import runs would take a mover that holds it for an import.
 	dataCan, dataErr := operation.CanMoveFolder(f.oldData, f.newData)
 	stateCan, stateErr := operation.CanMoveFolder(f.oldState, f.newState)
+	for _, err := range []error{dataErr, stateErr} {
+		// A folder others can write in: neither moves, as the lock is in
+		// the old state folder, and no lock is made in it.
+		if err != nil && !errors.Is(err, platform.ErrSwapUnsupported) {
+			return false, err
+		}
+	}
 	if !dataCan && !stateCan {
 		return false, errors.Join(dataErr, stateErr)
 	}

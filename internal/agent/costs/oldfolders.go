@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io/fs"
 	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"syscall"
@@ -37,6 +38,24 @@ type FolderCheck struct {
 	State, Ledger, Data FolderState
 	Text                string
 	Kept                []string
+}
+
+// CheckOwnFolders checks the costs data and state folders in use, changing
+// nothing, as a check that only reads Workbench's own folders does (see
+// [operation.CheckPrivateDirectory]): one others can write in, or one this
+// user may not read or search, is refused, so nothing reads in it what is not
+// there, or what is not Workbench's. A missing folder passes.
+func CheckOwnFolders(p Paths) error {
+	for _, f := range [][2]string{{p.Runtime.Data, filepath.Dir(p.Ledger)}, {p.Runtime.State, p.State}} {
+		name, err := filepath.Rel(f[0], f[1])
+		if err != nil || !filepath.IsLocal(name) {
+			continue
+		}
+		if err = operation.CheckPrivateDirectory(f[0], name); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // CheckFolders says what is left of the costs move. It looks at which paths
@@ -408,6 +427,23 @@ func gate(ctx context.Context, paths Paths, move bool) (Paths, error) {
 		}
 		if folders != nil {
 			writeLog(paths, "the costs folders stay where they are: "+folders.Error())
+		}
+	}
+	// CheckFolders reads what the costs folders hold, so each is judged as
+	// Workbench's own folders are first: one others can write in is refused
+	// before anything in it is read; the state folder, which only the import
+	// worker writes in, is used as it is by every other caller; the data
+	// folder, which every caller writes in, then gets 0700 when it has another
+	// mode, as one its owner may not read or search would hide the ledger.
+	if name, err := filepath.Rel(paths.Runtime.State, paths.State); !move && err == nil &&
+		filepath.IsLocal(name) {
+		if err = operation.CheckPrivateDirectory(paths.Runtime.State, name); err != nil {
+			return paths, err
+		}
+	}
+	if operation.IsFolder(filepath.Dir(paths.Ledger)) {
+		if _, err := paths.dataFolder(""); err != nil {
+			return paths, err
 		}
 	}
 	old := OldLocations(paths.Home)

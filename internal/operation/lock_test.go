@@ -45,3 +45,25 @@ func TestInheritLockTakesOnlyThePassedLock(t *testing.T) {
 		t.Fatal("a descriptor for another file was taken for the lock")
 	}
 }
+
+// Prevent running another user's program as this one: a lock's folder that
+// its group or other users can write in may hold what one of them put there,
+// such as a lock file that is a link to a file Workbench would then truncate,
+// or a program in place of one it runs. Taking a lock there must refuse the
+// folder and make nothing in it, as every other folder of Workbench's own
+// files is refused, and leave its mode as it is.
+func TestTryLockRefusesAFolderOthersCanWrite(t *testing.T) {
+	root := testRoot(t)
+	folder := filepath.Join(root, "locks")
+	folderAt(t, root, 0o700)
+	folderAt(t, folder, 0o775)
+	release, held, err := TryLock(root, filepath.Join(folder, "migrate.lock"))
+	if err == nil {
+		release()
+		t.Fatalf("a lock was taken in a folder of mode 0775 (held %v)", held)
+	}
+	if entries, err := os.ReadDir(folder); err != nil || len(entries) != 0 {
+		t.Errorf("the folder holds %v (%v), want nothing", entries, err)
+	}
+	assertMode(t, folder, 0o775)
+}

@@ -24,6 +24,13 @@ var costsFolders = Migration{
 		"files back by hand restores the old layout",
 	Check: func(l Locations) (Status, string, error) {
 		check := costs.CheckFolders(l.OldCosts, l.Costs)
+		if check.State != costs.FoldersDone {
+			// What it found is read in the costs folders, so a folder
+			// refused there is said instead.
+			if err := costs.CheckOwnFolders(l.Costs); err != nil {
+				return Pending, "", err
+			}
+		}
 		switch check.State {
 		case costs.FoldersPending:
 			return Pending, check.Text, nil

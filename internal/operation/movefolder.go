@@ -23,7 +23,8 @@ import (
 //
 // It never replaces a folder: with a folder already at to, or no folder at
 // from (nothing to move), it does nothing and returns moved false with no
-// error. Where the file system cannot swap two names it moves nothing and
+// error. A folder at from that [CanMoveFolder] refuses, as others can write
+// in it, it neither moves nor writes in. Where the file system cannot swap two names it moves nothing and
 // returns an error matching platform.ErrSwapUnsupported: when
 // [platform.CanSwap] says so it writes nothing at all, and when only the swap
 // tells (an overlay file system refusing a folder of a lower layer) it
@@ -70,12 +71,20 @@ func moveReason(from, to string, err error) error {
 // asked, since the swap then says why it fails. err matches
 // platform.ErrSwapUnsupported, and can is false, when [platform.CanSwap] says
 // that file system cannot, or that it refused this folder before (see
-// MoveFolder). A caller that must hold a lock to move asks first,
+// MoveFolder). A folder at from that others can write in, by its mode or
+// its ACL, or that is another user's, is refused, can false, in the words of
+// [trustedFolder]: what it holds may not be Workbench's, so it is neither
+// moved nor written in. A caller that must hold a lock to move asks first,
 // so a move that cannot happen never takes it; MoveFolder asks again, under
 // that lock, where it decides.
 func CanMoveFolder(from, to string) (can bool, err error) {
 	if IsFolder(to) || !IsFolder(from) {
 		return false, nil
+	}
+	if info, err := os.Lstat(from); err != nil {
+		return false, err
+	} else if err = trustedFolder("permissions", from, info, -1); err != nil {
+		return false, err
 	}
 	if swaps, err := platform.CanSwap(from); err == nil && !swaps {
 		return false, platform.ErrSwapUnsupported
