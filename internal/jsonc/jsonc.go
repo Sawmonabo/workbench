@@ -6,8 +6,8 @@
 // a new member is laid out like its siblings at any depth and never packed
 // onto one line of a multi-line object.
 //
-// It refuses a document with plain errors ([ErrNotObject], [ErrUnquotedKey],
-// [ErrDuplicateKey]), and each caller words the refusal for the file it reads.
+// It refuses a document with plain errors ([ErrNotObject], [ErrDuplicateKey]),
+// and each caller words the refusal for the file it reads.
 package jsonc
 
 import (
@@ -203,8 +203,6 @@ func Plain(doc hujson.Value) []byte {
 var (
 	// ErrNotObject is a document that is not an object.
 	ErrNotObject = errors.New("jsonc: the document is not an object")
-	// ErrUnquotedKey is an object key that is not a quoted string.
-	ErrUnquotedKey = errors.New("jsonc: an object key is not a quoted string")
 	// ErrDuplicateKey is an object key that repeats: which value wins would
 	// be a guess.
 	ErrDuplicateKey = errors.New("jsonc: an object key repeats")
@@ -212,8 +210,8 @@ var (
 
 // DecodeObject parses data as JSON with comments and decodes it, as standard
 // JSON, into v. It refuses a document that is not an object, and one with a
-// key, at any depth, that is not a quoted string or that repeats. doc is the
-// parsed document, for an edit in place.
+// key, at any depth, that repeats. doc is the parsed document, for an edit in
+// place.
 func DecodeObject(data []byte, v any) (doc hujson.Value, err error) {
 	doc, err = Parse(data)
 	if err != nil {
@@ -231,17 +229,14 @@ func DecodeObject(data []byte, v any) (doc hujson.Value, err error) {
 	return doc, nil
 }
 
-// uniqueKeys refuses an object, at any depth, with a key that is not a quoted
-// string or that repeats.
+// uniqueKeys refuses an object, at any depth, with a key that repeats. Every
+// key of a parsed document is a quoted string: hujson parses no other.
 func uniqueKeys(value hujson.Value) error {
 	switch node := value.Value.(type) {
 	case *hujson.Object:
 		seen := map[string]bool{}
 		for _, member := range node.Members {
-			name, ok := member.Name.Value.(hujson.Literal)
-			if !ok || name.Kind() != '"' {
-				return ErrUnquotedKey
-			}
+			name, _ := member.Name.Value.(hujson.Literal)
 			key := name.String()
 			if seen[key] {
 				return ErrDuplicateKey

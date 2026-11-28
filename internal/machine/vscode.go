@@ -96,8 +96,6 @@ func settingsReason(err error) string {
 	switch {
 	case errors.Is(err, jsonc.ErrNotObject):
 		return "it is not a JSON object"
-	case errors.Is(err, jsonc.ErrUnquotedKey):
-		return "JSONC object keys must be quoted strings"
 	case errors.Is(err, jsonc.ErrDuplicateKey):
 		return "Duplicate JSONC keys require manual repair"
 	}
