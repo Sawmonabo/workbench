@@ -1,4 +1,4 @@
-# 6. Revert checks the files an interrupted apply left unrecorded
+# 6. The next apply finishes an interrupted apply, and revert checks its files
 
 - Status: Accepted, October 5, 2026
 - Supersedes: in [the contracts](../superpowers/specs/workbench-contracts.md),
@@ -8,19 +8,19 @@
 ## Context
 
 Before chezmoi writes anything, Workbench marks every file of the apply's
-checkpoint as unknown, and checks each one once chezmoi stops. On a Mac, a file
-chezmoi creates first gets the group of the temporary folder Workbench gives it
-(`wheel` when that folder is under `/tmp`, while a home folder's is `staff`);
-Workbench gives it the approved group back, and only then records it as written.
-That fix ran when the run finished or a step failed, which includes ctrl+c at
-the terminal, since that stops chezmoi. It did not run when Workbench itself was
-stopped: its terminal window closed (SIGHUP) or it got SIGTERM. A crash,
-`kill -9` or power loss runs nothing at all. Either way the files stayed
-unknown, and revert refused the whole checkpoint ("could not confirm every file
-this checkpoint wrote"), so the person had to restore the files by hand. ctrl+c
-at the terminal also ended the apply with exit 5 and "Setup did not finish
-(chezmoi failed (signal: interrupt)) … fix that, then run workbench apply
-again", though there was nothing to fix.
+checkpoint as unknown, and checks each one once chezmoi stops. chezmoi's own
+write leaves out what Workbench's pass after it gives a file: a file chezmoi
+creates first gets the group of the temporary folder Workbench gives it
+(`wheel` when that folder is under `/tmp` on a Mac, while a home folder's is
+`staff`), and a file it writes in place of another lacks the ACL, extended
+attributes, hidden flag and SELinux label the replaced one had. When a step
+fails, or ctrl+c stops chezmoi, Workbench is still running and does that pass.
+When Workbench itself is stopped between chezmoi's write and its pass (its
+terminal window closed, SIGTERM, a crash, `kill -9` or power loss), nothing
+does it then: the files stay unknown, without what the pass gives them, and
+the state records the apply as unfinished. A plan, which compares content,
+does not see what they lack, and someone may edit one of them before the next
+run.
 
 ## How similar tools handle it
 
@@ -33,36 +33,68 @@ again", though there was nothing to fix.
 
 ## Options considered
 
-- **A. Settle when Workbench is stopped.** It gets the same group fix and check
-  as a failed step.
-- **B. A, and revert checks any file still unknown.** Chosen.
-- **C. Keep refusing.**
+- **A. Settle when Workbench is stopped.** It gets the same pass and check as
+  a failed step.
+- **B. A, and revert checks any file still unknown.**
+- **C. B, and the next apply finishes the interrupted one, planned with it.**
+  Chosen.
+- **D. Refuse until the person restores the files.**
 
 ## Decision
 
 - An apply whose Workbench was stopped is settled like a failed one, once
-  chezmoi has stopped: the process runner kills its whole process group and waits
-  for it.
+  chezmoi has stopped: the process runner kills its whole process group and
+  waits for it.
 - ctrl+c at the terminal, which stops chezmoi, ends the apply as interrupted
   (exit 130, "Interrupted", with "kept  what already ran" and the fix
   "workbench apply"), not as a failed step to fix.
+- The next apply of the same destination finishes the interrupted one before
+  it writes anything. Its plan reads the record first: for each file whose
+  outcome the checkpoint does not know, what it lacks altogether of its
+  approved image (its group, a folder's set-group-ID bit, its label, and the
+  ACL, extended attributes and hidden flag carried from the file it replaced),
+  and what it holds once given that. The plan takes that image as the file's
+  image before it, shows the interrupted apply as a warning naming each file and
+  what it lacks, and binds the record and both images of each file, so a change
+  between the dry run and the apply stops the apply (exit 4). `doctor` says the
+  same in the same words, with the command that applies to that destination.
+- Finishing gives each file what it lacks in place, a file or folder through
+  a descriptor and a link by its path, and leaves its content alone, whether
+  chezmoi wrote it or someone edited it afterwards. What it holds of that metadata with another value stays, as
+  someone's. A file whose group its user may not give it is refused at the plan
+  with `sudo chgrp`. The temporary files the stopped run staged beside its
+  targets, named by the operation and the target's place in its checkpoint, go
+  first.
 - Revert decides each file still unknown from what it holds now: exactly the
   approved content means written, exactly the earlier content means untouched.
-  A file chezmoi created that differs only by the group of its temporary folder
-  counts as written; revert gives it the approved group, then restores it. A
-  file holding anything else stops the revert, named like a later edit.
-- The check runs at revert, not at the next apply. Every apply binds each
-  file's current image, group included, into its approved plan and checks it
-  again just before writing, so a group fix made by the next apply would refuse
-  that apply.
+  A file chezmoi wrote that lacks only what the pass gives counts as written;
+  revert gives it that, then restores it. A file holding anything else stops
+  the revert, named like a later edit, with the fix that keeps it: `mv -n` to a
+  name beside it that nothing has, then the revert again, which takes a file
+  that is not there as moved aside and writes the checkpoint's image over
+  nothing.
+
+The next apply finishes the interrupted one because revert alone (B) leaves
+the files without what the pass gives them for as long as nobody reverts,
+and a plan, which compares content, finds nothing to do for them; refusing
+(D) sends the person to do by hand what Workbench can do itself. The plan
+takes the interrupted apply into account because every apply binds each
+file's current image, group included, into its approved plan and checks it
+again just before writing: a plan made from the files as they are would
+refuse a group the finishing gives, or find the file changed once it is
+finished.
 
 ## Consequences
 
-- A closed terminal, SIGTERM, crash or power loss during an apply no longer
-  leaves a checkpoint that revert cannot undo.
-- Revert never undoes what the apply did not write: it acts only on exact
-  matches, as it does for files whose outcome was recorded.
-- The revert plan says when it checked files the apply left unrecorded.
+- A closed terminal, SIGTERM, crash or power loss during an apply leaves a
+  record the next apply of that destination finishes, and a checkpoint revert
+  can undo.
+- Neither the next apply nor revert loses a later edit: the next apply keeps
+  its content, and revert restores only exact matches and names a fix that
+  keeps the rest.
+- The plan of the next apply, and `doctor`, say which files an interrupted
+  apply left and what each lacks; the revert plan says when it checked files
+  the apply left unrecorded.
 
 ## Sources
 
