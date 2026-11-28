@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"errors"
 	"slices"
+	"strings"
 
 	"golang.org/x/sys/unix"
 
@@ -238,4 +239,88 @@ func carryLabel(fd int, path string, current map[string][]byte, desired []byte) 
 		return nil
 	}
 	return err
+}
+
+func readImageAttributes(fd int, path string) (map[string][]byte, error) {
+	var names [4096]byte
+	var n int
+	var err error
+	if fd < 0 {
+		n, err = unix.Llistxattr(path, names[:])
+	} else {
+		n, err = unix.Flistxattr(fd, names[:])
+	}
+	if err != nil {
+		return nil, Fail(
+			ExitBlocked,
+			"metadata",
+			"Cannot inspect bounded target extended attributes",
+		)
+	}
+	attributes := map[string][]byte{}
+	for name := range strings.SplitSeq(string(names[:n]), "\x00") {
+		if name == "" {
+			continue
+		}
+		if !slices.Contains(preservedAttributes, name) {
+			return nil, Fail(
+				ExitBlocked,
+				"metadata",
+				"Target extended attributes require preservation support",
+			)
+		}
+		var data [4096]byte
+		if fd < 0 {
+			n, err = unix.Lgetxattr(path, name, data[:])
+		} else {
+			n, err = unix.Fgetxattr(fd, name, data[:])
+		}
+		if err != nil {
+			return nil, Fail(
+				ExitBlocked,
+				"metadata",
+				"Cannot read bounded target extended attribute",
+			)
+		}
+		attributes[name] = bytes.Clone(data[:n])
+	}
+	return attributes, nil
+}
+
+// writeImageAttributes gives fd, or the link at path when fd is negative,
+// exactly the attributes of an image, apart from the label: carryLabel writes
+// an image's label, and one the image lacks is left as the system gave it,
+// since SELinux lets no one remove a label.
+func writeImageAttributes(fd int, path string, attributes map[string][]byte) error {
+	existing, err := readImageAttributes(fd, path)
+	if err != nil {
+		return err
+	}
+	for name := range existing {
+		if _, ok := attributes[name]; ok || name == platform.LabelAttribute {
+			continue
+		}
+		if fd < 0 {
+			err = unix.Lremovexattr(path, name)
+		} else {
+			err = unix.Fremovexattr(fd, name)
+		}
+		if err != nil {
+			return err
+		}
+	}
+	for name, data := range attributes {
+		switch {
+		case name == platform.LabelAttribute:
+			err = carryLabel(fd, path, existing, data)
+		case fd < 0:
+			err = unix.Lsetxattr(path, name, data, 0)
+		default:
+			err = unix.Fsetxattr(fd, name, data, 0)
+		}
+		if err != nil {
+			return err
+		}
+	}
+	return nil
 }
