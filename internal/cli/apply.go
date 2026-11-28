@@ -182,16 +182,24 @@ func machinePlan(cmd *cobra.Command, c operation.Context, o *options) (operation
 // questions the saved answers lack, refreshes Homebrew's package list unless a
 // plan digest was approved, plans, gets the selection approved and applies it.
 // A local checkout installs the tools its own versions.toml pins when missing
-// and uses the saved answers as they are.
+// and uses the saved answers as they are. An approved digest is held first
+// against apply --dry-run's plan (see approvedPlan), so one that does not
+// match is refused before setup.
 func applyMachine(
 	cmd *cobra.Command,
 	c operation.Context,
 	o *options,
 ) (operation.Result, operation.Plan, error) {
 	result := operation.NewResult(cmd.CommandPath())
+	plan, err := approvedPlan(cmd, c, o)
+	if err != nil {
+		if plan.Complete {
+			result.PlanDigest = plan.Digest()
+		}
+		return result, plan, err
+	}
 	terminal, progress, closeConsole := nativeConsole(o, cmd.ErrOrStderr())
 	defer closeConsole()
-	var err error
 	if c.Native.Developer {
 		// A checkout uses the saved answers as they are, but installs the tools
 		// its versions.toml pins when they are missing.
@@ -210,9 +218,10 @@ func applyMachine(
 	if err != nil {
 		return result, operation.Plan{}, err
 	}
-	plan, err := machine.Plan(cmd.Context(), c, selection)
-	if err != nil {
-		return result, plan, err
+	if o.approvePlan == "" {
+		if plan, err = machine.Plan(cmd.Context(), c, selection); err != nil {
+			return result, plan, err
+		}
 	}
 	consent := consentFor(o, o.approvePlan)
 	// checkApply already refused every run that is neither approved by digest,
@@ -279,6 +288,29 @@ func applyMachine(
 	result.Results = append(result.Results, applied.Results...)
 	result.OperationID = applied.OperationID
 	return result, plan, err
+}
+
+// approvedPlan is, for an apply given --approve-plan DIGEST, the plan as apply
+// --dry-run makes it, from the machine as it is, and an error unless DIGEST
+// is that plan's: setup has not run, so one that does not match is refused
+// before anything is downloaded, installed, saved, locked or given a mode, and
+// a tool the plan needs that is missing gets the dry run's refusal. The plan
+// that matches is the one applied, which the apply checks again under its
+// locks. Without --approve-plan it plans nothing and gives an empty plan.
+func approvedPlan(cmd *cobra.Command, c operation.Context, o *options) (operation.Plan, error) {
+	if o.approvePlan == "" {
+		return operation.Plan{}, nil
+	}
+	c.ReadOnly = true
+	selection, err := machineSelection(c, o)
+	if err != nil {
+		return operation.Plan{}, err
+	}
+	plan, err := machine.Plan(cmd.Context(), c, selection)
+	if err != nil {
+		return plan, err
+	}
+	return plan, operation.CheckApproval(o.approvePlan, plan.Digest())
 }
 
 // refreshHomebrew refreshes Homebrew's package list before apply plans, so the

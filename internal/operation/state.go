@@ -1,6 +1,7 @@
 package operation
 
 import (
+	"bytes"
 	"encoding/json"
 	"path/filepath"
 	"regexp"
@@ -130,17 +131,24 @@ func releaseIdentity(record *ReleaseRecord) *SourceIdentity {
 
 // ReadState never creates files. Absence is distinct from invalid current state.
 func ReadState(paths Paths) (*State, error) {
+	_, state, err := readStateRecord(paths)
+	return state, err
+}
+
+// readStateRecord is [ReadState] giving the record's bytes as well, nil
+// with the state when there is no record.
+func readStateRecord(paths Paths) ([]byte, *State, error) {
 	data, found, err := ReadPrivateRecord(
 		filepath.Join(paths.State, "state.json"),
 		1<<20,
 		"the current Workbench state",
 	)
 	if !found || err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	var state State
 	if err := DecodeStrict(data, &state); err != nil {
-		return nil, Fail(
+		return nil, nil, Fail(
 			ExitInvalid,
 			"state_format",
 			"Malformed current Workbench state",
@@ -149,12 +157,14 @@ func ReadState(paths Paths) (*State, error) {
 		)
 	}
 	if err := state.Validate(); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	return &state, nil
+	return data, &state, nil
 }
 
-// WriteState validates and atomically replaces the private state record.
+// WriteState validates and atomically replaces the private state record. A
+// record that already holds exactly what state encodes to is left as it is,
+// and so is its folder.
 func (m *Mutation) WriteState(state State) error {
 	if err := m.Check(); err != nil {
 		return err
@@ -162,12 +172,16 @@ func (m *Mutation) WriteState(state State) error {
 	if err := state.Validate(); err != nil {
 		return err
 	}
-	if _, err := ReadState(m.context.Paths); err != nil {
+	current, _, err := readStateRecord(m.context.Paths)
+	if err != nil {
 		return err
 	}
 	data, err := json.Marshal(state)
 	if err != nil {
 		return err
+	}
+	if current != nil && bytes.Equal(current, data) {
+		return nil
 	}
 	return m.WritePrivate(filepath.Join(m.context.Paths.State, "state.json"), data)
 }
