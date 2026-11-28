@@ -2,6 +2,7 @@ package operation
 
 import (
 	"errors"
+	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -9,6 +10,7 @@ import (
 	"syscall"
 
 	"github.com/Sawmonabo/workbench/internal/display"
+	"golang.org/x/sys/unix"
 )
 
 func ensurePrivateDirectory(path string) error { return privateDirectory(path, true) }
@@ -381,4 +383,59 @@ func ownedByUser(info os.FileInfo) bool {
 func ownedByUserOrRoot(info os.FileInfo) bool {
 	stat, ok := info.Sys().(*syscall.Stat_t)
 	return ok && (stat.Uid == 0 || int(stat.Uid) == os.Geteuid())
+}
+
+// notFolderRefusal refuses path, which info describes and which is no
+// folder, where Workbench keeps its own files; category is the refusal's.
+func notFolderRefusal(category, path string, info os.FileInfo) error {
+	return Fail(
+		ExitInvalid,
+		category,
+		display.Path(path)+" is "+fileKind(info)+
+			", not a folder, so Workbench cannot keep its files there; move it aside and retry",
+	)
+}
+
+// folderModeRefusal refuses path, a folder of Workbench's own files of the
+// mode mode. When its group or other users may write in it, what it holds
+// may not be Workbench's, so a chmod alone would keep in it what another user
+// put there: the refusal names the find that lists what is not this user's,
+// to move aside before the chmod. Otherwise it is a folder its owner may not
+// read or search, which Workbench cannot use, and the chmod is enough.
+func folderModeRefusal(path string, mode os.FileMode) error {
+	shown := fmt.Sprintf("%s has mode %04o", display.Path(path), modeBits(mode))
+	if mode.Perm()&0o022 == 0 {
+		return Fail(
+			ExitInvalid,
+			"permissions",
+			shown+", and Workbench needs to read and search a folder of its own files"+
+				retry([]string{"chmod", "700"}, path),
+		)
+	}
+	folder := shellHomePath(path)
+	user := shellWord(userName(uint32(os.Geteuid())))
+	return Fail(
+		ExitInvalid,
+		"permissions",
+		shown+", so other users can write in it and what it holds may not be Workbench's; "+
+			"move aside what find "+folder+" -not -user "+user+" lists, "+
+			"then run chmod 700 "+folder+" and retry",
+	)
+}
+
+// modeBits is mode's permission bits with its setuid, setgid and sticky bits
+// where chmod and ls put them, so a refusal shows 1777 for a sticky folder
+// any user can write in.
+func modeBits(mode os.FileMode) uint32 {
+	bits := uint32(mode.Perm())
+	if mode&os.ModeSetuid != 0 {
+		bits |= unix.S_ISUID
+	}
+	if mode&os.ModeSetgid != 0 {
+		bits |= unix.S_ISGID
+	}
+	if mode&os.ModeSticky != 0 {
+		bits |= unix.S_ISVTX
+	}
+	return bits
 }
