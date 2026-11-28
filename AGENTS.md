@@ -86,7 +86,10 @@ Distinguish implemented code, observed checks and unqualified release targets.
   gets, in place, what it lacks of its approved image, and keeps its content.
   Revert refuses a file changed since its apply with `mv -n` to a free name
   beside it, then the revert, which writes the checkpoint's image where the
-  file was (ADR 0006).
+  file was, and a folder with the commands that take off what it holds beyond
+  its image and give back its mode and group; a file or folder that only
+  lacks an ACL, extended attributes or the hidden flag of its image holds
+  nothing of a person's, and the revert writes its image over it (ADR 0006).
 - Platform tests live only in `internal/platform/`: other packages read its
   facts and calls and never test `runtime.GOOS` or WSL themselves, which a
   `forbidigo` rule enforces (ADR 0012); `release.Target()` alone names the

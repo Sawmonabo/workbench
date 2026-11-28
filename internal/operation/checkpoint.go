@@ -94,10 +94,12 @@ type Checkpoint struct {
 	// before the pass after it, with what it observed (see confirm).
 	regroup map[int]Image
 	// restoring is set for a revert, whose preflight takes a target that is
-	// not there, moved aside or removed, as moved: the revert writes it over
-	// nothing, and nothing is lost.
+	// not there, moved aside or removed, or that lacks only an ACL, extended
+	// attributes or the hidden flag of its recorded image, as found, with
+	// what it holds: the revert writes its image over that, and nothing of a
+	// person's is lost.
 	restoring bool
-	moved     map[int]bool
+	found     map[int]Image
 }
 
 // CheckpointSummary is the public view of one selectable checkpoint or its

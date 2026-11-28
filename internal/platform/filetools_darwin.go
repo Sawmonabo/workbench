@@ -35,9 +35,6 @@ func clearCommand(words []string) []string {
 	return []string{"chflags", strings.Join(words, ",")}
 }
 
-// setCommand is chflags with the keywords joined by commas.
-func setCommand(words []string) []string { return clearCommand(words) }
-
 // lockingFlags are the owner's and the system's immutable and append-only
 // flags: rename(2) over such a file fails with EPERM.
 const lockingFlags uint32 = unix.UF_IMMUTABLE | unix.UF_APPEND | unix.SF_IMMUTABLE | unix.SF_APPEND

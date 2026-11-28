@@ -37,11 +37,6 @@ func clearCommand(words []string) []string {
 	return []string{"chattr", "-" + strings.Join(words, "")}
 }
 
-// setCommand is chattr with the letters after one plus.
-func setCommand(words []string) []string {
-	return []string{"chattr", "+" + strings.Join(words, "")}
-}
-
 // lockingFlags are FS_IMMUTABLE_FL and FS_APPEND_FL: fs/namei.c refuses to
 // rename over or unlink such a file (may_delete), and refuses a new entry in
 // an immutable folder (inode_permission).

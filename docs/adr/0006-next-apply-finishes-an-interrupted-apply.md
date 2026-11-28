@@ -73,6 +73,18 @@ run.
   name beside it that nothing has, then the revert again, which takes a file
   that is not there as moved aside and writes the checkpoint's image over
   nothing.
+- A revert decides every changed file and folder by whether going on would
+  lose anything of a person's. One that holds its recorded image but lacks an
+  ACL, extended attributes or the hidden flag altogether, which someone took
+  off, holds nothing that is not in the checkpoint: the revert takes it as it
+  is, says so in its plan, which binds it, and writes its image over it. One
+  that holds more than its image (an ACL, an attribute or the hidden flag), or
+  any of it with another value (content, mode, group, an ACL's entries, an
+  attribute's value), holds what the person made, which the revert would
+  write over, so it stops the revert: a file or link with `mv -n`, a folder
+  with the commands that take off what it holds beyond its image and give
+  back its mode and group, after which it at most lacks something and the
+  revert goes on. No line carries an attribute's value or an ACL entry.
 
 The next apply finishes the interrupted one because revert alone (B) leaves
 the files without what the pass gives them for as long as nobody reverts,
@@ -90,8 +102,8 @@ finished.
   record the next apply of that destination finishes, and a checkpoint revert
   can undo.
 - Neither the next apply nor revert loses a later edit: the next apply keeps
-  its content, and revert restores only exact matches and names a fix that
-  keeps the rest.
+  its content, and revert restores only exact matches and files that lack
+  metadata of their image, and names a fix that keeps the rest.
 - The plan of the next apply, and `doctor`, say which files an interrupted
   apply left and what each lacks; the revert plan says when it checked files
   the apply left unrecorded.

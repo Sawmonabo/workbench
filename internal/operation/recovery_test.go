@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"golang.org/x/sys/unix"
 )
 
 // Prevent irreversible user-data loss: a later edit anywhere in the full set
@@ -546,5 +548,126 @@ func TestRevertConfirmsFilesAnInterruptedApplyLeftUnknown(t *testing.T) {
 	}
 	if _, err = os.Lstat(created); !errors.Is(err, fs.ErrNotExist) {
 		t.Fatal("revert left the file the interrupted apply created")
+	}
+}
+
+// Prevent a revert from writing over what a person gave a file after
+// Workbench wrote it. A file that only lacks an extended attribute Workbench
+// gave it is taken as it is, since all it holds is in the checkpoint, and
+// the revert goes on; a file that lacks one but holds another with another
+// value, or one more, holds the person's value, which the revert would write
+// over, so it must stop the revert with that value still there.
+func TestRevertKeepsWhatAPersonGaveAFile(t *testing.T) {
+	root, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := Context{
+		Paths: Paths{
+			State:  filepath.Join(root, "state"),
+			Config: filepath.Join(root, "config"),
+			Data:   filepath.Join(root, "data"),
+			Cache:  filepath.Join(root, "cache"),
+			Bin:    filepath.Join(root, "bin"),
+		},
+		Scope: Scope{Kind: "project", Root: filepath.Join(root, "project")},
+	}
+	if err = os.Mkdir(c.Scope.Root, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(c.Scope.Root, "a")
+	if err = os.WriteFile(path, []byte("original"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"user.note", "user.tag"} {
+		if err = unix.Setxattr(path, name, []byte("workbench"), 0); err != nil {
+			t.Skipf("cannot give the fixture an extended attribute here: %v", err)
+		}
+	}
+	before, err := ReadImage(c, path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	after := before
+	after.Data = []byte("applied")
+	changes := []TargetChange{{Path: path, Before: before, After: after}}
+	plan := Plan{
+		Source:   SourceIdentity{Release: "fixture", ContentDigest: ImageDigest(before)},
+		Scope:    c.Scope,
+		Complete: true,
+		Inputs:   []Input{{Name: "checkpoint-images", Digest: ChangesDigest(changes)}},
+	}
+	id := ""
+	if err = WithMutation(
+		context.Background(),
+		c,
+		plan,
+		Consent{ApprovedDigest: plan.Digest(), CompleteInputs: true},
+		func(context.Context, Context) (Plan, error) { return plan, nil },
+		func(m *Mutation) error {
+			cp, beginErr := BeginCheckpoint(m, plan, nil, changes)
+			if beginErr != nil {
+				return beginErr
+			}
+			id = cp.ID
+			return cp.Apply(context.Background())
+		},
+	); err != nil {
+		t.Fatal(err)
+	}
+	selector := RecoverySelector{Checkpoint: id}
+	revert := func() error {
+		recovery, planErr := RecoveryPlan(c, selector)
+		if planErr != nil {
+			return planErr
+		}
+		_, recoverErr := Recover(
+			context.Background(),
+			c,
+			recovery,
+			selector,
+			Consent{ApprovedDigest: recovery.Digest(), CompleteInputs: true},
+		)
+		return recoverErr
+	}
+	holds := func(name, value string) bool {
+		buffer := make([]byte, 64)
+		n, getErr := unix.Getxattr(path, name, buffer)
+		return getErr == nil && string(buffer[:n]) == value
+	}
+	if err = unix.Removexattr(path, "user.tag"); err != nil {
+		t.Fatal(err)
+	}
+	for _, edit := range []struct {
+		what, name string
+		undo       func() error
+	}{
+		{"an attribute with another value", "user.note", func() error {
+			return unix.Setxattr(path, "user.note", []byte("workbench"), 0)
+		}},
+		{"an attribute more", "user.extra", func() error {
+			return unix.Removexattr(path, "user.extra")
+		}},
+	} {
+		if err = unix.Setxattr(path, edit.name, []byte("mine"), 0); err != nil {
+			t.Fatal(err)
+		}
+		if err = revert(); ExitCode(err) != ExitConflict {
+			t.Fatalf("a revert went on over %s: %v", edit.what, err)
+		}
+		if data, readErr := os.ReadFile(path); readErr != nil || string(data) != "applied" ||
+			!holds(edit.name, "mine") {
+			t.Fatalf("a refused revert lost %s", edit.what)
+		}
+		if err = edit.undo(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err = revert(); err != nil {
+		t.Fatalf("a revert stopped at a file that only lacks an attribute: %v", err)
+	}
+	if data, readErr := os.ReadFile(path); readErr != nil || string(data) != "original" ||
+		!holds("user.note", "workbench") || !holds("user.tag", "workbench") {
+		t.Fatal("the revert did not restore the file as its checkpoint holds it")
 	}
 }

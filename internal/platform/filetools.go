@@ -66,29 +66,6 @@ func ClearFlags(flags uint32) []string {
 	return command
 }
 
-// SetFlags is the command, as words a shell reads one by one and without the
-// file's path, that sets flags on a file its user owns: on macOS chflags with
-// each flag's keyword (chflags hidden), on Linux chattr with each flag's
-// letter after one plus. It is nil when flags is empty or one of them only
-// root may set, has no such command (see ClearFlags) or is not named.
-func SetFlags(flags uint32) []string {
-	var words []string
-	for _, flag := range flagTable {
-		if flags&flag.bit == 0 {
-			continue
-		}
-		if flag.clear == "" || flag.root {
-			return nil
-		}
-		words = append(words, flag.name)
-		flags &^= flag.bit
-	}
-	if flags != 0 || len(words) == 0 {
-		return nil
-	}
-	return setCommand(words)
-}
-
 // LockingFlags are the file flags under which a file can be neither renamed
 // over nor removed, so no file replaces it, and under which nothing in a
 // folder can be added, renamed or removed: immutable and append-only, on

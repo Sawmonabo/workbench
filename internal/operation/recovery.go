@@ -13,6 +13,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/Sawmonabo/workbench/internal/display"
 	"github.com/Sawmonabo/workbench/internal/platform"
 )
 
@@ -81,12 +82,15 @@ func selectCheckpoint(c Context, selector RecoverySelector) (*Checkpoint, bool, 
 // recorded, and returns the folders the restore would remove that now hold
 // something it would not remove (see heldDirectories). A target whose outcome
 // the journal could not record is decided first from what it holds now (see
-// confirm). For a revert, a target that is not there counts as moved aside
-// (moved), which the revert writes over nothing; any other target that holds
+// confirm). For a revert, a target that is not there counts as moved aside,
+// which the revert writes over nothing, and one that holds the recorded image
+// but for an ACL, extended attributes or the hidden flag it lacks altogether
+// (lacksOnly) as it is, which the revert writes its image over: both are
+// found, and nothing of a person's is lost. Any other target that holds
 // neither image is refused (editedRefusal).
 func (cp *Checkpoint) preflight(reverse bool) (map[int]string, error) {
 	c := cp.mutation.context
-	cp.regroup, cp.moved = map[int]Image{}, map[int]bool{}
+	cp.regroup, cp.found = map[int]Image{}, map[int]Image{}
 	var edited []int
 	current := make([]Image, len(cp.changes))
 	for i, change := range cp.changes {
@@ -94,11 +98,12 @@ func (cp *Checkpoint) preflight(reverse bool) (map[int]string, error) {
 		if current[i], err = ReadImage(c, change.Path); err != nil {
 			return nil, err
 		}
+		_, lacks := lacksOnly(current[i], cp.expectedImage(i))
 		switch {
 		case cp.journal.Known[i] == outcomeUnknown && cp.confirm(i, current[i]):
 		case cp.journal.Known[i] != outcomeUnknown && sameImage(current[i], cp.expectedImage(i)):
-		case cp.restoring && current[i].Kind == ImageAbsent:
-			cp.moved[i] = true
+		case cp.restoring && (current[i].Kind == ImageAbsent || lacks):
+			cp.found[i] = current[i]
 		default:
 			edited = append(edited, i)
 		}
@@ -115,13 +120,14 @@ func (cp *Checkpoint) preflight(reverse bool) (map[int]string, error) {
 // the revert go on: a file or link, or anything that replaced one, is moved
 // aside under a name nothing has (movedAside), which preflight then takes as
 // moved; a folder gets back the mode and group Workbench gave it, and loses
-// an attribute or ACL Workbench did not give it, the folder's content
-// staying. Then the revert is run again.
+// an attribute or ACL it holds that Workbench did not give it, or holds with
+// another value, the folder's content staying (folderFixes). Then the revert
+// is run again. A project apply (cp not restoring) found its targets changed
+// after its plan was made, and is run again.
 func (cp *Checkpoint) editedRefusal(edited []int, current []Image, reverse bool) error {
 	c := cp.mutation.context
 	names := make([]string, len(edited))
 	var fixes []Part
-	undo := false
 	for n, i := range edited {
 		path := cp.changes[i].Path
 		names[n] = c.ShowPath(path)
@@ -133,8 +139,7 @@ func (cp *Checkpoint) editedRefusal(edited []int, current []Image, reverse bool)
 			)
 			continue
 		}
-		folder, complete := folderFixes(c, path, current[i], expected)
-		fixes, undo = append(fixes, folder...), undo || !complete
+		fixes = append(fixes, folderFixes(c, path, current[i], expected)...)
 	}
 	const shown = 10
 	listed := strings.Join(names[:min(len(names), shown)], ", ")
@@ -142,17 +147,23 @@ func (cp *Checkpoint) editedRefusal(edited []int, current []Image, reverse bool)
 		listed += fmt.Sprintf(" and %d more", len(names)-shown)
 	}
 	headline, parts := names[0]+" changed since Workbench wrote it", []Part{}
+	if !cp.restoring {
+		headline = names[0] + " changed after the plan was made"
+	}
 	if len(names) > 1 {
 		headline = "Files changed since Workbench wrote them"
+		if !cp.restoring {
+			headline = "Files changed after the plan was made"
+		}
 		parts = append(parts, Line{Label: "files", Text: listed})
 	}
 	parts = append(parts, Changed("nothing"))
-	if undo || !cp.restoring {
+	if !cp.restoring {
 		return Fail(
 			ExitConflict,
 			"conflict",
 			headline,
-			append(parts, FixText("undo those changes"))...)
+			append(parts, FixText("run that project apply again"))...)
 	}
 	id := cp.record.ID
 	if !reverse {
@@ -173,6 +184,28 @@ func (cp *Checkpoint) editedRefusal(edited []int, current []Image, reverse bool)
 		append(append(parts, fixes...), FixText(command))...)
 }
 
+// foundWarning is what a revert plan says of the target at path that holds
+// found, not expected, the image its checkpoint records, and that the revert
+// takes as it is (see preflight): one that is not there, which the revert
+// writes target over unless that is absent too, or one that lacks what
+// lacksOnly names.
+func foundWarning(c Context, path string, found, expected, target Image) []Warning {
+	if found.Kind == ImageAbsent {
+		if target.Kind == ImageAbsent {
+			return nil
+		}
+		return []Warning{Warn(
+			c.ShowPath(path)+" is not there",
+			Outcome("revert writes it as the checkpoint holds it"),
+		)}
+	}
+	l, _ := lacksOnly(found, expected)
+	return []Warning{Warn(
+		c.ShowPath(path)+" lacks its "+display.List(l.names()),
+		Outcome("revert writes it as the checkpoint holds it"),
+	)}
+}
+
 // movedAside is the name beside path a changed file is moved to, which
 // nothing has: path with .edited, or .edited-2 and on after it.
 func movedAside(path string) string {
@@ -185,24 +218,27 @@ func movedAside(path string) string {
 	}
 }
 
-// folderFixes are the commands that give the folder at path, which holds
-// current, back the mode, group and hidden flag of expected, the image
-// Workbench wrote, and take off an extended attribute or ACL expected does
-// not have; complete is false when it differs otherwise too, in an attribute
-// or ACL expected has, which no command can give back without its value. An
-// ACL goes first, since taking a Linux ACL off sets the mode's group bits from
-// its group entry (setfacl(1)), then the mode and group, then the other
-// attributes, which Linux and macOS let only a writer remove.
-func folderFixes(c Context, path string, current, expected Image) (fixes []Part, complete bool) {
+// folderFixes are the commands after which the folder at path, which holds
+// current, holds expected, the image Workbench wrote, or holds it lacking an
+// ACL, attributes or the hidden flag, which a revert writes over as it is
+// (lacksOnly): an ACL expected does not hold as it is comes off, then the
+// folder gets expected's mode and group, then each other attribute expected
+// does not hold with its value comes off, and the hidden flag expected lacks.
+// What expected holds and the folder lacks needs no line, so none carries a
+// value. An ACL goes first, and the chmod follows a Linux access ACL's
+// removal even where the mode matched, since taking it off sets the mode's
+// group bits from its group entry (setfacl(1)); Linux and macOS let only a
+// writer remove the other attributes.
+func folderFixes(c Context, path string, current, expected Image) []Part {
 	shown := c.ShellPath(path)
 	var acls, others []Part
-	acl := bytes.Equal(current.ACL, expected.ACL)
-	if current.ACL != nil && expected.ACL == nil {
+	if current.ACL != nil && !bytes.Equal(current.ACL, expected.ACL) {
 		acls = append(acls, FixText(shellWords(platform.ACLRemoval())+" "+shown))
-		acl = true
 	}
+	modeChanges := current.Mode != expected.Mode
 	for _, name := range slices.Sorted(maps.Keys(current.Attributes)) {
-		if _, kept := expected.Attributes[name]; kept || name == platform.LabelAttribute {
+		value, kept := expected.Attributes[name]
+		if kept && bytes.Equal(value, current.Attributes[name]) || name == platform.LabelAttribute {
 			continue
 		}
 		kind, remove := platform.AttributeRemoval(name)
@@ -212,33 +248,58 @@ func folderFixes(c Context, path string, current, expected Image) (fixes []Part,
 		} else {
 			others = append(others, fix)
 		}
+		modeChanges = modeChanges || name == platform.AccessACLAttribute
 	}
-	fixes = acls
-	if current.Mode != expected.Mode {
+	fixes := acls
+	if modeChanges {
 		fixes = append(fixes, FixText(fmt.Sprintf("chmod %04o %s", expected.Mode, shown)))
 	}
 	if *current.Group != *expected.Group {
 		fixes = append(fixes, FixText("chgrp "+groupName(*expected.Group)+" "+shown))
 	}
 	fixes = append(fixes, others...)
-	hidden := current.Hidden == expected.Hidden
-	if !hidden {
-		command := platform.ClearFlags(platform.HiddenFlag)
-		if expected.Hidden {
-			command = platform.SetFlags(platform.HiddenFlag)
-		}
-		if command != nil {
+	if current.Hidden && !expected.Hidden {
+		if command := platform.ClearFlags(platform.HiddenFlag); command != nil {
 			fixes = append(fixes, FixText(shellWords(command)+" "+shown))
-			hidden = true
 		}
 	}
-	complete = acl && hidden
-	for name, value := range expected.Attributes {
-		if name != platform.LabelAttribute && !bytes.Equal(current.Attributes[name], value) {
-			complete = false
-		}
+	return fixes
+}
+
+// lacksOnly reports whether current, what a target holds now, is expected,
+// the image its checkpoint records for it, but for an ACL, extended
+// attributes or the hidden flag it lacks altogether, which someone took off
+// after Workbench wrote it; l is what it lacks. A revert loses nothing of
+// theirs then: all the target holds is in the recorded image, and the revert
+// writes the image it restores in its place. What a target holds with
+// another value, or more than the image holds (content, mode, group, an ACL
+// with other entries, an attribute, the hidden flag), is theirs, and stops
+// the revert with the lines that keep it or that they type to let it go
+// (editedRefusal). On Linux an ACL is an attribute whose removal can change
+// the mode's group bits, which then differ: that stops the revert too, with
+// the chmod that gives the mode back.
+func lacksOnly(current, expected Image) (l lacking, ok bool) {
+	if current.Kind == ImageAbsent || current.Kind != expected.Kind ||
+		!holdsAttributes(expected.Attributes, current.Attributes) ||
+		current.ACL != nil && !bytes.Equal(current.ACL, expected.ACL) ||
+		current.Hidden && !expected.Hidden {
+		return l, false
 	}
-	return fixes, complete
+	for _, name := range slices.Sorted(maps.Keys(expected.Attributes)) {
+		if _, held := current.Attributes[name]; held || name == platform.LabelAttribute {
+			continue
+		}
+		if name == platform.AccessACLAttribute {
+			l.acl = true
+			continue
+		}
+		l.attributes = append(l.attributes, name)
+	}
+	l.acl = l.acl || expected.ACL != nil && current.ACL == nil
+	l.hidden = expected.Hidden && !current.Hidden
+	given := current
+	given.ACL, given.Hidden = expected.ACL, expected.Hidden
+	return l, !l.none() && sameImageContent(given, expected)
 }
 
 // confirm decides the outcome of target i, which the journal marked unknown
@@ -457,14 +518,12 @@ func RecoveryPlan(c Context, selector RecoverySelector) (_ Plan, err error) {
 		if reverse {
 			target = change.Before
 		}
-		if cp.moved[i] {
-			current = Image{Kind: ImageAbsent}
-		}
-		if cp.moved[i] && target.Kind != ImageAbsent {
-			plan.Warnings = append(plan.Warnings, Warn(
-				c.ShowPath(change.Path)+" is not there",
-				Outcome("revert writes it as the checkpoint holds it"),
-			))
+		found, isFound := cp.found[i]
+		if isFound {
+			plan.Warnings = append(
+				plan.Warnings,
+				foundWarning(c, change.Path, found, current, target)...)
+			current = found
 		}
 		plan.Inputs = append(plan.Inputs, Input{Name: change.Path, Digest: ImageDigest(current)})
 		if _, stays := held[i]; !stays && !sameImage(current, target) {

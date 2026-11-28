@@ -545,8 +545,8 @@ func (cp *Checkpoint) applyImages(ctx context.Context, reverse, keepHeld bool) e
 		}
 		change := cp.changes[i]
 		expected := cp.expectedImage(i)
-		if cp.moved[i] {
-			expected = Image{Kind: ImageAbsent}
+		if found, ok := cp.found[i]; ok {
+			expected = found
 		}
 		desired, known := change.After, outcomeAfter
 		if reverse {
