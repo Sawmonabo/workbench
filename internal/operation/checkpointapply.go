@@ -2,6 +2,7 @@ package operation
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -34,7 +35,10 @@ func (cp *Checkpoint) StartNative() error {
 // nativeLabel). Every target's expected content, type and mode is checked
 // first; unknown content never authorizes metadata edits. It is called only
 // following successful native execution.
-func (cp *Checkpoint) FinalizeNative() error { return cp.restoreNativeMetadata(false) }
+func (cp *Checkpoint) FinalizeNative() error {
+	_, err := cp.restoreNativeMetadata(cp.targets(), false)
+	return err
+}
 
 // SettleFailedNative is FinalizeNative for a native run that failed (a script
 // exited nonzero, say) or was interrupted once native had stopped. The files
@@ -47,47 +51,74 @@ func (cp *Checkpoint) FinalizeNative() error { return cp.restoreNativeMetadata(f
 // target that cannot be corrected does not stop the others; Finish records each
 // as it finds it. The only error it could return, a lost mutation, makes Finish
 // fail as well.
-func (cp *Checkpoint) SettleFailedNative() { _ = cp.restoreNativeMetadata(true) }
+func (cp *Checkpoint) SettleFailedNative() { _, _ = cp.restoreNativeMetadata(cp.targets(), true) }
 
-// restoreNativeMetadata is the shared body of both. Without failed, any target
-// that does not match its approved image fails the call before any group or
-// label is changed.
-func (cp *Checkpoint) restoreNativeMetadata(failed bool) error {
+// targets is the index of every target of the checkpoint.
+func (cp *Checkpoint) targets() []int {
+	indices := make([]int, len(cp.changes))
+	for i := range indices {
+		indices[i] = i
+	}
+	return indices
+}
+
+// restoreNativeMetadata is the pass after native on the targets indexed by
+// targets, the shared body of FinalizeNative, SettleFailedNative and
+// SettleUnfinished, and returns the index of each target it changed. Without
+// keepGoing, any target that does not match its approved image fails the call
+// before any group or label is changed. With it, a target that does not
+// match is left as it is and one that cannot be read or corrected does not
+// stop the others; the first such error is returned.
+func (cp *Checkpoint) restoreNativeMetadata(targets []int, keepGoing bool) ([]int, error) {
 	if err := cp.mutation.Check(); err != nil {
-		return err
+		return nil, err
 	}
 	c := cp.mutation.context
-	observed := make([]Image, len(cp.changes))
-	settled := make([]bool, len(cp.changes))
-	for i, change := range cp.changes {
-		current, err := nativeOutput(c, change)
+	var first error
+	observed := map[int]Image{}
+	for _, i := range targets {
+		current, native, err := nativeOutput(c, cp.changes[i])
+		if err == nil && !native && !keepGoing {
+			err = differsFromNative(cp.changes[i].Path)
+		}
 		if err != nil {
-			if failed {
-				continue
+			if !keepGoing {
+				return nil, err
 			}
-			return err
-		}
-		observed[i], settled[i] = current, true
-	}
-	for i, change := range cp.changes {
-		if !settled[i] || change.After.Kind == ImageAbsent {
+			first = cmp.Or(first, err)
 			continue
 		}
-		if missingCarried(change, observed[i]) || foreignLabel(change, observed[i]) {
-			if err := restageNative(c, change, observed[i]); err != nil && !failed {
-				return err
-			}
-			continue
-		}
-		label := nativeLabel(change, observed[i])
-		if *observed[i].Group == *change.After.Group && label == nil {
-			continue
-		}
-		if err := correctNativeMetadata(c, change, observed[i], label); err != nil && !failed {
-			return err
+		if native {
+			observed[i] = current
 		}
 	}
-	return nil
+	var changed []int
+	for _, i := range targets {
+		current, ok := observed[i]
+		change := cp.changes[i]
+		if !ok || change.After.Kind == ImageAbsent {
+			continue
+		}
+		var err error
+		label := nativeLabel(change, current)
+		switch {
+		case missingCarried(change, current) || foreignLabel(change, current):
+			err = restageNative(c, change, current)
+		case *current.Group != *change.After.Group || label != nil:
+			err = correctNativeMetadata(c, change, current, label)
+		default:
+			continue
+		}
+		if err != nil {
+			if !keepGoing {
+				return nil, err
+			}
+			first = cmp.Or(first, err)
+			continue
+		}
+		changed = append(changed, i)
+	}
+	return changed, first
 }
 
 // nativeLabel is the label to put back on a file or folder native replaced, or
@@ -173,43 +204,46 @@ func holdsAttributes(held, carried map[string][]byte) bool {
 // file made in its own folder gets the label the system gives a file there.
 func restageNative(c Context, change TargetChange, observed Image) error {
 	err := rewriteImage(c, change.Path, observed, change.After)
-	if problem, ok := errors.AsType[*Error](err); ok {
-		return Fail(
-			ExitPartial,
-			"native_image",
-			"chezmoi wrote "+display.Path(change.Path)+", and Workbench could not finish it: "+
-				problem.Message,
-		)
+	if _, ok := errors.AsType[*Error](err); ok {
+		headline, body := Explained(err)
+		return FailWith(ExitPartial, "native_image", headline, body.With(Explain(
+			Changed("chezmoi wrote "+display.Path(change.Path)+"; Workbench could not finish it"),
+		)))
 	}
 	return err
 }
 
-// nativeOutput reads a target after a native run and returns it when it is
+// nativeOutput reads a target after a native run and reports whether it is
 // what native wrote of the approved image (nativeImage).
-func nativeOutput(c Context, change TargetChange) (Image, error) {
+func nativeOutput(c Context, change TargetChange) (Image, bool, error) {
 	current, err := ReadImage(c, change.Path)
-	if err != nil {
-		return Image{}, err
-	}
-	if !nativeImage(current, change) {
-		shown := display.Path(change.Path)
-		return Image{}, Fail(
-			ExitPartial,
-			"native_image",
-			shown+" differs from what the plan approved after chezmoi wrote it, so Workbench did not change its group or label",
-		)
+	if err != nil || !nativeImage(current, change) {
+		return current, false, err
 	}
 	if current.Kind == ImageSymlink && *current.Group != *change.After.Group &&
 		!missingCarried(change, current) {
-		return Image{}, Fail(
+		return Image{}, false, Fail(
 			ExitBlocked,
 			"metadata",
-			display.Path(change.Path)+" is a link chezmoi gave group "+groupName(*current.Group)+
-				", not "+groupName(*change.After.Group)+
-				", and Workbench does not change a link's group, so it left the link as it is",
+			"chezmoi gave the link "+display.Path(change.Path)+" group "+groupName(*current.Group)+
+				", not "+groupName(*change.After.Group),
+			Cause("Workbench does not change a link's group"),
+			Outcome("the link stays as it is"),
 		)
 	}
-	return current, nil
+	return current, true, nil
+}
+
+// differsFromNative is the failure of the pass after native on path, which
+// does not hold what native wrote of its approved image.
+func differsFromNative(path string) error {
+	return Fail(
+		ExitPartial,
+		"native_image",
+		display.Path(path)+" differs from what the plan approved",
+		Cause("it changed after chezmoi wrote it"),
+		Outcome("Workbench left its group and label as they are"),
+	)
 }
 
 // correctNativeMetadata gives a target the approved group and, unless label is
@@ -220,11 +254,11 @@ func correctNativeMetadata(c Context, change TargetChange, observed Image, label
 		return err
 	}
 	if !sameImage(current, observed) {
-		shown := display.Path(change.Path)
 		return Fail(
 			ExitPartial,
 			"native_image",
-			shown+" changed after chezmoi wrote it, before Workbench gave it its group, so Workbench left it as it is",
+			display.Path(change.Path)+" changed after chezmoi wrote it",
+			Outcome("Workbench left it as it is, without the group the plan approved"),
 		)
 	}
 	return enforceNativeMetadata(c, change.Path, observed, *change.After.Group, label)
@@ -258,10 +292,12 @@ func CheckPreservable(
 			ExitBlocked,
 			"metadata",
 			fmt.Sprintf(
-				"The configuration gives %s mode %04o, which lets its group do more than other users, and Workbench does not write such a file, since it first has the group of Workbench's temporary folder",
+				"The configuration gives %s mode %04o",
 				display.Path(edit.Path),
 				after.Mode,
 			),
+			Cause("its group may do more than other users, and Workbench's new file first has "+
+				"the group of its temporary folder"),
 		)
 	}
 	if after.Kind == ImageFile {
@@ -314,19 +350,10 @@ func (cp *Checkpoint) Finish(runErr error) error {
 		runErr = Fail(
 			ExitFailed,
 			"incomplete",
-			"Native apply did not produce every approved target image",
+			"chezmoi did not write every file the plan approved",
 		)
 	}
-	cp.journal.Status = JournalComplete
-	if runErr != nil {
-		cp.journal.Status = JournalFailed
-	}
-	if changed && runErr != nil {
-		cp.journal.Status = JournalPartial
-	}
-	if unknown {
-		cp.journal.Status = JournalUnknown
-	}
+	cp.journal.Status = outcomeStatus(runErr != nil, changed, unknown)
 	if err := cp.saveJournal(); err != nil {
 		if ExitCode(runErr) == ExitInterrupted {
 			return runErr
@@ -334,74 +361,121 @@ func (cp *Checkpoint) Finish(runErr error) error {
 		return Fail(
 			ExitPartial,
 			"checkpoint",
-			"Target outcome could not be recorded; retained images require reviewed reconciliation",
+			"Workbench could not record what this apply wrote",
+			Cause(err.Error()),
+			Outcome("revert of checkpoint "+cp.ID+" checks each file before it restores it"),
+			FixText(cp.mutation.context.WorkbenchCommand()+" apply"),
 		)
 	}
 	if ExitCode(runErr) == ExitInterrupted {
 		return runErr
 	}
 	if unknown {
-		cannot := "could not confirm every file this apply wrote (checkpoint " + cp.ID + "); revert checks them again and names any it cannot undo."
+		unconfirmed := Outcome(
+			"Workbench could not confirm every file this apply wrote; revert of checkpoint " +
+				cp.ID + " checks them again and names any it cannot undo",
+		)
 		if runErr == nil {
 			return Fail(
 				ExitPartial,
 				"recovery",
-				"Workbench "+cannot+" Run "+cp.mutation.context.WorkbenchCommand()+" apply again to check the files.",
+				"Workbench could not confirm every file this apply wrote",
+				Outcome(
+					"revert of checkpoint "+cp.ID+" checks them again and names any it cannot undo",
+				),
+				FixText(cp.mutation.context.WorkbenchCommand()+" apply"),
 			)
 		}
 		// The failure comes first: it is what the person has to act on.
-		return Fail(
-			ExitPartial,
-			"recovery",
-			strings.TrimRight(runErr.Error(), ".")+". Workbench also "+cannot,
-		)
+		headline, body := Explained(runErr)
+		return FailWith(ExitPartial, "recovery", headline, body.With(Explain(unconfirmed)))
 	}
 	if changed && runErr != nil {
 		// A failure that already reports a partial apply says what failed and what
-		// to do; the generic line below would replace it.
+		// to do; the line below adds that files changed, which revert restores.
 		if ExitCode(runErr) == ExitPartial {
 			return runErr
 		}
-		return Fail(
-			ExitPartial,
-			"partial",
-			"Some target changes completed; recover using the retained checkpoint",
-		)
+		headline, body := Explained(runErr)
+		return FailWith(ExitPartial, "partial", headline, body.With(Explain(
+			Changed("some files; revert of checkpoint "+cp.ID+" restores them"),
+		)))
 	}
 	return runErr
 }
 
-// stoppedPartWay ends the failure of a write that stopped an apply or a
-// revert after it may have changed other files, which its checkpoint
+// outcomeStatus is the status of a native run's checkpoint once every
+// target's outcome is recorded: unknown when one is, partial when the run
+// failed after it changed a target, failed when it failed before, and
+// complete otherwise.
+func outcomeStatus(failed, changed, unknown bool) JournalStatus {
+	switch {
+	case unknown:
+		return JournalUnknown
+	case failed && changed:
+		return JournalPartial
+	case failed:
+		return JournalFailed
+	}
+	return JournalComplete
+}
+
+// stoppedPartWay is the line of the failure of a write that stopped an apply
+// or a revert after it may have changed other files, which its checkpoint
 // records.
-const stoppedPartWay = ". Workbench stopped there and kept its checkpoint of the files it changed"
+var stoppedPartWay = Outcome(
+	"Workbench stopped there and kept its checkpoint of the files it changed",
+)
+
+// stoppedAt is err, an [Error] that stopped a write part way, with its
+// headline, cause and fix, and stoppedPartWay after them.
+func stoppedAt(err error) error {
+	headline, body := Explained(err)
+	return FailWith(ExitPartial, "partial", headline, body.With(Explain(stoppedPartWay)))
+}
 
 // writeFailure is the failure of the write to path that stopped an apply,
 // which err says why: a refusal in its own words, which name the file,
 // otherwise led by the file, with an os error's path shown as people read
 // it (see [FileError]).
 func writeFailure(path string, err error) error {
-	reason := "Workbench did not finish writing " + display.Path(path) + ": " + err.Error()
-	if problem, ok := errors.AsType[*Error](err); ok {
-		reason = problem.Message
-	} else if problem, ok := errors.AsType[*fs.PathError](err); ok {
-		reason = "Workbench did not finish writing " + display.Path(path) + ": " +
-			FileError(problem.Path, err).Error()
+	if _, ok := errors.AsType[*Error](err); ok {
+		return stoppedAt(err)
 	}
-	return Fail(ExitPartial, "partial", strings.TrimSuffix(reason, ".")+stoppedPartWay)
+	if problem, ok := errors.AsType[*fs.PathError](err); ok {
+		err = FileError(problem.Path, err)
+	}
+	return Fail(
+		ExitPartial,
+		"partial",
+		"Workbench did not finish writing "+display.Path(path),
+		Cause(err.Error()),
+		stoppedPartWay,
+	)
 }
 
 // outcomeRefusal is the failure of a write to path whose result cannot be
 // read back, which err says why, or differs from what Workbench wrote, with
 // err nil.
 func outcomeRefusal(path string, err error) error {
-	reason := display.Path(path) + " does not hold what Workbench wrote"
-	if problem, ok := errors.AsType[*Error](err); ok {
-		reason = problem.Message
-	} else if err != nil {
-		reason = "Workbench cannot read " + display.Path(path) + " after writing it: " + err.Error()
+	if _, ok := errors.AsType[*Error](err); ok {
+		return stoppedAt(err)
 	}
-	return Fail(ExitPartial, "partial", strings.TrimSuffix(reason, ".")+stoppedPartWay)
+	if err != nil {
+		return Fail(
+			ExitPartial,
+			"partial",
+			"Workbench cannot read "+display.Path(path)+" after writing it",
+			Cause(err.Error()),
+			stoppedPartWay,
+		)
+	}
+	return Fail(
+		ExitPartial,
+		"partial",
+		display.Path(path)+" does not hold what Workbench wrote",
+		stoppedPartWay,
+	)
 }
 
 // Apply is the shared exact-write owner for project configuration and recovery.
@@ -492,7 +566,9 @@ func (cp *Checkpoint) applyImages(ctx context.Context, reverse, keepHeld bool) e
 			return Fail(
 				ExitPartial,
 				"checkpoint",
-				"A target changed but journal update failed; recovery images are retained",
+				"Workbench could not record that it wrote "+display.Path(change.Path),
+				Cause(err.Error()),
+				Outcome("checkpoint "+cp.ID+" keeps every file as it was before"),
 			)
 		}
 	}
@@ -501,7 +577,9 @@ func (cp *Checkpoint) applyImages(ctx context.Context, reverse, keepHeld bool) e
 		return Fail(
 			ExitPartial,
 			"checkpoint",
-			"Target changes completed but journal finalization failed; retained images remain available",
+			"Workbench wrote every file but could not record it",
+			Cause(err.Error()),
+			Outcome("checkpoint "+cp.ID+" keeps every file as it was before"),
 		)
 	}
 	return nil

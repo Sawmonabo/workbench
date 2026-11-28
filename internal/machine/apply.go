@@ -6,8 +6,10 @@ import (
 	"io"
 	"os"
 	"slices"
+	"strconv"
 	"time"
 
+	"github.com/Sawmonabo/workbench/internal/display"
 	"github.com/Sawmonabo/workbench/internal/operation"
 )
 
@@ -151,24 +153,31 @@ func (a *applyRun) apply() error {
 	})
 }
 
-// write checkpoints, provisions and records the apply.
+// write settles an earlier apply that did not finish, then checkpoints,
+// provisions and records this one.
 func (a *applyRun) write() error {
 	state, err := operation.ReadState(a.c.Paths)
+	if err != nil {
+		return err
+	}
+	// The single partial-operation record is replaced or cleared below;
+	// another destination's unfinished apply must not be.
+	if err = state.Unfinished(a.c.Scope); err != nil {
+		return err
+	}
+	settled, err := operation.SettleUnfinished(a.m, state, a.prepared.Changes)
 	if err != nil {
 		return err
 	}
 	// Without target changes there is nothing to checkpoint; provisioning
 	// effects are external and never rolled back either way.
 	if len(a.prepared.Changes) == 0 {
-		return a.withoutCheckpoint(state)
+		return a.withoutCheckpoint(settled)
 	}
-	return a.withCheckpoint(state)
+	return a.withCheckpoint(state, settled)
 }
 
-func (a *applyRun) withoutCheckpoint(state *operation.State) error {
-	if err := state.Unfinished(a.c.Scope); err != nil {
-		return err
-	}
+func (a *applyRun) withoutCheckpoint(settled *operation.Settled) error {
 	plan := a.prepared.Plan
 	provisioning := hasProvisioning(plan.Effects)
 	if provisioning {
@@ -182,11 +191,8 @@ func (a *applyRun) withoutCheckpoint(state *operation.State) error {
 		return err
 	}
 	// A plan with no file changes found every target already as this source
-	// renders it, which settles an earlier apply that stopped before finishing.
-	var settled *operation.PartialOperation
-	if current != nil {
-		settled = current.PartialOperation
-	}
+	// renders it, which, once SettleUnfinished settled it, clears the record
+	// of an earlier apply that stopped before finishing.
 	if provisioning || settled != nil {
 		if current == nil {
 			current = &operation.State{SchemaVersion: 1}
@@ -197,6 +203,8 @@ func (a *applyRun) withoutCheckpoint(state *operation.State) error {
 				operation.ExitPartial,
 				"state",
 				"Cannot record the finished apply in Workbench's state",
+				operation.Cause(err.Error()),
+				operation.Kept("every file as this plan has it"),
 			)
 		}
 	}
@@ -210,24 +218,13 @@ func (a *applyRun) withoutCheckpoint(state *operation.State) error {
 		Status:   operation.StatusUnchanged,
 		Recovery: "No target writes or checkpoint allocation",
 	})
-	if settled != nil {
-		a.result.Results = append(a.result.Results, operation.Component{
-			Name:    "unfinished-apply",
-			Status:  operation.StatusComplete,
-			Message: "Apply " + settled.ID + " did not finish earlier; every file now matches this plan",
-		})
-	}
+	a.reportSettled(settled)
 	return a.reportEffects(plan)
 }
 
-func (a *applyRun) withCheckpoint(state *operation.State) error {
+func (a *applyRun) withCheckpoint(state *operation.State, settled *operation.Settled) error {
 	if state == nil {
 		state = &operation.State{SchemaVersion: 1}
-	}
-	// The single partial-operation record is replaced below; another
-	// destination's unfinished apply must not be overwritten.
-	if err := state.Unfinished(a.c.Scope); err != nil {
-		return err
 	}
 	plan := a.prepared.Plan
 	provisioning := hasProvisioning(plan.Effects)
@@ -282,7 +279,8 @@ func (a *applyRun) withCheckpoint(state *operation.State) error {
 			operation.ExitPartial,
 			"state",
 			"Cannot record the finished apply in Workbench's state",
-			operation.Kept("the apply's checkpoint"),
+			operation.Cause(err.Error()),
+			operation.Kept("checkpoint "+cp.ID),
 		)
 	}
 	if err = a.saveSelection(plan); err != nil {
@@ -293,7 +291,46 @@ func (a *applyRun) withCheckpoint(state *operation.State) error {
 		Status:   operation.StatusComplete,
 		Recovery: "Exact configuration images retained; select checkpoint " + cp.ID,
 	})
+	a.reportSettled(settled)
 	return a.reportEffects(plan)
+}
+
+// reportSettled adds the result line of an earlier operation that did not
+// finish, which this apply settled: an apply's pass after chezmoi finished,
+// with the files that took it, or a revert this apply took the place of.
+func (a *applyRun) reportSettled(settled *operation.Settled) {
+	if settled == nil {
+		return
+	}
+	component := operation.Component{
+		Name:    "unfinished-apply",
+		Status:  operation.StatusComplete,
+		Message: "Apply " + settled.ID + " did not finish earlier",
+		Body:    operation.Explain(operation.Outcome("Workbench finished it")),
+	}
+	switch {
+	case settled.Gone:
+		component.Body = operation.Explain(
+			operation.Outcome("its checkpoint is gone, so Workbench could not check its files"),
+		)
+	case settled.Revert:
+		component.Message = "Revert " + settled.ID + " did not finish earlier"
+		component.Body = operation.Explain(operation.Outcome("every file now matches this plan"))
+	}
+	if finished := settled.Finished; len(finished) > 0 {
+		const named = 3
+		shown := make([]string, 0, named+1)
+		for _, path := range finished[:min(len(finished), named)] {
+			shown = append(shown, a.c.ShowPath(path))
+		}
+		if len(finished) > named {
+			shown = append(shown, strconv.Itoa(len(finished)-named)+" more")
+		}
+		component.Body = component.With(operation.Explain(
+			operation.Changed(display.List(shown)),
+		))
+	}
+	a.result.Results = append(a.result.Results, component)
 }
 
 // recordApplied finishes the machine state after an apply: the operation is
