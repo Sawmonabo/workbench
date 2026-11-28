@@ -173,22 +173,7 @@ func (p *preparation) planAgentUpdates(
 		case install.path == "":
 			continue
 		case len(install.others) > 0:
-			p.Plan.Warnings = append(
-				p.Plan.Warnings,
-				operation.Warn(
-					agent.name+" has more than one copy",
-					operation.Line{
-						Label: "copies",
-						Text: strings.Join(
-							showPaths(c, append([]string{install.path}, install.others...)),
-							", ",
-						),
-					},
-					operation.Cause("which one runs depends on how the shell starts, "+
-						"and Workbench updates none of them until only one is left"),
-					operation.FixText("remove the ones you don't use"),
-				),
-			)
+			p.Plan.Warnings = append(p.Plan.Warnings, copiesWarning(c, agent, install))
 			continue
 		case install.cask != "":
 			if platform.HasCasks {
@@ -212,23 +197,7 @@ func (p *preparation) planAgentUpdates(
 			})
 			continue
 		}
-		why := []operation.Part{operation.Cause(
-			"it did not come from npm in nvm's default Node or from its own installer",
-		)}
-		if install.launcher != "" {
-			why = []operation.Part{
-				operation.Cause("it runs its installer's release through a launcher of your " +
-					"own, which the installer leaves alone"),
-				operation.Line{Label: "installer's launcher", Text: c.ShowPath(install.launcher)},
-			}
-		}
-		p.Plan.Warnings = append(
-			p.Plan.Warnings,
-			operation.Warn(
-				"Workbench leaves "+agent.name+" at "+c.ShowPath(install.path)+" to you",
-				why...,
-			),
-		)
+		p.Plan.Warnings = append(p.Plan.Warnings, leftWarning(c, agent, install))
 	}
 	wg.Wait()
 	for i, agent := range agents {
@@ -256,6 +225,44 @@ func (p *preparation) planAgentUpdates(
 			p.planAgentUpdate(agent, installs[i], targets[i], channels[i])
 		}
 	}
+}
+
+// copiesWarning is the warning of agent with more than one copy, of which
+// Workbench updates none.
+func copiesWarning(c operation.Context, agent agent, install agentInstall) operation.Warning {
+	return operation.Warn(
+		agent.name+" has more than one copy",
+		operation.Line{
+			Label: "copies",
+			Text: strings.Join(
+				showPaths(c, append([]string{install.path}, install.others...)),
+				", ",
+			),
+		},
+		operation.Cause("which one runs depends on how the shell starts, "+
+			"and Workbench updates none of them until only one is left"),
+		operation.FixText("remove the ones you don't use"),
+	)
+}
+
+// leftWarning is the warning of agent's one copy that Workbench does not
+// update: one from elsewhere, or its installer's release behind a launcher
+// of the person's own.
+func leftWarning(c operation.Context, agent agent, install agentInstall) operation.Warning {
+	why := []operation.Part{operation.Cause(
+		"it did not come from npm in nvm's default Node or from its own installer",
+	)}
+	if install.launcher != "" {
+		why = []operation.Part{
+			operation.Cause("it runs its installer's release through a launcher of your " +
+				"own, which the installer leaves alone"),
+			operation.Line{Label: "installer's launcher", Text: c.ShowPath(install.launcher)},
+		}
+	}
+	return operation.Warn(
+		"Workbench leaves "+agent.name+" at "+c.ShowPath(install.path)+" to you",
+		why...,
+	)
 }
 
 // claudeFloorAbove reports, with a warning, a native Claude Code update to
