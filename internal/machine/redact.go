@@ -126,7 +126,7 @@ func maskBlob(run string) string {
 	digit := strings.ContainsAny(run, "0123456789")
 	letter := strings.ContainsAny(run, "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ")
 	if digit && letter {
-		return "[REDACTED]"
+		return operation.Redacted
 	}
 	return run
 }
@@ -147,7 +147,7 @@ func redactDiff(lines []string, secrets []string) []string {
 			valueNext = false
 		case valueNext && strings.TrimSpace(text) != "":
 			if !shortNext || !pathLike(text) {
-				text = "[REDACTED]"
+				text = operation.Redacted
 			}
 			valueNext = false
 		default:
@@ -155,20 +155,20 @@ func redactDiff(lines []string, secrets []string) []string {
 			text = secretLine.ReplaceAllStringFunc(text, func(match string) string {
 				parts := secretLine.FindStringSubmatch(match)
 				if parts[1] != "" {
-					return parts[1] + "[REDACTED]"
+					return parts[1] + operation.Redacted
 				}
-				return parts[2] + "[REDACTED]"
+				return parts[2] + operation.Redacted
 			})
-			text = secretFlag.ReplaceAllString(text, "${1}[REDACTED]")
-			text = shortPassFlag.ReplaceAllString(text, "${1}[REDACTED]")
+			text = secretFlag.ReplaceAllString(text, "${1}"+operation.Redacted)
+			text = shortPassFlag.ReplaceAllString(text, "${1}"+operation.Redacted)
 			if passwordTool.MatchString(text) {
-				text = attachedPassFlag.ReplaceAllString(text, "${1}[REDACTED]")
+				text = attachedPassFlag.ReplaceAllString(text, "${1}"+operation.Redacted)
 			}
-			text = urlUserInfo.ReplaceAllString(text, "${1}[REDACTED]${2}")
-			text = urlKeyUser.ReplaceAllString(text, "${1}[REDACTED]${2}")
-			text = urlWebhook.ReplaceAllString(text, "${1}[REDACTED]")
-			text = urlQuery.ReplaceAllString(text, "${1}[REDACTED]")
-			text = secretShape.ReplaceAllString(text, "[REDACTED]")
+			text = urlUserInfo.ReplaceAllString(text, "${1}"+operation.Redacted+"${2}")
+			text = urlKeyUser.ReplaceAllString(text, "${1}"+operation.Redacted+"${2}")
+			text = urlWebhook.ReplaceAllString(text, "${1}"+operation.Redacted)
+			text = urlQuery.ReplaceAllString(text, "${1}"+operation.Redacted)
+			text = secretShape.ReplaceAllString(text, operation.Redacted)
 			text = secretBlob.ReplaceAllStringFunc(text, maskBlob)
 		}
 		redacted[i] = marker + text
@@ -241,7 +241,7 @@ func settingLines(changes []operation.SettingChange, secrets []string) []string 
 	lines := make([]string, len(changes))
 	for i, change := range changes {
 		key := maskKey(change.Path)
-		value := "[REDACTED]"
+		value := operation.Redacted
 		// A line that lost its key was replaced whole, as the value of a
 		// credential flag on the line before; keep the path and mask the value.
 		if text, ok := strings.CutPrefix(masked[i], " "+key+separator); ok {
@@ -250,11 +250,11 @@ func settingLines(changes []operation.SettingChange, secrets []string) []string 
 		// A list item right after a credential flag is its value.
 		for _, before := range change.Follows {
 			if ends, short := flagEnds(before); ends && (!short || !pathLike(item(change))) {
-				value = "[REDACTED]"
+				value = operation.Redacted
 			}
 		}
 		if secretParent(change.Path) {
-			value = "[REDACTED]"
+			value = operation.Redacted
 		}
 		if runes := []rune(value); len(runes) > maxSettingValue {
 			value = string(runes[:maxSettingValue]) + "…"

@@ -32,7 +32,12 @@ func (w *redactingWriter) flush() {
 	}
 }
 
-// Redact replaces each known secret value in value with a placeholder.
+// Redacted is the placeholder that stands in for a secret Workbench masks:
+// a known secret value here, and a value shaped or named like a credential
+// in a plan's diff.
+const Redacted = "[REDACTED]"
+
+// Redact replaces each known secret value in value with [Redacted].
 func Redact(value string, secrets []string) string { return redact(value, secrets) }
 
 func redact(value string, secrets []string) string {
@@ -40,7 +45,7 @@ func redact(value string, secrets []string) string {
 	sort.Slice(ordered, func(i, j int) bool { return len(ordered[i]) > len(ordered[j]) })
 	for _, secret := range ordered {
 		if secret != "" {
-			value = strings.ReplaceAll(value, secret, "[REDACTED]")
+			value = strings.ReplaceAll(value, secret, Redacted)
 		}
 	}
 	return value
