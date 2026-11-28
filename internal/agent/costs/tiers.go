@@ -18,10 +18,10 @@ const turnTierPrefix = "turn:"
 
 func turnTierKey(thread string) string { return turnTierPrefix + thread }
 
-// TurnTierFrom is the TierFrom of a row priced at thread's running-turn tier
+// turnTierFrom is the TierFrom of a row priced at thread's running-turn tier
 // at time at (ledger layout), such as a subagent's tier fixed when it was
 // spawned.
-func TurnTierFrom(thread, at string) string { return turnTierKey(thread) + "@" + at }
+func turnTierFrom(thread, at string) string { return turnTierKey(thread) + "@" + at }
 
 // TierChange is a thread switching service tier at a time; Tier is the
 // stored tier name, "" for standard. Turn marks the time the tier took effect

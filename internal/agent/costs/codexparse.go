@@ -115,7 +115,7 @@ func (s *codexState) row(ts, id string) Usage {
 			u.Model += "@" + s.Tier
 		}
 	case subagent && s.Spawn != "":
-		u.TierFrom = TurnTierFrom(cmp.Or(s.Parent, s.Root), s.Spawn)
+		u.TierFrom = turnTierFrom(cmp.Or(s.Parent, s.Root), s.Spawn)
 	case subagent:
 		u.TierFrom = s.Root
 	}

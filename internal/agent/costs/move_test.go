@@ -231,7 +231,7 @@ func moveFixture(t *testing.T) (OldPaths, Paths) {
 // it wrote as readLedger lists it.
 func seedLedger(t *testing.T, path string, ids ...string) []string {
 	t.Helper()
-	ledger, err := OpenLedger(path, true)
+	ledger, err := openLedger(path, true, true, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -604,7 +604,7 @@ func moveTheLedgerWithItsWAL(t *testing.T) {
 		t.Fatalf("the old folders resolve to %s and %s", before.Ledger, before.State)
 	}
 	want := seedLedger(t, before.Ledger, "req-1")
-	writer, err := OpenLedger(before.Ledger, false)
+	writer, err := openLedger(before.Ledger, false, true, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -650,7 +650,7 @@ func moveTheLedgerWithItsWAL(t *testing.T) {
 		_ = ledger.Close()
 		t.Fatal("the ledger opened through the old path")
 	}
-	if ledger, err := OpenLedger(before.Ledger, true); err == nil {
+	if ledger, err := openLedger(before.Ledger, true, true, nil); err == nil {
 		_ = ledger.Close()
 		t.Fatal("a ledger was made at the old path")
 	}

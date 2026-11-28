@@ -626,7 +626,7 @@ it is named as a file Workbench didn't write.
 
 **Moving the ledger, after section 5.5:**
 1. **Open it the normal way.** Open the old ledger with the costs package's
-   open (`OpenLedger`, `ledger.go:208-327`). That verifies it is a costs
+   open (`openLedger`, in `ledger.go`). That verifies it is a costs
    ledger and upgrades a version 1, 2 or 4 schema in place, the exception
    AGENTS.md already allows. A database it refuses is reported, and nothing
    moves. Then checkpoint and close it (section 5.5).

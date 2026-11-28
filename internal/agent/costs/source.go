@@ -106,7 +106,7 @@ type Usage struct {
 
 	// TierFrom is where a row whose tier another thread decides takes it
 	// from (a Codex subagent's); "" otherwise. A thread id prices it at that
-	// thread's selected tier at the row's time; TurnTierFrom prices it at a
+	// thread's selected tier at the row's time; turnTierFrom prices it at a
 	// thread's running-turn tier at another time.
 	TierFrom string
 

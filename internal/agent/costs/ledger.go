@@ -93,7 +93,7 @@ func (p Paths) openGated(
 	return ledger, p, err
 }
 
-// open opens the ledger, making a missing one (see [OpenLedger]), after making
+// open opens the ledger, making a missing one (see openLedger), after making
 // its folder private (see [Paths.dataFolder]), which refuses one that exists
 // and isn't. Only the import calls it without [Paths.Open], after its own gate
 // has moved the ledger. steps is as [Paths.Open] takes it.
@@ -162,29 +162,25 @@ type Ledger struct {
 	steps UpgradeSteps
 }
 
-// OpenLedger opens the ledger at path. It never deletes, renames or rebuilds
-// an existing file: a version 1, 2, 4, 5 or 6 ledger is upgraded in one
-// transaction that keeps every row, and then compacted (see Ledger.compact);
+// openLedger opens the ledger at path. It never deletes, renames or rebuilds
+// an existing file: with upgrade, a version 1, 2, 4, 5 or 6 ledger is
+// upgraded in one transaction that keeps every row, and then compacted (see
+// Ledger.compact), and steps, when set, is told what the upgrade is doing;
 // any other version fails with the path and version and writes nothing. A
 // zero-byte file (a crash between creating the file and writing the schema)
 // holds nothing and is treated as absent. create makes a missing ledger, in a
 // folder that must exist, instead of failing.
+//
+// The move of the costs files opens a ledger without upgrade, to verify it
+// and fold its write-ahead log in, so the ledger keeps its version until it
+// is first opened at its new path, beside the price lists moved there before
+// it, which that upgrade takes in (see fillPrices).
 //
 // The ledger copies emails, organization names and project paths out of the
 // tools' private files, so it is private too: its folder is private (see
 // [Paths.Open]), the file is made 0600, and a ledger readable by others is
 // tightened, with its -wal and -shm files, once it is verified (the mode
 // only, never the content; see [sqlitefile.Open]).
-func OpenLedger(path string, create bool) (*Ledger, error) {
-	return openLedger(path, create, true, nil)
-}
-
-// openLedger is [OpenLedger], which upgrades a ledger of an earlier version
-// only with upgrade, telling steps what the upgrade is doing when set. The
-// move of the costs files opens a ledger without it, to verify it and fold
-// its write-ahead log in, so the ledger keeps its version until it is first
-// opened at its new path, beside the price lists moved there before it,
-// which that upgrade takes in (see fillPrices).
 func openLedger(path string, create, upgrade bool, steps UpgradeSteps) (*Ledger, error) {
 	info, err := os.Stat(path)
 	if err != nil && !errors.Is(err, fs.ErrNotExist) {

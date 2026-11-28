@@ -151,7 +151,7 @@ func (t *Tx) Upsert(u Usage) error {
 	id := storedID(u)
 	accountEvidence := cmp.Or(u.AccountEvidence, EvidenceUnknown)
 	subscriptionEvidence := cmp.Or(u.SubscriptionEvidence, EvidenceUnknown)
-	rank := [2]int{EvidenceRank(accountEvidence), EvidenceRank(subscriptionEvidence)}
+	rank := [2]int{evidenceRank(accountEvidence), evidenceRank(subscriptionEvidence)}
 	when := responseTime(u.Time)
 	// A copy later than a committed row with a time, with no count above the
 	// committed ones and no stronger evidence, changes nothing: the

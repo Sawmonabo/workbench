@@ -74,7 +74,7 @@ func TestUpgradeToSevenKeepsEveryRow(t *testing.T) {
 		t.Fatalf("the version 6 ledger holds %d responses and %d waiting rows",
 			len(before["responses"]), len(before["tier_pending"]))
 	}
-	ledger, err := OpenLedger(path, false)
+	ledger, err := openLedger(path, false, true, nil)
 	if err != nil {
 		t.Fatalf("the upgrade failed: %v", err)
 	}
@@ -121,7 +121,7 @@ func TestUpgradeToSevenRefusesWhatItCannotConvert(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			ledger, err := OpenLedger(path, false)
+			ledger, err := openLedger(path, false, true, nil)
 			if err == nil {
 				_ = ledger.Close()
 				t.Fatal("the upgrade converted a value it cannot hold")

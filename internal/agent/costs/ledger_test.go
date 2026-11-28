@@ -39,7 +39,7 @@ func TestLedgerKeepsLargestUsageAndUpgradesWithoutLoss(t *testing.T) {
 		  'a@example.test', 'sweep', 1, 2, 3, 4, 5)`,
 	)
 
-	ledger, err := OpenLedger(path, false)
+	ledger, err := openLedger(path, false, true, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -65,7 +65,7 @@ func TestLedgerKeepsLargestUsageAndUpgradesWithoutLoss(t *testing.T) {
 	}
 	// One run's record of committed rows lets ingest skip a later copy that
 	// changes nothing; a skip that also swallowed larger usage would lose spend.
-	run := NewRun()
+	run := newRun()
 	record := func(output, cacheRead int64, minute int) {
 		t.Helper()
 		err := ledger.Transaction(context.Background(), run, func(tx *Tx) error {
@@ -133,7 +133,7 @@ func TestLedgerUpgradesVersionTwoWithoutLoss(t *testing.T) {
 		  'a@example.test', 'sweep', 100, 200, 300, 0, 1000, 'claude')`,
 		`INSERT INTO files VALUES ('/w/t.jsonl', 4096, 4096, 1, '2026-09-01T10:00:00+00:00')`,
 	)
-	ledger, err := OpenLedger(path, false)
+	ledger, err := openLedger(path, false, true, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -173,7 +173,7 @@ func TestLedgerUpgradesVersionTwoWithoutLoss(t *testing.T) {
 // anyone notices.
 func TestStrongerAttributionSurvivesWeakerEvidence(t *testing.T) {
 	ctx := context.Background()
-	ledger, err := OpenLedger(filepath.Join(t.TempDir(), "ledger.sqlite"), true)
+	ledger, err := openLedger(filepath.Join(t.TempDir(), "ledger.sqlite"), true, true, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -199,7 +199,7 @@ func TestStrongerAttributionSurvivesWeakerEvidence(t *testing.T) {
 			SubscriptionLabel: s.Label,
 		}
 	}
-	run := NewRun()
+	run := newRun()
 	store := func(u Usage) {
 		t.Helper()
 		if err := ledger.Transaction(
@@ -327,13 +327,13 @@ func TestStrongerAttributionSurvivesWeakerEvidence(t *testing.T) {
 // transcripts that could show it have been deleted.
 func TestInferredAccountYieldsToEvidence(t *testing.T) {
 	ctx := context.Background()
-	ledger, err := OpenLedger(filepath.Join(t.TempDir(), "ledger.sqlite"), true)
+	ledger, err := openLedger(filepath.Join(t.TempDir(), "ledger.sqlite"), true, true, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer func() { _ = ledger.Close() }()
 	at := func(hour int) time.Time { return time.Date(2026, 9, 1, hour, 0, 0, 0, time.UTC) }
-	run := NewRun()
+	run := newRun()
 	write := func(fn func(*Tx) error) {
 		t.Helper()
 		if err := ledger.Transaction(ctx, run, fn); err != nil {
@@ -493,7 +493,7 @@ func upgradeToSix(t *testing.T, valid, other, otherList string) {
 		writeFile(t, officialPath(path, otherTool), otherList, 0o600)
 	}
 
-	ledger, err := OpenLedger(path, false)
+	ledger, err := openLedger(path, false, true, nil)
 	if err != nil {
 		t.Fatalf("the upgrade failed: %v", err)
 	}

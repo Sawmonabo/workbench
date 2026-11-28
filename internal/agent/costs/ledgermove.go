@@ -389,7 +389,7 @@ func integrityCheck(ctx context.Context, conn *sql.Conn) (string, error) {
 }
 
 // copyCheck is how checkCopy opens the copy and attaches the original,
-// without taking either over as OpenLedger does: no schema upgrade, journal
+// without taking either over as openLedger does: no schema upgrade, journal
 // mode or file mode change, and no new file when none is there. The check
 // runs only queries, so the content never changes; like any last connection
 // to close, it may fold a WAL ledger's log into the file when no other

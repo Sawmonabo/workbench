@@ -36,7 +36,7 @@ func TestCodexForkCountsEveryResponseOnce(t *testing.T) {
 		{"copied fork, parent's rollout not read: the copy is the only trace", []string{meta, copied, count}, false, 1},
 		{"fork that copied nothing: its own first response", []string{meta, settings, count}, true, 1},
 	} {
-		ledger, err := OpenLedger(filepath.Join(t.TempDir(), "ledger.sqlite"), true)
+		ledger, err := openLedger(filepath.Join(t.TempDir(), "ledger.sqlite"), true, true, nil)
 		if err != nil {
 			t.Fatal(err)
 		}

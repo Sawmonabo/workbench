@@ -22,14 +22,14 @@ const (
 )
 
 // evidenceLevels are the evidence levels, weakest first: a level's index is
-// its rank (EvidenceRank), which the ledger stores.
+// its rank (evidenceRank), which the ledger stores.
 var evidenceLevels = [...]string{
 	EvidenceUnknown, EvidenceInferred, EvidenceObserved, EvidenceSession, EvidenceTranscript,
 }
 
-// EvidenceRank orders the evidence levels: 4 transcript, 3 session, 2
+// evidenceRank orders the evidence levels: 4 transcript, 3 session, 2
 // observed, 1 inferred, 0 unknown or anything else.
-func EvidenceRank(evidence string) int {
+func evidenceRank(evidence string) int {
 	return max(slices.Index(evidenceLevels[:], evidence), 0)
 }
 
@@ -41,10 +41,10 @@ func evidenceWord(rank int64) string {
 	return evidenceLevels[rank]
 }
 
-// storedRank is EvidenceRank of a stored word, ok false for a word that is
-// no evidence level: EvidenceRank ranks it as unknown.
+// storedRank is evidenceRank of a stored word, ok false for a word that is
+// no evidence level: evidenceRank ranks it as unknown.
 func storedRank(word []byte) (rank int, ok bool) {
-	rank = EvidenceRank(string(word))
+	rank = evidenceRank(string(word))
 	return rank, rank > 0 || string(word) == EvidenceUnknown
 }
 
@@ -62,7 +62,7 @@ func (e *Evidence) counts() [len(evidenceLevels)]*int64 {
 	return [...]*int64{&e.Unknown, &e.Inferred, &e.Observed, &e.Session, &e.Transcript}
 }
 
-// add counts n rows at a level by its rank (EvidenceRank); any other rank
+// add counts n rows at a level by its rank (evidenceRank); any other rank
 // counts as unknown.
 func (e *Evidence) add(rank int, n int64) {
 	counts := e.counts()

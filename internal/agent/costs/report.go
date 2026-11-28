@@ -120,10 +120,10 @@ func shortID(id string) string {
 // account of its own (Tool.OrgAccount).
 func isOrg(id string) bool { return strings.HasPrefix(id, "claude:") }
 
-// AccountName writes an account as the report shows it, "you@example.com · Max":
+// accountName writes an account as the report shows it, "you@example.com · Max":
 // the email, a middle dot, the subscription's label. When neither the account
 // nor the subscription is known it is just "unknown".
-func AccountName(account, label string) string {
+func accountName(account, label string) string {
 	if account == "" {
 		account = "unknown"
 	}
@@ -133,7 +133,7 @@ func AccountName(account, label string) string {
 	return account + " · " + label
 }
 
-// Display is how the report names the row: an account row as AccountName,
+// Display is how the report names the row: an account row as accountName,
 // saying which part its tool's transcripts did not record ("you@example.com ·
 // plan not recorded", "account not recorded · Pro", "not recorded"), or
 // "unknown account (org 1234abcd)" for an organization whose email no sign-in
@@ -153,7 +153,7 @@ func (r Row) Display() string {
 		// named it, so it is one account, just not one seen signed in here.
 		name := "unknown account (" + shortID(r.Subscription) + ")"
 		if !unlabeled(r.Subscription, r.SubscriptionLabel) {
-			name = AccountName(name, label)
+			name = accountName(name, label)
 		}
 		return name
 	case noAccount:
@@ -161,7 +161,7 @@ func (r Row) Display() string {
 	case noPlan:
 		label = "plan not recorded"
 	}
-	return AccountName(account, label)
+	return accountName(account, label)
 }
 
 // UnsignedOrg reports whether the row is an organization whose email no
@@ -246,7 +246,7 @@ func Report(ctx context.Context, ledger *Ledger, opts ReportOptions) (Statement,
 	if err != nil {
 		return report, err
 	}
-	report.Scope, report.Hidden = ScopeRoots(paths.Home, opts.Roots), hidden
+	report.Scope, report.Hidden = scopeRoots(paths.Home, opts.Roots), hidden
 	if report.Coverage, err = tally.coverage(ledger, card.Fetched[opts.Tool]); err != nil {
 		return report, err
 	}
@@ -328,9 +328,9 @@ func projectRoots(home string, roots []string) []string {
 	return []string{filepath.Join(home, "dev"), filepath.Join(home, "repos")}
 }
 
-// ScopeRoots are the project folders that exist on this machine, which the
+// scopeRoots are the project folders that exist on this machine, which the
 // default view covers and the report names; all of them when none exists.
-func ScopeRoots(home string, roots []string) []string {
+func scopeRoots(home string, roots []string) []string {
 	all := projectRoots(home, roots)
 	var existing []string
 	for _, root := range all {
@@ -413,7 +413,7 @@ func loadGroups(
 		) < 0
 	})
 	var groups []group
-	hidden, roots := map[string]bool{}, ScopeRoots(home, opts.Roots)
+	hidden, roots := map[string]bool{}, scopeRoots(home, opts.Roots)
 	projects := projectRoots(home, opts.Roots)
 	for _, g := range sorted {
 		if !opts.NoRollup {
@@ -450,7 +450,7 @@ func shownAccount(r response) string {
 
 // response is one ledger row as a report reads it: its names, its time in
 // milliseconds (noTime for none) and the rank of each field's evidence
-// (EvidenceRank).
+// (evidenceRank).
 type response struct {
 	project, model, account, subscription, session string
 	ts                                             int64

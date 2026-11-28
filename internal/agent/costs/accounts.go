@@ -251,7 +251,7 @@ type accountRow struct {
 // it goes back to unknown.
 func (r accountRow) update(want attribution) (next accountRow, ok bool) {
 	next = r
-	rank := EvidenceRank(want.source)
+	rank := evidenceRank(want.source)
 	named := want.account != "" && want.account != "unknown"
 	if want.source == EvidenceUnknown && !want.byOrg {
 		if r.accountSource == EvidenceInferred {
@@ -271,10 +271,10 @@ func (r accountRow) update(want attribution) (next accountRow, ok bool) {
 	case want.byOrg:
 		return r, false
 	}
-	if rank > 0 && rank >= EvidenceRank(r.accountSource) && named {
+	if rank > 0 && rank >= evidenceRank(r.accountSource) && named {
 		next.account, next.accountSource = want.account, want.source
 	}
-	if rank > 0 && rank >= EvidenceRank(r.subscriptionSource) &&
+	if rank > 0 && rank >= evidenceRank(r.subscriptionSource) &&
 		want.subscription != "" && want.subscription != "unknown" {
 		next.subscription, next.subscriptionSource = want.subscription, want.source
 	}

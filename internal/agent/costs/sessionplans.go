@@ -72,8 +72,8 @@ func fillSessionPlans(ctx context.Context, tx *sql.Tx, names *nameSet) error {
 				continue
 			}
 			account, accountSource := r.account, any(nil)
-			if from.emailNamed && r.accountRank < EvidenceRank(EvidenceTranscript) {
-				account, accountSource = from.account, EvidenceRank(EvidenceTranscript)
+			if from.emailNamed && r.accountRank < evidenceRank(EvidenceTranscript) {
+				account, accountSource = from.account, evidenceRank(EvidenceTranscript)
 			}
 			if _, err := tx.ExecContext(ctx,
 				`UPDATE responses SET subscription = ?, subscription_source = 4,

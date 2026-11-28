@@ -32,7 +32,7 @@ type SignInStatus struct {
 
 // Display writes the sign-in as the report names an account, "you@example.com · Max".
 func (s SignInStatus) Display() string {
-	return AccountName(s.Account, planName(s.Subscription, s.Label))
+	return accountName(s.Account, planName(s.Subscription, s.Label))
 }
 
 // ToolStatus is one tool's coverage, sign-in and hooks.

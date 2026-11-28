@@ -254,8 +254,8 @@ func (l *Ledger) ResolveAccounts(
 			if _, err := tx.ExecContext(ctx,
 				`UPDATE responses SET account = ?, account_source = ?,
 				  subscription = ?, subscription_source = ? WHERE id = ?`,
-				account, EvidenceRank(c.accountSource),
-				subscription, EvidenceRank(c.subscriptionSource), c.id); err != nil {
+				account, evidenceRank(c.accountSource),
+				subscription, evidenceRank(c.subscriptionSource), c.id); err != nil {
 				return err
 			}
 		}

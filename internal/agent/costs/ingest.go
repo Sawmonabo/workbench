@@ -156,7 +156,7 @@ func ingestLocked(ctx context.Context, paths Paths, opts IngestOptions) (string,
 	if err != nil {
 		return "", err
 	}
-	run := NewRun()
+	run := newRun()
 	served := map[string]func(model, tier string) string{}
 	signIns := keptSignIns(paths.Home)
 	for _, tool := range Tools {

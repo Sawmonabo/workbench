@@ -136,7 +136,7 @@ func codexMeta(ts string, payload json.RawMessage, state *codexState, file *File
 		(!state.Spawned || state.Version < codexRootTier) {
 		file.Tiers = append(file.Tiers, TierChange{
 			Thread: state.Thread, Time: when, Turn: true,
-			From: TurnTierFrom(cmp.Or(state.Parent, state.Root), state.Spawn),
+			From: turnTierFrom(cmp.Or(state.Parent, state.Root), state.Spawn),
 		})
 	}
 	state.save(file)

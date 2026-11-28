@@ -23,7 +23,7 @@ const (
 // name of that kind (nameTool and the rest; the root is a session), so a
 // row reads back as exactly the text it was given, "" and "unknown"
 // included. Its request_id is its ledger key packed (packID), account_source
-// and subscription_source are the EvidenceRank of each field's evidence, and
+// and subscription_source are the evidenceRank of each field's evidence, and
 // ts is its time in Unix milliseconds, UTC, NULL when it has none.
 // tier_pending.root is the row's TierFrom, a name of the session kind.
 const responseSchema = `
@@ -184,7 +184,7 @@ CREATE TABLE price_lists(
   last_modified TEXT NOT NULL) WITHOUT ROWID;
 `
 
-// create writes the schema of a ledger that was missing when OpenLedger looked.
+// create writes the schema of a ledger that was missing when openLedger looked.
 // Two processes can both have seen it missing (the first apply's ingest and a
 // session hook, say): the immediate transaction makes the second wait for the
 // first, and it then finds the ledger made and leaves it as it is. A plain

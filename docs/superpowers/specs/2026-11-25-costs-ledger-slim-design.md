@@ -89,7 +89,7 @@ Anti-goals:
    is a name, so a row reads back as exactly the text it held. The session
    and the root share kind 4, so a root that is its session is the same
    number.
-2. **Evidence is its rank**, the number `EvidenceRank` gives today:
+2. **Evidence is its rank**, the number `evidenceRank` gives today:
    transcript 4, session 3, observed 2, inferred 1, unknown 0. SQL compares
    evidence as numbers; the `evidenceRank` CASE goes. The partial index's
    condition is the one the account resolution reads (`accountsQuery`): the

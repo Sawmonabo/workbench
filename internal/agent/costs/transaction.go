@@ -41,8 +41,8 @@ type Run struct {
 // rootKey identifies a root session in a Run.
 func rootKey(tool, root string) string { return tool + ":" + root }
 
-// NewRun is the empty record of an ingest run.
-func NewRun() *Run {
+// newRun is the empty record of an ingest run.
+func newRun() *Run {
 	return &Run{
 		seen:    map[string]storedRow{},
 		pending: map[string]bool{},
@@ -54,16 +54,16 @@ func NewRun() *Run {
 type storedRow struct {
 	ts     int64    // milliseconds, noTime for none
 	tokens [5]int64 // input, output, cache_write_5m, cache_write_1h, cache_read
-	rank   [2]int   // EvidenceRank of the stored account_source and subscription_source
+	rank   [2]int   // evidenceRank of the stored account_source and subscription_source
 }
 
 // Transaction runs fn and commits, or rolls back when fn fails. run is the
 // ingest run's record of committed writes, or nil.
 func (l *Ledger) Transaction(ctx context.Context, run *Run, fn func(*Tx) error) error {
 	if run == nil {
-		run = NewRun()
+		run = newRun()
 	}
-	t := &Tx{ctx: ctx, run: run, wrote: NewRun(), labels: map[string]string{}}
+	t := &Tx{ctx: ctx, run: run, wrote: newRun(), labels: map[string]string{}}
 	err := l.transactNames(ctx, func(tx *sql.Tx, names *nameSet) error {
 		t.tx, t.names = tx, names
 		if err := fn(t); err != nil {
