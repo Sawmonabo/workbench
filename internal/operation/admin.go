@@ -186,7 +186,7 @@ func (a Admin) withTouchID(
 // wrong passwords end the apply as blocked, a ctrl+c as interrupted, with
 // nothing changed.
 func (a Admin) prompt(ctx context.Context, c Context) error {
-	executable, err := trustedExecutable(sudoPath, nil)
+	executable, err := trustedExecutable(sudoPath, nil, nil)
 	if err != nil {
 		return err
 	}
@@ -305,7 +305,7 @@ func askVerified(ctx context.Context, terminal *os.File, announce string) (strin
 // not through [Run], because the password helper makes it in its own process,
 // which holds no [Mutation].
 func checkPassword(ctx context.Context, password string) (bool, error) {
-	executable, err := trustedExecutable(sudoPath, nil)
+	executable, err := trustedExecutable(sudoPath, nil, nil)
 	if err != nil {
 		return false, err
 	}

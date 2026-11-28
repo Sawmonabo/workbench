@@ -63,8 +63,7 @@ func trustedFolder(category, path string, info os.FileInfo, fd int, at string) e
 			path,
 			fmt.Sprintf("%s has mode %04o", display.Path(path), platform.ModeBits(info.Mode())),
 			"other users can write in it, so what it holds may not be Workbench's",
-			"chmod",
-			"700",
+			false,
 		)
 	}
 	entry, err := platform.OthersMayWrite(fd, at)
@@ -77,7 +76,7 @@ func trustedFolder(category, path string, info os.FileInfo, fd int, at string) e
 			path,
 			display.Path(path)+" has an ACL that lets other users write in it",
 			"what it holds may not be Workbench's",
-			platform.ACLRemoval()...,
+			true,
 		)
 	}
 	return nil
@@ -541,22 +540,36 @@ func notFolderRefusal(category, path string, info os.FileInfo) error {
 }
 
 // othersWriteRefusal refuses path, a folder of Workbench's own files that its
-// group or other users may write in, as headline and cause say. What it holds
-// may not be Workbench's, so the command of words that ends that, typed
-// alone, would keep in it what another user put there: the fix first gives
-// the find that lists what is not this user's, to move aside, then that
-// command on path.
-func othersWriteRefusal(path, headline, cause string, words ...string) error {
+// group or other users may write in, by its ACL when acl is set, as headline
+// and cause say. What it holds may not be Workbench's, so the fix first
+// closes it, so that no other user can add anything after that line, and
+// lets its owner read it: the ACL comes off, then chmod 700, which also gives
+// back the group bits a Linux ACL's removal sets from its group entry
+// (setfacl(1)). Then the find, which can now read it, lists what is not this
+// user's, to move aside: chmod 700 typed alone would let the folder pass with
+// what another user put in it.
+func othersWriteRefusal(path, headline, cause string, acl bool) error {
+	var fixes fixLines
+	if acl {
+		fixes = append(fixes, FixPath(path, platform.ACLRemoval()...))
+	}
 	return Fail(
 		ExitInvalid,
 		"permissions",
 		headline,
 		Cause(cause),
-		FixText(
-			"find "+shellHomePath(path)+" -not -user "+shellWord(userName(uint32(os.Geteuid()))),
+		append(
+			fixes,
+			FixPath(path, "chmod", "700"),
+			FixText(
+				"find "+shellHomePath(
+					path,
+				)+" -not -user "+shellWord(
+					userName(uint32(os.Geteuid())),
+				),
+			),
+			FixText("move aside what it lists"),
 		),
-		FixText("move aside what it lists"),
-		FixPath(path, words...),
 	)
 }
 

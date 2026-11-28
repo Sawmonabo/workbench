@@ -41,7 +41,7 @@ func Handoff(c Context, expected ReleaseRecord, args []string, ready func()) err
 			Fix("workbench", "update"),
 		)
 	}
-	executable, err := trustedExecutable(expected.Executable, nil)
+	executable, err := trustedExecutable(expected.Executable, nil, c.Paths.All()[:4])
 	if err != nil {
 		return err
 	}

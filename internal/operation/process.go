@@ -189,7 +189,7 @@ func (request *Process) admit(c Context, mutation *Mutation) (string, string, er
 	if c.Scope.Kind == "project" {
 		excluded = append(excluded, c.Scope.Root)
 	}
-	executable, err := trustedExecutable(request.Executable, excluded)
+	executable, err := trustedExecutable(request.Executable, excluded, c.Paths.All()[:4])
 	if err != nil {
 		return "", "", err
 	}

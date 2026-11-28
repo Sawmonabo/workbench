@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"syscall"
 
 	"github.com/Sawmonabo/workbench/internal/display"
 	"github.com/Sawmonabo/workbench/internal/platform"
@@ -22,7 +23,7 @@ func FindExecutable(name, searchPath string, excluded []string) (string, error) 
 		if !filepath.IsAbs(directory) {
 			continue
 		}
-		path, err := trustedExecutable(filepath.Join(directory, name), excluded)
+		path, err := trustedExecutable(filepath.Join(directory, name), excluded, nil)
 		if err == nil {
 			return path, nil
 		}
@@ -35,7 +36,11 @@ func FindExecutable(name, searchPath string, excluded []string) (string, error) 
 	)
 }
 
-func trustedExecutable(path string, excluded []string) (string, error) {
+// trustedExecutable is the program path names, its links resolved, when
+// Workbench runs it: outside the folders of excluded projects, and a program
+// as [programRefusal] says, of this user when path or the program is in one
+// of own, Workbench's own folders (see [ownProgramRefusal]).
+func trustedExecutable(path string, excluded, own []string) (string, error) {
 	if !filepath.IsAbs(path) {
 		return "", Fail(ExitInvalid, "tool", "Subprocess executable must be absolute")
 	}
@@ -65,7 +70,44 @@ func trustedExecutable(path string, excluded []string) (string, error) {
 	if err := programRefusal(canonical, info); err != nil {
 		return "", err
 	}
+	for _, folder := range own {
+		if Within(folder, path) || Within(folder, canonical) {
+			if err := ownProgramRefusal(path, canonical, folder, info); err != nil {
+				return "", err
+			}
+			break
+		}
+	}
 	return canonical, nil
+}
+
+// ownProgramRefusal refuses the program canonical, which info describes and
+// path names, when path or canonical is in folder, one of Workbench's own,
+// and the program is not this user's: Workbench installs what it runs from
+// its folders as this user, and init refuses root, so a program there of
+// another user, root included, or a link there to one, is not Workbench's,
+// and running it would run that user's code as this one. The fix moves aside
+// what is in folder, the link or the program, so the tool is installed again.
+func ownProgramRefusal(path, canonical, folder string, info os.FileInfo) error {
+	stat, ok := info.Sys().(*syscall.Stat_t)
+	if ok && int(stat.Uid) == os.Geteuid() {
+		return nil
+	}
+	owner := "another user"
+	if ok {
+		owner = userName(stat.Uid)
+	}
+	moved := canonical
+	if Within(folder, path) {
+		moved = path
+	}
+	return Fail(
+		ExitBlocked,
+		"tool",
+		display.Path(canonical)+" belongs to "+owner+", not to you",
+		Cause("Workbench runs a program in its own folders only when it is yours"),
+		FixText("mv -n "+shellHomePath(moved)+" "+shellHomePath(moved+".moved")),
+	)
 }
 
 // programRefusal is why Workbench does not run the program at path, which
