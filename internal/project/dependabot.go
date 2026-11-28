@@ -6,6 +6,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/Sawmonabo/workbench/internal/display"
 	"github.com/Sawmonabo/workbench/internal/operation"
 	"github.com/Sawmonabo/workbench/project/gopolicy"
 	"github.com/Sawmonabo/workbench/project/pythonpolicy"
@@ -67,7 +68,7 @@ func (p *Proposal) addDependabot(c operation.Context, languages []string) error 
 			filepath.Join(root, dependabotConfigs[0]),
 			data,
 			"Create the Dependabot configuration: weekly update pull requests for "+
-				listed(
+				display.List(
 					ecosystems,
 				)+" at the repository root, with each ecosystem's minor and patch updates grouped into one",
 		); err != nil {
@@ -113,7 +114,7 @@ func (p *Proposal) checkDependabot(root string, found, ecosystems []string, data
 	if len(missing) > 0 {
 		p.Plan.Warnings = append(
 			p.Plan.Warnings,
-			found[0]+" has no updates entry for "+listed(missing)+
+			found[0]+" has no updates entry for "+display.List(missing)+
 				"; add them by hand for update pull requests",
 		)
 	}
@@ -180,12 +181,4 @@ func (p *Proposal) warnRenovate(root string) error {
 		)
 	}
 	return nil
-}
-
-// listed joins names as "a", "a and b" or "a, b and c".
-func listed(names []string) string {
-	if len(names) < 2 {
-		return strings.Join(names, "")
-	}
-	return strings.Join(names[:len(names)-1], ", ") + " and " + names[len(names)-1]
 }

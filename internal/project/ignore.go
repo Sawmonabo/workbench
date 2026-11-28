@@ -4,6 +4,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/Sawmonabo/workbench/internal/display"
 	"github.com/Sawmonabo/workbench/internal/operation"
 	"github.com/Sawmonabo/workbench/project/gopolicy"
 	"github.com/Sawmonabo/workbench/project/rustpolicy"
@@ -61,8 +62,7 @@ func ignoreDescription(languages []string) string {
 			named = append(named, parts[language])
 		}
 	}
-	return "Append relevant " + strings.Join(named[:len(named)-1], ", ") + " and " +
-		named[len(named)-1] + " ignore entries preserving order"
+	return "Append relevant " + display.List(named) + " ignore entries preserving order"
 }
 
 // knownNegations are the negation lines no appended entry can change the

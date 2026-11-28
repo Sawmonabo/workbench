@@ -17,6 +17,14 @@ func Plural(n int, noun string) string {
 	return noun
 }
 
+// List joins names as a sentence names them: "a", "a and b", "a, b and c".
+func List(names []string) string {
+	if len(names) < 2 {
+		return strings.Join(names, "")
+	}
+	return strings.Join(names[:len(names)-1], ", ") + " and " + names[len(names)-1]
+}
+
 // Number is n with a comma between each group of three digits: "12,096".
 func Number(n int64) string { return Decimal(float64(n), 0) }
 
