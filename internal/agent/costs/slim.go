@@ -184,9 +184,9 @@ func insertRows(n int) string {
 // slimRefusal is the error of a value slim cannot convert: what, in the
 // column col of the response r.
 func slimRefusal(path string, r textRow, what string, col int) error {
-	return ledgerProblem(operation.ExitInvalid, path, fmt.Sprintf(
-		"the response %q holds %s %q, which this release cannot convert to schema version %s",
-		r.text[colID], what, r.text[col], schemaVersion),
+	return ledgerProblem(operation.ExitInvalid, path,
+		fmt.Sprintf("the response %q holds %s %q", r.text[colID], what, r.text[col]),
+		operation.Cause("this release cannot convert it to schema version "+schemaVersion),
 		operation.Kept("the ledger as it was"))
 }
 

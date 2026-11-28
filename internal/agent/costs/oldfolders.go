@@ -180,14 +180,14 @@ func busy(why string) error {
 	)
 }
 
-// conflictError is the error of a move that would leave text, a
-// [FolderCheck]'s Text, with what it leaves as its cause.
-func conflictError(text string) error {
+// conflictError is the error of a move that would leave text, such as a
+// [FolderCheck]'s Text, with what it leaves as its cause and fix after it.
+func conflictError(text string, fix ...operation.Part) error {
 	return operation.Fail(
 		operation.ExitConflict,
 		"conflict",
 		"The costs files can't all move",
-		operation.Cause("it "+text),
+		append([]operation.Part{operation.Cause("it " + text)}, fix...)...,
 	)
 }
 
