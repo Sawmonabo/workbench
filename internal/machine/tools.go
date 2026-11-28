@@ -18,6 +18,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Sawmonabo/workbench/internal/download"
 	"github.com/Sawmonabo/workbench/internal/operation"
 	"github.com/Sawmonabo/workbench/internal/platform"
 	"github.com/Sawmonabo/workbench/internal/release"
@@ -273,9 +274,15 @@ func acquirePython(
 }
 
 // acquireTomlkit downloads the pinned TOML Kit wheel, checks its digest and
-// unpacks it privately for the project editor adapter.
+// unpacks it privately for the project editor adapter. The wheel comes from
+// PyPI's file host, not a release, so a refusal reads as the download's own.
 func acquireTomlkit(ctx context.Context, c operation.Context, requirements Requirements) error {
-	wheel, err := release.Download(ctx, requirements.TomlkitURL, 16<<20, c.Transfer("tomlkit"))
+	wheel, _, err := download.Get(
+		ctx,
+		requirements.TomlkitURL,
+		16<<20,
+		download.Request{Accept: "application/octet-stream", Progress: c.Transfer("tomlkit")},
+	)
 	if err != nil {
 		return err
 	}

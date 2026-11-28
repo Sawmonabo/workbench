@@ -102,9 +102,10 @@ func (r Remote) Bundle(ctx context.Context, progress func(done, total int64)) (B
 // githubAPI reads one JSON answer from the repository's GitHub REST API. tag
 // names the release asked for, if any, when GitHub has none.
 func githubAPI(ctx context.Context, token, path, tag string, answer any) error {
+	location := "https://api.github.com/repos/" + repository + path
 	data, _, err := download.Get(
 		ctx,
-		"https://api.github.com/repos/"+repository+path,
+		location,
 		4<<20,
 		download.Request{Accept: "application/vnd.github+json", Token: token},
 	)
@@ -117,7 +118,7 @@ func githubAPI(ctx context.Context, token, path, tag string, answer any) error {
 		return operation.Fail(operation.ExitBlocked, "release_unavailable", message)
 	}
 	if err != nil {
-		return releaseAnswer(err, token != "")
+		return releaseAnswer(err, location, token != "")
 	}
 	if json.Unmarshal(data, answer) != nil {
 		return operation.Fail(operation.ExitFailed, "release", "Unexpected GitHub release data")
@@ -136,23 +137,26 @@ func getRelease(
 ) ([]byte, error) {
 	data, _, err := download.Get(ctx, location, limit, r)
 	if err != nil {
-		return nil, releaseAnswer(err, r.Token != "")
+		return nil, releaseAnswer(err, location, r.Token != "")
 	}
 	return data, nil
 }
 
-// releaseAnswer is err, a download's failure from GitHub's API or a bundle's
-// address, as a release's: a missing resource is a release that is not there
-// (release_unavailable, in the download's words), and GitHub's refusals, of
-// an anonymous request past its limit or of the token sent when token is set,
-// say what to do about them.
-func releaseAnswer(err error, token bool) error {
+// releaseAnswer is err, a download's failure from the release address
+// location, as a release's: a missing resource is a release that is not there
+// (release_unavailable, in the download's words). From GitHub (see
+// [fromGitHub]) its refusals, of an anonymous request past its limit or of
+// the token sent when token is set, say what to do about them; any other
+// host's refusal keeps the download's words.
+func releaseAnswer(err error, location string, token bool) error {
 	status, ok := errors.AsType[*download.StatusError](err)
 	switch {
 	case !ok:
 		return err
 	case status.Status == http.StatusNotFound:
 		return operation.Fail(operation.ExitBlocked, "release_unavailable", status.Error())
+	case !fromGitHub(location):
+		return err
 	case status.Status == http.StatusForbidden &&
 		status.Header.Get("X-RateLimit-Remaining") == "0":
 		return operation.Fail(
@@ -172,6 +176,15 @@ func releaseAnswer(err error, token bool) error {
 		)
 	}
 	return err
+}
+
+// fromGitHub reports whether location is on a GitHub host Workbench
+// downloads releases from: github.com, whose release pages serve the chezmoi
+// and uv archives and may be a --bundle address, or api.github.com, whose
+// REST API lists Workbench's releases and serves their bundles.
+func fromGitHub(location string) bool {
+	u, err := url.Parse(location)
+	return err == nil && (u.Hostname() == "github.com" || u.Hostname() == "api.github.com")
 }
 
 // githubToken returns the GitHub CLI's token for github.com, which raises
