@@ -1053,7 +1053,7 @@ command is not in the list, is a row among the commands:
    01PnU61k  ● running  claude  implementer   12m58s   500 MB   500 MB  shop     scripts/build.sh api
    ├ p87352  ● running  claude  implementer   12m13s  1.27 GB  1.27 GB  shop     node scripts/watch.js
    └ p87305  ● running  claude  implementer   12m18s  2.54 GB  2.54 GB  shop     /bin/zsh scripts/build.sh --worker api
-   p55120    ● running  claude                 31m0s   640 MB   655 MB  shop     node .next/standalone/server.js
+   p55120    ● running  claude                   31m   640 MB   655 MB  shop     node .next/standalone/server.js
 ```
 
 Each row shows its own memory, and a stop reaches only its own row: a

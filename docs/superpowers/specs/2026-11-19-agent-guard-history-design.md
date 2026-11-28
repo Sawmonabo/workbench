@@ -56,7 +56,7 @@ Anti-goals:
    ID        STATUS       AGENT      TIME   MEMORY     PEAK     ENDED  PROJECT           COMMAND
 ▸  01DPWAKE  ● running    claude     2m1s   763 MB  1008 MB            workbench         python3 - <<'EOF' …
    01e6UGZc  ● running    codex     18m1s  5.71 GB  6.78 GB            payments-service  cargo build --work…
-   01rsUM8K  ✗ stopped    codex   3h12m0s        —  9.57 GB   5:07 PM  payments-service  cargo test --works…
+   01rsUM8K  ✗ stopped    codex     3h12m        —  9.57 GB   5:07 PM  payments-service  cargo test --works…
    01hxiqgs  ✓ done       claude     1m5s        —  1.17 GB   5:06 PM  workbench         go test -race -cou…
 ↑/↓ move  space tag  enter/→ details  / find  s sort  pgup/pgdn page  k stop  q/esc quit  1/2,837
 ```
@@ -114,7 +114,7 @@ clears it; a second `esc` quits, as `esc` does today.
   Agent      codex
   Subagent   —
   ID         toolu_01rsUM8KUG5P0T13AaET3YgW
-  Status     ✗ stopped by guard · 3h12m0s
+  Status     ✗ stopped by guard · 3h12m
   Started    2:10 PM
   Ended      5:22 PM
   Memory     peak 9.57 GB
