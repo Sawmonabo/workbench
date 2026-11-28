@@ -98,25 +98,29 @@ func checkApply(o *options) error {
 		return operation.Fail(
 			operation.ExitInvalid,
 			"reset",
-			"--reset asks and --yes does not; pick one",
+			"--reset asks and --yes does not",
+			operation.FixText("drop --reset or --yes"),
 		)
 	case o.choose && o.yes:
 		return operation.Fail(
 			operation.ExitInvalid,
 			"choose",
-			"--choose asks and --yes does not; pick one",
+			"--choose asks and --yes does not",
+			operation.FixText("drop --choose or --yes"),
 		)
 	case o.choose && o.approvePlan != "":
 		return operation.Fail(
 			operation.ExitInvalid,
 			"choose",
-			"--choose asks and --approve-plan does not; pick one",
+			"--choose asks and --approve-plan does not",
+			operation.FixText("drop --choose or --approve-plan"),
 		)
 	case o.choose && !o.interactive():
 		return operation.Fail(
 			operation.ExitInvalid,
 			"choose",
-			"--choose asks at a terminal; drop --json and --non-interactive",
+			"--choose asks at a terminal",
+			operation.FixText("drop --json and --non-interactive"),
 		)
 	case o.choose && !operation.AgentSession() && !hasTerminal():
 		return operation.Fail(operation.ExitBlocked, "choose", "--choose needs a terminal")
@@ -254,7 +258,8 @@ func applyMachine(
 			return result, plan, operation.Fail(
 				operation.ExitBlocked,
 				"consent",
-				"Plan was not approved; no changes made",
+				"Plan was not approved",
+				operation.Changed("nothing"),
 			)
 		}
 		for i := range plan.Effects {

@@ -201,13 +201,15 @@ func setGuardHistoryKeep(
 	}
 	if err := history.SetKeep(cmd.Context(), keep); err != nil {
 		return operation.Fail(operation.ExitFailed, "guard-history",
-			"Cannot set how long finished commands are kept: "+guard.ShowPaths(err.Error(), root))
+			"Cannot set how long finished commands are kept",
+			operation.Cause(guard.ShowPaths(err.Error(), root)))
 	}
 	deleted, err := trimGuardHistory(cmd.Context(), history)
 	if err != nil {
 		return operation.Fail(operation.ExitFailed, "guard-history",
-			"Finished commands are kept "+guard.KeepText(keep)+", but the older ones cannot be "+
-				"deleted: "+guard.ShowPaths(err.Error(), root))
+			"Finished commands older than "+guard.KeepText(keep)+" cannot be deleted",
+			operation.Cause(guard.ShowPaths(err.Error(), root)),
+			operation.Changed("finished commands are kept "+guard.KeepText(keep)))
 	}
 	line := "Finished commands are kept " + guard.KeepText(keep)
 	switch {
@@ -230,8 +232,9 @@ func setGuardHistoryKeep(
 	})
 	if err != nil {
 		return operation.Fail(operation.ExitFailed, "guard-history",
-			strings.TrimSuffix(line, ".")+", but the guard log's older records cannot be "+
-				"deleted: "+guard.ShowPaths(err.Error(), root))
+			"The guard log's older records cannot be deleted",
+			operation.Cause(guard.ShowPaths(err.Error(), root)),
+			operation.Changed(strings.ToLower(line[:1])+strings.TrimSuffix(line[1:], ".")))
 	}
 	if o.json {
 		result.Results = append(result.Results, operation.Component{

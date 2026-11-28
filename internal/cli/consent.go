@@ -34,18 +34,20 @@ func checkConsent(o *options, command string) error {
 		return operation.Fail(
 			operation.ExitInvalid,
 			"invocation",
-			"--yes and --approve-plan both approve; pick one",
+			"--yes and --approve-plan both approve",
+			operation.FixText("drop --yes or --approve-plan"),
 		)
 	case operation.AgentSession() && (o.yes || o.approvePlan == ""):
-		return operation.Fail(operation.ExitBlocked, "consent", agentRefusal)
+		return agentRefused()
 	case o.yes || o.approvePlan != "", o.interactive() && hasTerminal():
 		return nil
 	}
 	return operation.Fail(
 		operation.ExitBlocked,
 		"consent",
-		"Nothing approved this plan; read it with workbench "+command+" --dry-run --json, "+
-			"then pass --approve-plan DIGEST",
+		"Nothing approved this plan",
+		operation.FixText("workbench "+command+" --dry-run --json"),
+		operation.FixText("workbench "+command+" --approve-plan DIGEST"),
 	)
 }
 

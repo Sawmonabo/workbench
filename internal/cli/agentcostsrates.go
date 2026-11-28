@@ -124,8 +124,8 @@ func costsRates(card costs.Card, view ratesView, width int) string {
 	if card.Ledger {
 		note += " Refresh: workbench agent costs rates --refresh"
 	} else {
-		note = "There is no ledger yet, which keeps the official prices, so --refresh fetches " +
-			"nothing until the first import makes it. " + note
+		note = "No ledger yet to keep official prices: --refresh fetches nothing before " +
+			"the first import. " + note
 	}
 	writeFaint(&b, width, 2, note)
 	return b.String()

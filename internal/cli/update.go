@@ -137,8 +137,8 @@ func stoppedBeforeTools(c operation.Context, release string) error {
 	return operation.Fail(
 		operation.ExitInterrupted,
 		"interrupted",
-		"Stopped after installing "+release+", before its tools: rerun "+
-			c.WorkbenchCommand()+" update to finish",
+		"Stopped after installing "+release+", before its tools",
+		operation.FixText(c.WorkbenchCommand()+" update"),
 	)
 }
 

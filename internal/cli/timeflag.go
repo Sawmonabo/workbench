@@ -53,7 +53,10 @@ func parseTimeFlag(flag, value string, now time.Time) (t time.Time, day bool, er
 	return time.Time{}, false, operation.Fail(
 		operation.ExitInvalid,
 		"invocation",
-		flag+" needs a duration (10m, 2h), today, yesterday, a local date or time "+
-			"(2026-10-16, \"2026-10-16 21:00\", 21:00) or an RFC 3339 time",
+		flag+" needs a duration, a day, a local date or time, or an RFC 3339 time",
+		operation.Line{
+			Label: "examples",
+			Text:  "10m, 2h, today, yesterday, 2026-10-16, \"2026-10-16 21:00\", 21:00",
+		},
 	)
 }

@@ -39,8 +39,8 @@ func setUp(
 			return c, operation.Fail(
 				operation.ExitBlocked,
 				"answers",
-				"Without a terminal, setup needs saved answers; save them with "+
-					c.WorkbenchCommand()+" answers import FILE",
+				"Without a terminal, setup needs saved answers",
+				operation.FixText(c.WorkbenchCommand()+" answers import FILE"),
 			)
 		}
 		// Native init cannot ask here, and a question it reaches fails with

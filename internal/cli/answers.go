@@ -147,13 +147,14 @@ func askAnswers(
 		return result, operation.Fail(
 			operation.ExitInvalid,
 			"ask",
-			"answers ask asks at a terminal; drop --json and --non-interactive",
+			"answers ask asks at a terminal",
+			operation.FixText("drop --json and --non-interactive"),
 		)
 	}
 	// An agent cannot answer the owner's machine questions, and what it typed
 	// at a pseudo-terminal would be saved as the owner's answers.
 	if operation.AgentSession() {
-		return result, operation.Fail(operation.ExitBlocked, "consent", agentRefusal)
+		return result, agentRefused()
 	}
 	if err := selectSource(&c); err != nil {
 		return result, err

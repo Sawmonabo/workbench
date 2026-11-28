@@ -111,7 +111,8 @@ func listReleases(cmd *cobra.Command, c operation.Context) (operation.Result, er
 		return result, operation.Fail(
 			operation.ExitInvalid,
 			"input",
-			"--list shows the releases; drop VERSION",
+			"--list shows the releases",
+			operation.FixText("drop VERSION"),
 		)
 	}
 	for _, name := range []string{"dry-run", "bundle", "runtime-ready", "local-build", "destination"} {
@@ -119,7 +120,8 @@ func listReleases(cmd *cobra.Command, c operation.Context) (operation.Result, er
 			return result, operation.Fail(
 				operation.ExitInvalid,
 				"input",
-				"--list shows the releases; drop --"+name,
+				"--list shows the releases",
+				operation.FixText("drop --"+name),
 			)
 		}
 	}

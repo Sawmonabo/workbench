@@ -306,8 +306,8 @@ func unrecordedNotes(tool costs.Tool, report costs.Statement) []string {
 		}
 	}
 	if unsigned {
-		notes = append(notes, "unknown account (org …): Workbench has not seen that account "+
-			"signed in yet; sign in to it once and its rows show its email and plan")
+		notes = append(notes, "unknown account (org …): not seen signed in yet; sign in to it "+
+			"once to show its email and plan")
 	}
 	return notes
 }

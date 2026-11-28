@@ -58,7 +58,8 @@ func projectInspectCommand(o *options) *cobra.Command {
 						err = operation.Fail(
 							operation.ExitFailed,
 							"inventory",
-							"Inventory incomplete or inaccessible; select a narrower readable scope",
+							"Inventory incomplete or inaccessible",
+							operation.FixText("select a narrower readable scope"),
 						)
 					}
 				}

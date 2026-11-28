@@ -31,21 +31,30 @@ func shownAtPrompt(o *options, component *operation.Component) {
 	}
 }
 
-// agentRefusal is why a coding agent's run never prompts or applies unasked.
-const agentRefusal = "An agent runs this; use --dry-run --json then --approve-plan"
+// agentRefused is the refusal that keeps a coding agent's run from prompting
+// or applying unasked, with what it runs instead.
+func agentRefused() error {
+	return operation.Fail(
+		operation.ExitBlocked,
+		"consent",
+		"An agent runs this",
+		operation.FixText("use --dry-run --json, then --approve-plan DIGEST"),
+	)
+}
 
 // openTerminal opens the controlling terminal for a prompt. A run without one,
 // or by an agent, never approves or chooses anything.
 func openTerminal() (*os.File, error) {
 	if operation.AgentSession() {
-		return nil, operation.Fail(operation.ExitBlocked, "consent", agentRefusal)
+		return nil, agentRefused()
 	}
 	terminal, err := operation.OpenTerminal()
 	if err != nil {
 		return nil, operation.Fail(
 			operation.ExitBlocked,
 			"consent",
-			"No terminal is available; supply complete inputs and --approve-plan",
+			"No terminal is available",
+			operation.FixText("supply complete inputs and --approve-plan"),
 		)
 	}
 	return terminal, nil
@@ -84,12 +93,16 @@ func ask(ctx context.Context, terminal *os.File, field huh.Field) (bool, error) 
 
 // promptFailure is the error for a prompt that did not finish: ctx's own when
 // a signal ended it, so the run exits as interrupted with nothing written,
-// otherwise a refusal for lack of a complete answer.
-func promptFailure(ctx context.Context, category, message string) error {
+// otherwise a refusal for lack of a complete answer, with parts its body.
+func promptFailure(
+	ctx context.Context,
+	category, message string,
+	parts ...operation.Part,
+) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	return operation.Fail(operation.ExitBlocked, category, message)
+	return operation.Fail(operation.ExitBlocked, category, message, parts...)
 }
 
 // confirmPlan shows the plan on the controlling terminal and asks Yes or No;
@@ -220,7 +233,12 @@ func chooseCheckpoint(
 		Options(options...).
 		Value(&id))
 	if err != nil || !answered {
-		return "", promptFailure(ctx, "selection", "No checkpoint was chosen; nothing restored")
+		return "", promptFailure(
+			ctx,
+			"selection",
+			"No checkpoint was chosen",
+			operation.Changed("nothing restored"),
+		)
 	}
 	return id, nil
 }

@@ -38,7 +38,8 @@ func applyStep(
 				return operation.Fail(
 					operation.ExitInvalid,
 					"invocation",
-					cmd.Name()+" is an apply step; it takes --probe or run",
+					cmd.Name()+" is an apply step",
+					operation.FixText("give it --probe or run"),
 				)
 			})
 		}
