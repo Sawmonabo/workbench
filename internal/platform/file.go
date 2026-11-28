@@ -55,6 +55,44 @@ func RenameAt(fd int, from, to string, exclusive bool) error {
 // ExtendedAttributeNames lists.
 func FileSecurity(fd int, path string) (ACL, error) { return fileSecurity(fd, path) }
 
+// The rights Allowed and ACE.Denies take. DeleteRight is the right to delete
+// the file or folder itself, which renaming another file over it, renaming it
+// away and removing it each need. ChildRights are the rights to add files and
+// folders to a folder and to remove them from it, and RemoveChildRight the
+// last of them alone. On macOS they are the kauth rights KAUTH_VNODE_DELETE,
+// KAUTH_VNODE_ADD_FILE, ADD_SUBDIRECTORY and DELETE_CHILD (sys/kauth.h); on
+// Linux, where FileSecurity lists no entries, they are 0.
+const (
+	DeleteRight      = deleteRight
+	ChildRights      = childRights
+	RemoveChildRight = removeChildRight
+)
+
+// Denies reports whether e is an entry that denies any of rights, by name or
+// by a generic right that holds it: on macOS a KAUTH_ACE_DENY entry with one
+// of rights, KAUTH_ACE_GENERIC_ALL or KAUTH_ACE_GENERIC_WRITE, whose rights
+// hold each of DeleteRight and ChildRights (KAUTH_VNODE_GENERIC_WRITE_BITS).
+// Which user or group the entry names is not read: Allowed says whether it
+// binds this process.
+func (e ACE) Denies(rights uint32) bool { return aceDenies(e, rights) }
+
+// Inherited reports whether e passes to the files or folders made in the
+// folder that holds it: on macOS KAUTH_ACE_FILE_INHERIT or
+// KAUTH_ACE_DIRECTORY_INHERIT.
+func (e ACE) Inherited() bool { return aceInherited(e) }
+
+// Allowed reports whether this process may take rights on the file or folder
+// at path, or the link itself when path is one, as the system decides it now
+// with the process's own user and every group it is in. On macOS it asks
+// faccessat(2) with the rights in its extended access bits (_DELETE_OK,
+// _RMFILE_OK and the others in sys/unistd.h are the kauth rights shifted left
+// by 8), AT_EACCESS and AT_SYMLINK_NOFOLLOW: access1 in xnu's vfs_syscalls.c
+// hands them to vnode_authorize, which evaluates the ACL, the mode and the
+// folder's rights as rename, unlink and rmdir do (vnode_authorize_delete in
+// vfs_subr.c). A refusal is false with no error. On Linux, which keeps no
+// ACL entries a caller could ask about, it fails with errors.ErrUnsupported.
+func Allowed(path string, rights uint32) (bool, error) { return allowed(path, rights) }
+
 // SetFileSecurity gives fd, or path itself, not a link's target, when path
 // is not empty, the ACL data, as FileSecurity read it from a file, or takes
 // its ACL away when data is nil. On macOS fsetattrlist, or setattrlist with

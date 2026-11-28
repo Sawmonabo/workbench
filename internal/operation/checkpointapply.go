@@ -159,6 +159,11 @@ func CheckPreservable(
 	if err := nativeReplaceRefusal(edit, before, after); err != nil {
 		return err
 	}
+	if edit.Action == "remove" && before.Kind == ImageDirectory {
+		if err := removedFolderACL(edit.Path); err != nil {
+			return err
+		}
+	}
 	// Native atomic writes can initially inherit the scratch directory's
 	// group. Until corrected under the checkpoint owner's exact-image gate,
 	// never expose permissions available only to that transient group. Native

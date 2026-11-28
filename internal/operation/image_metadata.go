@@ -4,7 +4,10 @@ import (
 	"bytes"
 	"errors"
 	"maps"
+	"os"
+	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"unicode/utf8"
 
@@ -103,7 +106,7 @@ func metadata(fd int, path string, h holder, written bool) (security, error) {
 	}
 	found, err := targetACL(fd, selector, path, h)
 	if err == nil {
-		err = acl(path, h, found.Entries)
+		err = acl(fd, path, h, found.Entries)
 	}
 	if err != nil {
 		return security{}, err
@@ -124,65 +127,157 @@ func flagsRefusal(path string, h holder, flags uint32, err error) error {
 	return flagRefusal(path, flags, h)
 }
 
-// folderACL admits the ACL of a folder whose own entries Workbench leaves
-// alone: no entry may pass to new entries or deny adding or removing them.
-// macOS puts one admitted entry, "group:everyone deny delete", on the home
-// folder and its standard folders such as ~/Library; it only stops the folder
-// itself from being deleted. A refusal names the entry by its number in
-// ls -le, which chmod -a# removes.
-func folderACL(path string, h holder, entries []platform.ACE) error {
-	const (
-		inherits     = 1<<5 | 1<<6        // KAUTH_ACE_FILE_INHERIT, KAUTH_ACE_DIRECTORY_INHERIT
-		kind         = 0xf                // KAUTH_ACE_KINDMASK
-		deny         = 2                  // KAUTH_ACE_DENY
-		childChanges = 1<<2 | 1<<5 | 1<<6 // KAUTH_VNODE_ADD_FILE, ADD_SUBDIRECTORY, DELETE_CHILD
-	)
+// folderACL admits the ACL of the folder fd at path, whose own entries
+// Workbench leaves alone: no entry may pass to new entries, and none may deny
+// this user adding or removing them. An entry that denies those rights stops
+// the plan only when it binds this user: Allowed asks the system, with the
+// user and every group it is in, whether it may add and remove files there,
+// and when it may, no entry denies it. macOS puts one admitted entry,
+// "group:everyone deny delete", on the home folder and its standard folders
+// such as ~/Library; it only stops the folder itself from being deleted. A
+// refusal names the entry by its number in ls -le, which chmod -a# removes
+// (entryRefusal). A folder whose mode does not give its owner, this user,
+// those rights is refused for any such entry, since the mode alone would
+// deny them.
+func folderACL(fd int, path string, h holder, entries []platform.ACE) error {
 	for i, entry := range entries {
-		inherited := entry.Flags&inherits != 0
-		if inherited || entry.Flags&kind == deny && entry.Rights&childChanges != 0 {
-			cause := "that denies adding or removing files in it, and Workbench writes only in a folder without one"
-			if inherited {
-				cause = "that" + inheritedACL
-			}
+		if entry.Inherited() {
 			return Fail(
 				ExitBlocked,
 				"metadata",
-				display.Path(path)+" has an ACL entry "+cause+
+				display.Path(path)+" has an ACL entry that"+inheritedACL+
 					h.retry(platform.ACLEntryRemoval(i), path),
 			)
 		}
+	}
+	denying := denyingEntries(entries, platform.ChildRights)
+	if len(denying) == 0 {
+		return nil
+	}
+	var stat unix.Stat_t
+	if err := unix.Fstat(fd, &stat); err != nil {
+		return err
+	}
+	if int(stat.Uid) != os.Geteuid() || stat.Mode&0o300 != 0o300 {
+		return Fail(
+			ExitBlocked,
+			"metadata",
+			display.Path(path)+" has an ACL entry that denies adding or removing files in it,"+
+				" and Workbench writes only in a folder without one"+
+				h.retry(platform.ACLEntryRemoval(denying[0]), path),
+		)
+	}
+	if err := entryAllows(path, platform.ChildRights); err != nil {
+		return entryRefusal(path, h, denying, err, "adding or removing files in it",
+			"so Workbench cannot write there")
 	}
 	return nil
 }
 
 // replacedACL refuses, on a file or link Workbench writes a new one in place
-// of, an ACL entry that denies deleting it, which also its replacement would
-// carry: no file can be renamed over such a file, nor can the replacement be
-// renamed into its place or removed (vnode_authorize_delete in xnu's
-// vfs_subr.c), as KAUTH_VNODE_DELETE and the generic rights that include it
-// (KAUTH_ACE_GENERIC_ALL, KAUTH_ACE_GENERIC_WRITE, sys/kauth.h) say. It names
-// the entry by its number in ls -le, which chmod -a# removes. Every other
-// entry is carried. A folder Workbench changes in place keeps any ACL.
-func replacedACL(path string, h holder, entries []platform.ACE) error {
+// of, an ACL entry that denies this user deleting it, which also its
+// replacement would carry: no file can be renamed over such a file, nor can
+// the replacement be renamed into its place or removed
+// (vn_authorize_renamex_with_paths and vnode_authorize_delete in xnu's
+// vfs_subr.c). An entry that denies deleting it to another user or group is
+// carried with the rest: Allowed asks the system whether this user may delete
+// it. A denial is the file's own entry's only when the folder lets this user
+// remove files, since vnode_authorize_delete asks the folder only after the
+// file's ACL; otherwise the folder decides, and its own check names it. A
+// folder Workbench changes in place keeps any ACL.
+func replacedACL(_ int, path string, h holder, entries []platform.ACE) error {
 	if !h.replaced() {
 		return nil
 	}
-	const (
-		kind   = 0xf                  // KAUTH_ACE_KINDMASK
-		deny   = 2                    // KAUTH_ACE_DENY
-		delete = 1<<4 | 1<<21 | 1<<23 // KAUTH_VNODE_DELETE, KAUTH_ACE_GENERIC_ALL, KAUTH_ACE_GENERIC_WRITE
-	)
-	for i, entry := range entries {
-		if entry.Flags&kind == deny && entry.Rights&delete != 0 {
-			return Fail(
-				ExitBlocked,
-				"metadata",
-				display.Path(path)+" has an ACL entry that denies deleting it, "+h.locked()+
-					h.retry(platform.ACLEntryRemoval(i), path),
-			)
+	return deleteACL(path, h, entries, h.locked())
+}
+
+// removedFolderACL refuses a folder a plan removes that has an ACL entry
+// denying this user deleting it, under which rmdir(2) fails
+// (vn_authorize_rmdir in xnu's vfs_subr.c), by replacedACL's rule.
+func removedFolderACL(path string) error {
+	found, err := targetACL(-1, path, path, changedFolder)
+	if err != nil {
+		return err
+	}
+	return deleteACL(path, changedFolder, found.Entries, "under which Workbench cannot remove it")
+}
+
+// deleteACL is replacedACL's rule for path, which is h to the write, with
+// entries its ACL entries and cause why a denial stops the write.
+func deleteACL(path string, h holder, entries []platform.ACE, cause string) error {
+	denying := denyingEntries(entries, platform.DeleteRight)
+	if len(denying) == 0 {
+		return nil
+	}
+	denied := entryAllows(path, platform.DeleteRight)
+	if denied == nil {
+		return nil
+	}
+	if !errors.Is(denied, errDenied) {
+		return entryRefusal(path, h, denying, denied, "deleting it", cause)
+	}
+	if err := entryAllows(filepath.Dir(path), platform.RemoveChildRight); err != nil {
+		if errors.Is(err, errDenied) {
+			return nil
 		}
+		return entryRefusal(path, h, denying, err, "deleting it", cause)
+	}
+	return entryRefusal(path, h, denying, denied, "deleting it", cause)
+}
+
+// errDenied is entryAllows's error when the system denies the rights.
+var errDenied = errors.New("denied")
+
+// entryAllows is nil when this user may take rights on path (platform.Allowed),
+// errDenied when the system denies them, and the call's error otherwise.
+func entryAllows(path string, rights uint32) error {
+	ok, err := platform.Allowed(path, rights)
+	switch {
+	case err != nil:
+		return err
+	case !ok:
+		return errDenied
 	}
 	return nil
+}
+
+// denyingEntries are the numbers, in ls -le, of entries that deny rights.
+func denyingEntries(entries []platform.ACE, rights uint32) []int {
+	var denying []int
+	for i, entry := range entries {
+		if entry.Denies(rights) {
+			denying = append(denying, i)
+		}
+	}
+	return denying
+}
+
+// entryRefusal refuses path, which is h to the write, for its ACL entries
+// numbered denying, which deny what, with cause why that stops the write;
+// err is errDenied, or the error of asking the system. One entry is the one
+// that denies this user; of several, ls -le names whom each binds and
+// Workbench does not read it, so the command removes the first, and planning
+// again names any that still denies.
+func entryRefusal(path string, h holder, denying []int, err error, what, cause string) error {
+	shown := display.Path(path)
+	if !errors.Is(err, errDenied) {
+		return Fail(
+			ExitBlocked,
+			"metadata",
+			"Cannot check whether its ACL lets you change "+shown+": "+err.Error(),
+		)
+	}
+	message := shown + " has an ACL entry that denies you " + what + ", " + cause
+	if len(denying) > 1 {
+		numbers := make([]string, len(denying))
+		for i, entry := range denying {
+			numbers[i] = strconv.Itoa(entry)
+		}
+		message = shown + " has ACL entries " + display.List(numbers) + " that deny " + what +
+			", one or more of them denying you, " + cause
+	}
+	return Fail(ExitBlocked, "metadata", message+h.retry(platform.ACLEntryRemoval(denying[0]), path))
 }
 
 // targetACL reads the ACL of fd, or of the link selector itself when it is

@@ -42,6 +42,24 @@ func renameAt(fd int, from, to string, exclusive bool) error {
 // ExtendedAttributeNames lists.
 func fileSecurity(_ int, _ string) (ACL, error) { return ACL{}, nil }
 
+// deleteRight, childRights and removeChildRight are 0: FileSecurity lists no
+// entries here, so no entry denies them.
+const (
+	deleteRight      uint32 = 0
+	childRights      uint32 = 0
+	removeChildRight uint32 = 0
+)
+
+// aceDenies is false: Linux keeps no ACL entries FileSecurity lists.
+func aceDenies(ACE, uint32) bool { return false }
+
+// aceInherited is false: Linux keeps no ACL entries FileSecurity lists.
+func aceInherited(ACE) bool { return false }
+
+// allowed fails with errors.ErrUnsupported: no caller has an entry to ask
+// about here.
+func allowed(string, uint32) (bool, error) { return false, errors.ErrUnsupported }
+
 // setFileSecurity has no ACL to write but nil, which is none.
 func setFileSecurity(_ int, _ string, data []byte) error {
 	if data != nil {

@@ -2,6 +2,7 @@ package platform
 
 import (
 	"encoding/binary"
+	"errors"
 	"slices"
 	"unsafe"
 
@@ -147,6 +148,44 @@ const (
 	filesecHeader = 44
 	aceSize       = 24
 )
+
+// The kauth rights and entry flags of sys/kauth.h the ACE methods and Allowed
+// read: KAUTH_VNODE_DELETE; KAUTH_VNODE_ADD_FILE, ADD_SUBDIRECTORY and
+// DELETE_CHILD; KAUTH_ACE_GENERIC_ALL and KAUTH_ACE_GENERIC_WRITE, which hold
+// all of those (KAUTH_VNODE_GENERIC_WRITE_BITS); KAUTH_ACE_KINDMASK and
+// KAUTH_ACE_DENY; KAUTH_ACE_FILE_INHERIT and KAUTH_ACE_DIRECTORY_INHERIT.
+const (
+	deleteRight      uint32 = 1 << 4
+	removeChildRight uint32 = 1 << 6
+	childRights      uint32 = 1<<2 | 1<<5 | removeChildRight
+	genericRights    uint32 = 1<<21 | 1<<23
+	aceKind          uint32 = 0xf
+	aceDeny          uint32 = 2
+	aceInherits      uint32 = 1<<5 | 1<<6
+)
+
+// aceDenies reports a KAUTH_ACE_DENY entry with one of rights or a generic
+// right that holds them.
+func aceDenies(e ACE, rights uint32) bool {
+	return e.Flags&aceKind == aceDeny && e.Rights&(rights|genericRights) != 0
+}
+
+// aceInherited reports an entry with an inherit flag.
+func aceInherited(e ACE) bool { return e.Flags&aceInherits != 0 }
+
+// allowed is faccessat(AT_FDCWD, path, rights<<8, AT_EACCESS|
+// AT_SYMLINK_NOFOLLOW): EACCES and EPERM are a refusal, any other error the
+// call's errno.
+func allowed(path string, rights uint32) (bool, error) {
+	err := unix.Faccessat(unix.AT_FDCWD, path, rights<<8, unix.AT_EACCESS|unix.AT_SYMLINK_NOFOLLOW)
+	switch {
+	case err == nil:
+		return true, nil
+	case errors.Is(err, unix.EACCES), errors.Is(err, unix.EPERM):
+		return false, nil
+	}
+	return false, err
+}
 
 // setFileSecurity writes data, or a kauth_filesec of KAUTH_FILESEC_NOACL
 // entries for nil, as ATTR_CMN_EXTENDED_SECURITY with fsetattrlist, or
