@@ -17,7 +17,8 @@ import (
 
 // ErrNotRegular is what [OpenRegularFile] and [ReadRegularFile] return,
 // wrapped with the path, for a path that holds something other than a
-// regular file: a link, a folder, a device, a FIFO or a socket.
+// regular file: a link, a folder, a device, a FIFO or a socket. A log's open
+// returns it too, for all of them but a link (see [NotRegularLog]).
 var ErrNotRegular = errors.New("not a regular file")
 
 // ErrTooLarge is what [ReadRegularFile] returns, wrapped with the path, for a

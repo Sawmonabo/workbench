@@ -35,13 +35,10 @@ import (
 //     tail -F instead rereads a file that shrank from its start, repeating
 //     lines.
 
-// errNotRegular is a log path that holds something other than a regular
-// file. A link is refused by O_NOFOLLOW before this.
-var errNotRegular = errors.New("not a regular file")
-
-// openLogFile opens the regular file at path, never through a link. O_NONBLOCK
-// keeps the open from waiting on a FIFO, which is then refused; it changes
-// nothing for a regular file.
+// openLogFile opens the regular file at path, never through a link: a link
+// fails it with ELOOP, anything else that is not a regular file with
+// [ErrNotRegular]. O_NONBLOCK keeps the open from waiting on a FIFO, which is
+// then refused; it changes nothing for a regular file.
 func openLogFile(path string, flag int) (*os.File, error) {
 	file, err := os.OpenFile(path, flag|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0o600)
 	if err != nil {
@@ -49,7 +46,7 @@ func openLogFile(path string, flag int) (*os.File, error) {
 	}
 	if info, err := file.Stat(); err != nil || !info.Mode().IsRegular() {
 		_ = file.Close()
-		return nil, &os.PathError{Op: "open", Path: path, Err: errNotRegular}
+		return nil, &os.PathError{Op: "open", Path: path, Err: ErrNotRegular}
 	}
 	return file, nil
 }
@@ -67,7 +64,7 @@ func lockLog(file *os.File, how int) error {
 // NotRegularLog reports whether err refused a log path that holds something
 // other than a regular file: a link (ELOOP from O_NOFOLLOW) or anything else.
 func NotRegularLog(err error) bool {
-	return errors.Is(err, syscall.ELOOP) || errors.Is(err, errNotRegular)
+	return errors.Is(err, syscall.ELOOP) || errors.Is(err, ErrNotRegular)
 }
 
 // AppendLog appends line and a newline to the log at path, made 0600. A log
