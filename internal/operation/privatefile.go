@@ -76,21 +76,35 @@ func ReadRegularFile(path string, limit int64) ([]byte, error) {
 	return data, nil
 }
 
-// ReadPrivateInput shares private-file validation with state/answer consumers.
-// It never creates missing state and withholds unsafe or oversized input.
-func ReadPrivateInput(path string, limit int64) ([]byte, error) {
+// ReadPrivateInput reads the private file at path, at most limit bytes, once
+// it passes the private-file checks: it never creates missing state and
+// withholds unsafe or oversized input. what names the file as its reader
+// knows it, such as "the current Workbench state": every refusal starts
+// "Cannot read" what, then says what is wrong, with the code and category of
+// the check that refused it.
+func ReadPrivateInput(path string, limit int64, what string) ([]byte, error) {
 	if limit < 1 || limit > 16<<20 {
 		return nil, Fail(ExitInvalid, "input", "Invalid private input bound")
 	}
+	refuse := func(code Exit, category, problem string) error {
+		return Fail(code, category, "Cannot read "+what+": "+problem)
+	}
 	if err := checkPrivateFile(path); err != nil {
+		if problem, ok := errors.AsType[*Error](err); ok {
+			return nil, refuse(problem.Code, problem.Category, problem.Message)
+		}
 		return nil, err
 	}
 	data, err := ReadRegularFile(path, limit)
 	switch {
 	case errors.Is(err, ErrTooLarge):
-		return nil, Fail(ExitInvalid, "input", "Private input exceeds its read bound")
+		return nil, refuse(
+			ExitInvalid,
+			"input",
+			display.Path(path)+" is larger than its "+display.Size(limit)+" bound",
+		)
 	case err != nil:
-		return nil, Fail(ExitInvalid, "input", "Cannot read private input")
+		return nil, refuse(ExitInvalid, "input", FileError(path, err).Error())
 	}
 	return data, nil
 }
@@ -99,11 +113,15 @@ func ReadPrivateInput(path string, limit int64) ([]byte, error) {
 // yet, such as state.json or machine.toml: found is false, with no data and
 // no error, when nothing is at path, and anything at path is read as
 // ReadPrivateInput reads it.
-func ReadPrivateRecord(path string, limit int64) (data []byte, found bool, err error) {
+func ReadPrivateRecord(
+	path string,
+	limit int64,
+	what string,
+) (data []byte, found bool, err error) {
 	if _, err := os.Lstat(path); errors.Is(err, fs.ErrNotExist) {
 		return nil, false, nil
 	}
-	data, err = ReadPrivateInput(path, limit)
+	data, err = ReadPrivateInput(path, limit, what)
 	return data, true, err
 }
 

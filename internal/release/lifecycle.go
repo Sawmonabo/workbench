@@ -315,7 +315,7 @@ type activationJournal struct {
 
 func readActivation(c operation.Context) (*activationJournal, error) {
 	path := filepath.Join(c.Paths.State, "activation.json")
-	raw, found, err := operation.ReadPrivateRecord(path, 1<<20)
+	raw, found, err := operation.ReadPrivateRecord(path, 1<<20, "the update's activation journal")
 	if !found || err != nil {
 		return nil, err
 	}

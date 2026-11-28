@@ -80,8 +80,10 @@ func ListCheckpoints(c Context) ([]CheckpointSummary, error) {
 	return result, nil
 }
 
-func decodePrivate(path string, limit int64, value any) error {
-	data, err := ReadPrivateInput(path, limit)
+// decodePrivate strictly decodes the private checkpoint file at path, at
+// most limit bytes and named what (see [ReadPrivateInput]), into value.
+func decodePrivate(path string, limit int64, what string, value any) error {
+	data, err := ReadPrivateInput(path, limit, what)
 	if err != nil {
 		return err
 	}
@@ -213,6 +215,7 @@ func loadCheckpoint(c Context, directory string) (*Checkpoint, error) {
 	if err := decodePrivate(
 		filepath.Join(directory, "checkpoint.json"),
 		1<<20,
+		"a checkpoint's record",
 		&cp.record,
 	); err != nil {
 		return nil, err
@@ -326,7 +329,7 @@ func (cp *Checkpoint) loadImages() error {
 func readJournal(directory string, i, targets int) (checkpointJournal, error) {
 	var envelope journalEnvelope
 	path := filepath.Join(directory, fmt.Sprintf("journal-%d.json", i))
-	if err := decodePrivate(path, journalBytes, &envelope); err != nil {
+	if err := decodePrivate(path, journalBytes, "a checkpoint's journal", &envelope); err != nil {
 		return checkpointJournal{}, err
 	}
 	data, _ := json.Marshal(envelope.Journal)
@@ -395,7 +398,12 @@ func (cp *Checkpoint) expectedImage(index int) Image {
 func readStoredImage(directory, digest string) (Image, error) {
 	directory = filepath.Join(directory, "images", digest)
 	var manifest imageManifest
-	if err := decodePrivate(filepath.Join(directory, "image.json"), 1024, &manifest); err != nil {
+	if err := decodePrivate(
+		filepath.Join(directory, "image.json"),
+		1024,
+		"a checkpoint image's manifest",
+		&manifest,
+	); err != nil {
 		return Image{}, err
 	}
 	if manifest.Size < 1 || manifest.Size > MaxImageBytes*2 ||
@@ -404,7 +412,11 @@ func readStoredImage(directory, digest string) (Image, error) {
 	}
 	data := make([]byte, 0, manifest.Size)
 	for i := range manifest.Chunks {
-		part, err := ReadPrivateInput(filepath.Join(directory, fmt.Sprintf("%02d.part", i)), 1<<20)
+		part, err := ReadPrivateInput(
+			filepath.Join(directory, fmt.Sprintf("%02d.part", i)),
+			1<<20,
+			"a part of a checkpoint image",
+		)
 		if err != nil {
 			return Image{}, err
 		}

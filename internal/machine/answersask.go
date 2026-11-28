@@ -211,7 +211,11 @@ func answersSeed(config string, terminal *os.File, ask []string) ([]byte, error)
 func generatedAnswers(c operation.Context, path string) (Answers, error) {
 	// Esc or ctrl+c at a question makes native init exit successfully
 	// without writing its configuration.
-	output, found, err := operation.ReadPrivateRecord(path, 1<<20)
+	output, found, err := operation.ReadPrivateRecord(
+		path,
+		1<<20,
+		"the answers the machine questions saved",
+	)
 	if !found {
 		return nil, operation.Fail(
 			operation.ExitBlocked,

@@ -199,7 +199,11 @@ func writeRoleSources(source string, files map[string][]byte, answers Answers) e
 // copyNativeState copies Workbench's native chezmoi state into the scratch
 // context and binds its digest, or records that none exists yet.
 func (p *preparation) copyNativeState(c operation.Context) error {
-	data, found, err := operation.ReadPrivateRecord(c.Native.PersistentState, 16<<20)
+	data, found, err := operation.ReadPrivateRecord(
+		c.Native.PersistentState,
+		16<<20,
+		"Workbench's chezmoi state",
+	)
 	if !found {
 		p.Plan.Inputs = append(
 			p.Plan.Inputs,

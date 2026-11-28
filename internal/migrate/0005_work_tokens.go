@@ -115,7 +115,11 @@ func findWorkTokens(l Locations) tokensFound {
 		}
 	}
 	found := tokensFound{config: config, data: data, values: values}
-	held, there, err := operation.ReadPrivateRecord(envfile.Path(l.Runtime.Config, "work"), 1<<20)
+	held, there, err := operation.ReadPrivateRecord(
+		envfile.Path(l.Runtime.Config, "work"),
+		1<<20,
+		"work.env",
+	)
 	if !there {
 		found.status, found.text = Pending, "moves "+named+" from "+machine+" into a new "+env
 		return found
@@ -136,7 +140,11 @@ func findWorkTokens(l Locations) tokensFound {
 // readMachine decodes machine.toml at path; a missing file is an empty one.
 func readMachine(path string) (map[string]any, error) {
 	config := map[string]any{}
-	raw, found, err := operation.ReadPrivateRecord(path, operation.MachineConfigLimit)
+	raw, found, err := operation.ReadPrivateRecord(
+		path,
+		operation.MachineConfigLimit,
+		"the saved answers and choices",
+	)
 	if err != nil {
 		return nil, err
 	}

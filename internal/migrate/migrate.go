@@ -404,7 +404,7 @@ func recordPath(l Locations) string { return filepath.Join(l.Runtime.State, "mig
 // never replaces it.
 func readRecord(l Locations) (record, error) {
 	empty := record{SchemaVersion: 1, Done: map[string]string{}}
-	data, found, err := operation.ReadPrivateRecord(recordPath(l), 1<<20)
+	data, found, err := operation.ReadPrivateRecord(recordPath(l), 1<<20, "the migration record")
 	if !found || err != nil {
 		return empty, err
 	}

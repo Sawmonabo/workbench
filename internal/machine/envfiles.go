@@ -59,7 +59,7 @@ func EnvFilesProbe(c operation.Context, a Answers) []string {
 // envFileLines describes an env file that is there: the listed names it
 // leaves empty or lacks, and each line it skips.
 func envFileLines(path, file string, names []string) []string {
-	data, err := operation.ReadPrivateInput(path, 1<<20)
+	data, err := operation.ReadPrivateInput(path, 1<<20, file)
 	if err != nil {
 		// Its reason holds "; ", which the plan view joins lines with.
 		return []string{

@@ -127,7 +127,11 @@ func releaseIdentity(record *ReleaseRecord) *SourceIdentity {
 
 // ReadState never creates files. Absence is distinct from invalid current state.
 func ReadState(paths Paths) (*State, error) {
-	data, found, err := ReadPrivateRecord(filepath.Join(paths.State, "state.json"), 1<<20)
+	data, found, err := ReadPrivateRecord(
+		filepath.Join(paths.State, "state.json"),
+		1<<20,
+		"the current Workbench state",
+	)
 	if !found || err != nil {
 		return nil, err
 	}

@@ -285,7 +285,7 @@ func safeParents(path string) error {
 				)
 			}
 		} else if !errors.Is(err, fs.ErrNotExist) {
-			return Fail(ExitInvalid, "path", "Cannot inspect Workbench path parents")
+			return Fail(ExitInvalid, "path", FileError(current, err).Error())
 		}
 		if current == filepath.Dir(current) {
 			return nil

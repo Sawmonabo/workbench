@@ -445,7 +445,7 @@ func AdoptionPlan(c operation.Context, from string) (operation.Plan, []byte, err
 			"machine.toml is not checkpointed; the source config is left unchanged",
 		},
 	}
-	raw, err := operation.ReadPrivateInput(from, 1<<20)
+	raw, err := operation.ReadPrivateInput(from, 1<<20, "the answers to import")
 	if err != nil {
 		return plan, nil, err
 	}

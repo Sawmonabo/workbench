@@ -87,18 +87,21 @@ func readSelection(raw []byte) (Selection, error) {
 	return config.Effects, nil
 }
 
+// savedChoices names machine.toml where a read of it is refused.
+const savedChoices = "the saved answers and choices"
+
 // ReadMachineConfig reads the machine.toml at path (see
 // [operation.Paths.MachineConfig]) as [operation.ReadPrivateInput] reads a
 // private input of at most 1 MiB: a missing file is an error.
 func ReadMachineConfig(path string) ([]byte, error) {
-	return operation.ReadPrivateInput(path, operation.MachineConfigLimit)
+	return operation.ReadPrivateInput(path, operation.MachineConfigLimit, savedChoices)
 }
 
 // lookupMachineConfig is [ReadMachineConfig] for a machine.toml that may not
 // be saved yet: found is false, with no data and no error, when nothing is at
 // path.
 func lookupMachineConfig(path string) (raw []byte, found bool, err error) {
-	return operation.ReadPrivateRecord(path, operation.MachineConfigLimit)
+	return operation.ReadPrivateRecord(path, operation.MachineConfigLimit, savedChoices)
 }
 
 // encodeMachineConfig is the one writer of machine.toml's shape: the [data]
