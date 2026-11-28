@@ -21,9 +21,9 @@ var macOSEffects = []operation.Effect{
 		Recovery:    "package effects external; created files require checkpoints",
 		Title:       "Homebrew packages",
 		Summary:     "Homebrew and the tools Workbench lists",
-		What:        "Installs Homebrew if it is missing, then every formula Workbench lists that is not installed yet. Nothing is upgraded.",
+		What:        "Installs Homebrew if it is missing and each listed formula not installed yet, upgrading nothing.",
 		Touches:     "Homebrew's folders and the tools it installs",
-		RunsAs:      "you; downloads packages. If Homebrew is missing, its installer needs administrator rights, which an apply at a terminal asks for once before it starts: Touch ID where sudo uses it, otherwise your Mac password",
+		RunsAs:      "you, downloading packages, with administrator rights to install a missing Homebrew",
 		Undo:        "Not reverted automatically: remove packages with brew uninstall",
 	},
 	{
@@ -33,20 +33,20 @@ var macOSEffects = []operation.Effect{
 		Recovery:    "external; no package rollback",
 		Title:       "Mac apps and editor extensions",
 		Summary:     "the apps and VS Code extensions Workbench lists",
-		What:        "Installs the apps Workbench lists that are missing and the VS Code extensions you are missing. Apps you installed another way are left alone.",
+		What:        "Installs the listed apps and VS Code extensions that are missing, and leaves apps installed another way.",
 		Touches:     "/Applications and your VS Code extensions",
-		RunsAs:      "you; downloads apps. Some, such as Docker Desktop, need administrator rights: your Mac password, which an apply at a terminal asks for once, or Touch ID each time where sudo uses it",
+		RunsAs:      "you, downloading apps, with administrator rights for some, such as Docker Desktop",
 		Undo:        "Not reverted automatically: remove an app or extension by hand",
 	},
 	{
 		Name:        "brew-maintenance",
-		Description: "Refresh Homebrew's package index unless this apply already did, reinstall tap-sourced packages.toml formulae from homebrew/core, untap unused taps, autoremove, remove old versions and the download cache",
+		Description: "brew update, tap formulae moved to homebrew/core, unused taps untapped, autoremove and cleanup",
 		Privilege:   "user; network",
 		Recovery:    "external; removed versions and cache are not restored",
 		Title:       "Homebrew cleanup",
 		Summary:     "refreshes Homebrew, moves tap packages to core and removes leftovers",
-		What:        "Refreshes Homebrew's package index so the next plan sees new versions (skipped when this apply already refreshed it before planning), reinstalls formulae that came from a third-party tap from homebrew/core, removes taps nothing uses, then removes orphaned packages, old versions and the download cache.",
-		Touches:     "Homebrew's package index, packages, taps and download cache",
+		What:        "Refreshes Homebrew, moves tap formulae to homebrew/core and removes what nothing uses.",
+		Touches:     "Homebrew's index and taps, orphaned packages, old versions and the download cache",
 		RunsAs:      "you; downloads packages",
 		Undo:        "Not reverted: removed versions and the cache are not restored",
 	},
@@ -201,7 +201,7 @@ func hasWork(effect operation.Effect) bool {
 // aiSecurityEffect is the fixed first effect of every plan: the managed AI settings.
 var aiSecurityEffect = operation.Effect{
 	Name:        "ai-security-settings",
-	Description: "Managed AI trust roots, approval/sandbox policy, enabled plugins and work hooks; review policy before apply",
+	Description: "Managed AI trust roots, approval and sandbox policy, enabled plugins and work hooks",
 	Privilege:   "user",
 	Recovery:    "configuration files only",
 	Fixed:       true,
@@ -217,24 +217,24 @@ var aiSecurityEffect = operation.Effect{
 var sharedEffects = []operation.Effect{
 	{
 		Name:        "migrations",
-		Description: "The installed workbench moves files earlier Workbench releases wrote into Workbench's own folders, moves the work tokens saved in machine.toml into a new work.env, deletes the old caches and removes the guard log's old-format lines; never other tools' files",
+		Description: "The installed workbench migrates the files earlier releases wrote, never other tools' files",
 		Privilege:   "user",
-		Recovery:    "external; moves keep every ledger row, every saved token and every other file's bytes, so moving a file or token back by hand restores the old layout",
+		Recovery:    "external; a moved file or token can be moved back by hand",
 		Title:       "Move Workbench's files",
-		Summary:     "files earlier releases left outside Workbench's folders move into them, and saved work tokens into work.env",
-		What:        "Moves the files earlier Workbench releases wrote outside Workbench's own folders, such as the costs ledger, into them, deletes the old caches they left, and removes the free-text lines earlier builds of the agent command guard wrote to its log. It moves the Jira and GitLab tokens earlier releases saved in machine.toml into a new work.env in Workbench's config folder, with the work email and the Jira and GitLab addresses you gave, and deletes them from machine.toml only once work.env holds them. It renames costs-ingest to agent-costs-ingest in the choices saved in machine.toml, so the choice you made for Record AI usage still applies. It never touches other tools' files, merges nothing, and leaves a file where it is when old and new data both exist, so a work.env that does not hold those same tokens stays as it is, and so do the tokens in machine.toml. Unticking it skips the cache clean-ups, leaves the tokens in machine.toml until a later apply moves them, and only delays the costs move: the next time Claude Code or Codex reports usage, Workbench moves the costs files itself, so no usage is lost when session files are deleted.",
-		Touches:     "the old claude-costs folders and completion cache, the agent command guard's log, machine.toml and work.env in Workbench's config folder, and Workbench's own folders",
+		Summary:     "moves files earlier releases left, and saved work tokens into work.env",
+		What:        "Moves files earlier releases left into Workbench's folders, and saved work tokens into work.env.",
+		Touches:     "the old costs folders, the old caches it deletes, the guard log, machine.toml and work.env",
 		RunsAs:      "you",
-		Undo:        "Not reverted automatically: moved files keep every ledger row and every other file's bytes, so moving them back by hand restores the old layout; the deleted files are caches, rebuilt when needed, the old import log, lock and copies identical to the moved ones, and the guard log's old-format lines; work.env keeps the moved tokens, so copying them back into machine.toml by hand restores the old answers",
+		Undo:        "Not reverted automatically: a moved file or token can be moved back by hand",
 	},
 	{
 		Name:        "env-files",
-		Description: "The installed workbench creates each missing env file the machine's roles use, work.env and personal.env in Workbench's config folder, mode 0600 with the listed names, work.env's addresses and JIRA_EMAIL from the answers and the rest empty; never writes one that is there",
+		Description: "The installed workbench creates each missing role env file, mode 0600, and never writes one that is there",
 		Privilege:   "user",
 		Recovery:    "external; a created file is not checkpointed",
 		Title:       "Credential files",
 		Summary:     "work.env and personal.env, where your credentials go",
-		What:        "Creates work.env for the work role and personal.env for the personal role in Workbench's config folder when they are missing, readable by you alone, with the names the work tools read: the Jira and GitLab addresses you gave and your work email filled in, and the rest (such as JIRA_API_TOKEN) left empty for you to fill in. After that each file is yours: Workbench never writes it again. Your shell loads a file only inside its role's folder. While the Move Workbench's files step still has the saved work tokens to move, it leaves work.env to that step.",
+		What:        "Creates work.env and personal.env for your roles when missing, readable by you alone, for you to fill in.",
 		Touches:     "work.env and personal.env in Workbench's config folder",
 		RunsAs:      "you",
 		Undo:        "Delete the file by hand; it is not checkpointed",
@@ -246,7 +246,7 @@ var sharedEffects = []operation.Effect{
 		Recovery:    "external; no package rollback",
 		Title:       "Runtime managers",
 		Summary:     "nvm, rustup, uv, bun and Go are in place",
-		What:        "Makes sure nvm, rustup, uv, bun and Go are installed, adding whatever is missing. Go is updated to the version Workbench is set to use.",
+		What:        "Installs whichever of nvm, rustup, uv, bun and Go is missing, and updates Go to the version Workbench uses.",
 		Touches:     "~/.nvm, ~/.cargo, ~/.bun, ~/go and ~/.local/bin",
 		RunsAs:      "you; downloads the official installers",
 		Undo:        "Not reverted automatically: delete the folders by hand",
@@ -258,7 +258,7 @@ var sharedEffects = []operation.Effect{
 		Recovery:    "external; no runtime rollback",
 		Title:       "Language runtimes",
 		Summary:     "Node, Python and Rust at the versions you chose",
-		What:        "Installs Node and makes it the default, installs Python through uv and Rust through rustup, at the versions Workbench is set to use.",
+		What:        "Installs Node (the default), Python through uv and Rust through rustup, at the versions Workbench uses.",
 		Touches:     "the Node, Python and Rust installs under your home folder",
 		RunsAs:      "you; downloads from the official sites",
 		Undo:        "Not reverted automatically: remove a version with nvm, uv or rustup",
@@ -270,9 +270,9 @@ var sharedEffects = []operation.Effect{
 		Recovery:    "external; no tool rollback",
 		Title:       "Command-line tools",
 		Summary:     "Claude Code, Codex and the tools Workbench lists",
-		What:        "Installs the global npm, uv, cargo and Go tools Workbench lists, Claude Code and Codex through npm when they are missing (an installed copy is updated by its own update step), and on Linux podman and, through go install, gofumpt and govulncheck, which the Mac gets from Homebrew. Their install steps run. Each run also sets the versions of the tools that are installed, other than Codex's and Claude Code's: to the pinned ones in pinned mode, to the latest in latest mode.",
-		Touches:     "the global tool folders under your home folder",
-		RunsAs:      "you; downloads packages and runs their install steps; podman uses sudo",
+		What:        "Installs the global npm, uv, cargo and Go tools Workbench lists, and Claude Code and Codex when missing.",
+		Touches:     "the global tool folders under your home folder, at the versions your mode sets",
+		RunsAs:      "you; downloads packages and runs their install steps; podman, on Linux, uses sudo",
 		Undo:        "Not reverted automatically: uninstall a tool with npm, uv, cargo or go",
 	},
 	{
@@ -289,15 +289,15 @@ var sharedEffects = []operation.Effect{
 	},
 	{
 		Name:        "claude-mcp",
-		Description: "The installed workbench lists the claude mcp commands that register the work dispatch servers with Claude Code at user scope, each started through workbench mcp-gate, or that remove them without the work role; claude writes its own ~/.claude.json and same-named local entries are reported, never removed",
+		Description: "claude mcp registers the work dispatch servers at user scope, or removes them without the work role",
 		Privilege:   "user",
 		Recovery:    "external; Claude Code's entries are not checkpointed",
 		Title:       "Claude Code work servers",
 		Summary:     "the work MCP servers, started only inside your work folder",
-		What:        "Registers the work dispatch servers with Claude Code for all your sessions, through Claude Code's own claude mcp commands, so no credential is written into its settings. Each one starts through workbench mcp-gate, which starts the server with the names in work.env only for a session started inside your work folder. Anywhere else an idle mcp-gate process stays for the session in place of each, about 19 MB of memory each and so about 38 MB per session: no server, no Node and no tools. Without the work role it removes them. A same-named entry Claude Code keeps for one project outranks these, so the plan names it with the command that removes it.",
-		Touches:     "the user-scope MCP servers in ~/.claude.json, and ~/.claude/settings.json when this is Claude Code's first run, which rewrites it: the settings this apply wrote are put back",
+		What:        "Registers the work servers for every Claude Code session, each idle at about 19 MB outside your work folder.",
+		Touches:     "the user-scope MCP servers in ~/.claude.json, and ~/.claude/settings.json at Claude Code's first run",
 		RunsAs:      "you",
-		Undo:        "Not reverted automatically: claude mcp remove --scope user dispatch-atlassian, then the same for dispatch-gitlab",
+		Undo:        "Not reverted automatically: claude mcp remove --scope user NAME, for dispatch-atlassian and dispatch-gitlab",
 	},
 	{
 		Name:        "agent-costs-ingest",
@@ -306,7 +306,7 @@ var sharedEffects = []operation.Effect{
 		Recovery:    "external; ledger rows are derived from the transcripts and not reverted",
 		Title:       "Record AI usage",
 		Summary:     "new usage shows up in workbench agent costs",
-		What:        "Reads your latest Claude Code and Codex sessions into the agent costs ledger, the same thing the session hooks do.",
+		What:        "Reads your latest Claude Code and Codex sessions into the agent costs ledger, as the session hooks do.",
 		RunsAs:      "you; downloads the official price pages",
 		Undo:        "Nothing to undo: rows already recorded stay, even after the session files they came from are deleted",
 	},
@@ -315,12 +315,12 @@ var sharedEffects = []operation.Effect{
 // linuxPackagesEffect is the apt or dnf bootstrap of Linux and WSL.
 var linuxPackagesEffect = operation.Effect{
 	Name:        "linux-packages",
-	Description: "apt (Ubuntu) or dnf (AlmaLinux) base prerequisites/bat/fd/jq/ripgrep/htop/tree/ShellCheck/tmux, gh/golangci-lint/lefthook/gitleaks release binaries in ~/.local/bin, themes, fonts and your work and personal folders",
+	Description: "apt or dnf base tools, release binaries in ~/.local/bin, themes, fonts and your work and personal folders",
 	Privilege:   "sudo; network and font-cache effects",
 	Recovery:    "packages external; written files/links require checkpoints",
 	Title:       "System packages",
 	Summary:     "apt or dnf tools, fonts and your work and personal folders",
-	What:        "Installs a C toolchain, bat, fd, jq, ripgrep, htop, tree, ShellCheck and tmux with apt on Ubuntu or dnf on AlmaLinux, the GitHub CLI, golangci-lint, lefthook and gitleaks from their own releases, the oh-my-posh prompt and its themes and the Nerd Font, and creates your work and personal folders.",
+	What:        "Installs the base tools with apt or dnf, release binaries, the prompt and its font, and makes your folders.",
 	Touches:     "system packages, ~/.local/bin, ~/.local/share/fonts, your work and personal folders",
 	RunsAs:      "you, with sudo; downloads packages",
 	Undo:        "Not reverted automatically: remove packages with apt or dnf",
@@ -336,8 +336,8 @@ var epelEffect = operation.Effect{
 	Recovery:    "external; the package source stays on",
 	Title:       "EPEL",
 	Summary:     "Fedora's extra packages for AlmaLinux (bat, fd, ripgrep, htop, ShellCheck)",
-	What:        "Installs epel-release with dnf when it is missing, which turns on EPEL, the package source the System packages step installs bat, fd, ripgrep, htop and ShellCheck from. Other repositories, CRB included, are left as they are.",
-	Touches:     "the system's dnf repositories",
+	What:        "Installs epel-release with dnf when it is missing, turning on the package source System packages uses.",
+	Touches:     "the system's dnf repositories (EPEL only)",
 	RunsAs:      "you, with sudo; downloads packages",
 	Undo:        "Not reverted automatically: sudo dnf remove epel-release",
 }
@@ -346,12 +346,12 @@ var epelEffect = operation.Effect{
 // wslEditorEffect under the same name instead.
 var linuxEditorEffect = operation.Effect{
 	Name:        "linux-editor-extensions",
-	Description: "Canonical extensions installed only into a verified local VS Code desktop default profile; unavailable or ambiguous editor hosts block this effect",
+	Description: "Listed extensions installed only into a verified local VS Code desktop default profile",
 	Privilege:   "user; marketplace network and extension code",
 	Recovery:    "external; extensions are not reverted",
 	Title:       "VS Code extensions",
 	Summary:     "your extension set in the local editor",
-	What:        "Installs the VS Code extensions Workbench lists into the desktop VS Code on this computer, only when it is a normal local install.",
+	What:        "Installs the listed VS Code extensions into this computer's VS Code, when it is a normal local install.",
 	Touches:     "~/.vscode/extensions",
 	RunsAs:      "you; downloads from the marketplace and runs extension code",
 	Undo:        "Not reverted automatically: uninstall an extension in VS Code",
@@ -368,7 +368,7 @@ var workToolsEffect = operation.Effect{
 	What:        "Installs the work VS Code extension.",
 	Touches:     "your VS Code extensions",
 	RunsAs:      "you; downloads from the marketplace and runs extension code",
-	Undo:        "Not reverted automatically: uninstall the extension in VS Code. A Bitwarden CLI installed earlier stays: run bw lock (or delete ~/.config/Bitwarden CLI/session) and remove bw by hand",
+	Undo:        "Not reverted automatically: uninstall the extension in VS Code",
 }
 
 // windowsHostEffects are the Windows-side owners a WSL host lists. Windows
@@ -381,12 +381,12 @@ var windowsHostEffects = []operation.Effect{
 	{
 		Name:        "windows-files",
 		Optional:    true,
-		Description: "Discovered Windows home/AppData: oh-my-posh binary/themes, fonts, .wslconfig, bin/rg.exe and Notepad++ themes; RestartWSL helpers an earlier release wrote are left in place",
+		Description: "Windows home and AppData: oh-my-posh and its themes, fonts, .wslconfig, bin/rg.exe and Notepad++ themes",
 		Privilege:   "Windows user; not yet checked on a real Windows host",
 		Recovery:    "script writes are not checkpointed; acquired executables are external",
 		Title:       "Windows setup",
 		Summary:     "theme, fonts and ripgrep on the Windows side",
-		What:        "Puts the Windows side of your setup in place: the oh-my-posh theme, JetBrains Mono fonts, ripgrep and Notepad++ themes. Workbench no longer writes the RestartWSL helpers; copies an earlier release wrote stay where they are, and you can delete them by hand. Your Windows Terminal settings, PowerShell profile and font registration are separate optional steps; each stays off until you turn it on.",
+		What:        "Puts the oh-my-posh theme, JetBrains Mono fonts, ripgrep and Notepad++ themes on the Windows side.",
 		Touches:     "your Windows home and AppData folders",
 		RunsAs:      "you, on Windows",
 		Undo:        "Not checkpointed: Windows files are outside Workbench's restore",
@@ -398,10 +398,10 @@ var windowsHostEffects = []operation.Effect{
 		Recovery:    "configuration only; running VM state is external",
 		Title:       "WSL networking",
 		Summary:     "Windows and WSL share localhost (mirrored)",
-		What:        "Sets WSL networking to mirrored, so a server started in WSL is reachable from Windows at localhost and the other way round, and applies your memory, swap and processor sizing. Your other .wslconfig settings are kept and a copy of the file is saved first. Takes effect the next time WSL starts.",
-		Touches:     "%USERPROFILE%\\.wslconfig",
+		What:        "Sets WSL networking to mirrored and applies your memory, swap and CPU sizing, from WSL's next start.",
+		Touches:     "%USERPROFILE%\\.wslconfig, a copy saved first and your other settings kept",
 		RunsAs:      "you, on Windows",
-		Undo:        "Restore the copy next to .wslconfig; nothing restarts on its own. " + writerRecordNote,
+		Undo:        "Restore the copy saved next to .wslconfig",
 	},
 }
 
@@ -451,29 +451,18 @@ func mbxEffect(pin MbxPin) (operation.Effect, bool) {
 	return operation.Effect{
 		Name:     "mbx",
 		Optional: true,
-		Description: "mbx " + pin.Version + " from jdx/mr-boxington's release into ~/.local/bin, its archive checked " +
-			"against the pinned SHA-256; mbx setup with no mise scope and no prompt, which installs mbx's Cargo shim " +
-			"and rust-analyzer's check command; scheduler.memory (" + memory + " of installed memory, whole GiB) and " +
-			"scheduler.reserve_cpus (" + cpus + ") written to mbx's user config file, each only when the file does " +
-			"not set it",
+		Description: "mbx " + pin.Version + " checked against its SHA-256, mbx setup, and a budget of " + memory +
+			" of memory and " + cpus + " cores free",
 		Privilege: "user; network",
 		Recovery:  "external; revert does not undo it",
 		Title:     "Rust build cache",
 		Summary:   "plain cargo shares one compile cache and one CPU and memory budget",
-		What: "Installs mbx " + pin.Version + ", a shared Rust compile cache and scheduler, into ~/.local/bin and " +
-			"runs mbx setup, so plain cargo in a new shell, and rust-analyzer's checks, run through it: a crate " +
-			"compiled in one checkout is reused by every other checkout, and parallel builds share one CPU and " +
-			"memory budget. It sets that budget once, from this machine: " + memory + " of its memory and " + cpus +
-			" CPU cores left for other work. A value already in mbx's config file stays, and a project's .mbx.toml " +
-			"still wins over both. To change it, run mbx settings set scheduler.memory 24GiB or mbx settings set " +
-			"scheduler.reserve_cpus 4; Workbench never changes a value that is there. To see which cargo a coding " +
-			"agent's commands run, ask the agent to run command -v cargo.",
-		Touches: "~/.local/bin/mbx, mbx's Cargo shim, mbx's config file and rust-analyzer's user " +
-			"rust-analyzer.toml",
-		RunsAs: "you; downloads mbx from GitHub",
+		What: "Installs mbx " + pin.Version + ", a shared Rust compile cache, so plain cargo and rust-analyzer " +
+			"run through it.",
+		Touches: "~/.local/bin/mbx, its Cargo shim, its config file and rust-analyzer.toml",
+		RunsAs:  "you; downloads mbx from GitHub",
 		Undo: "Not reverted automatically: run mbx setup --uninstall, then delete ~/.local/bin/mbx and the " +
-			"shim folder it names (~/.local/share/mbx/bin on Linux, ~/Library/Application Support/mbx/bin on a " +
-			"Mac); while that folder holds the shim, plain cargo runs it",
+			"shim folder",
 	}, true
 }
 
@@ -483,15 +472,15 @@ var optionalEffects = []operation.Effect{
 	{
 		Name:        "terminal-adoption",
 		Optional:    true,
-		Description: "Replace an existing Windows Terminal settings.json with the managed one when it differs, keeping the profiles and color schemes it does not manage; a copy is kept beside it; register the font it uses",
+		Description: "The managed Windows Terminal settings.json in place of yours, a copy kept, and its font registered",
 		Privilege:   "Windows user",
 		Recovery:    "copy only; not checkpointed",
 		Title:       "Replace Windows Terminal settings",
 		Summary:     "replaces yours; a copy is kept",
-		What:        "Replaces your Windows Terminal settings.json with the managed one, when it differs, keeping the profiles and color schemes yours has that it does not manage, such as other distributions'. A copy of yours is kept next to it. Installs and registers the font it uses, if that is not done yet.",
+		What:        "Replaces your Windows Terminal settings.json with the managed one, keeping your other profiles and a copy.",
 		Touches:     "Windows Terminal settings.json and your Windows font registry",
 		RunsAs:      "you, on Windows",
-		Undo:        "Restore the copy by hand. " + writerRecordNote,
+		Undo:        "Restore the copy by hand",
 	},
 	{
 		Name:        "powershell-adoption",
@@ -501,10 +490,10 @@ var optionalEffects = []operation.Effect{
 		Recovery:    "copy only; not checkpointed",
 		Title:       "Replace PowerShell profile",
 		Summary:     "replaces yours; a copy is kept",
-		What:        "Replaces your PowerShell profile with the managed one. A copy of yours is kept next to it. Installs oh-my-posh, which the profile starts, if it is missing.",
+		What:        "Replaces your PowerShell profile with the managed one, keeping a copy, and installs oh-my-posh if missing.",
 		Touches:     "your PowerShell profile",
 		RunsAs:      "you, on Windows",
-		Undo:        "Restore the copy by hand. " + writerRecordNote,
+		Undo:        "Restore the copy by hand",
 	},
 	{
 		Name:        "font-registry",
@@ -514,7 +503,7 @@ var optionalEffects = []operation.Effect{
 		Recovery:    "external; registry values are not reverted",
 		Title:       "Install fonts for Windows apps",
 		Summary:     "every Windows app can use JetBrains Mono",
-		What:        "Registers the JetBrains Mono Nerd Font files for your Windows user and loads them now, so apps see them without signing out. Downloads the font files first if they are missing.",
+		What:        "Registers the JetBrains Mono Nerd Font for your Windows user and loads it now, downloading it if missing.",
 		Touches:     "your Windows font registry",
 		RunsAs:      "you, on Windows",
 		Undo:        "Not reverted automatically",
@@ -522,26 +511,16 @@ var optionalEffects = []operation.Effect{
 	{
 		Name:     "default-distro",
 		Optional: true,
-		Description: "Make this distribution the default WSL distribution and, where Windows Terminal has " +
-			"more than one WSL profile, the profile new Terminal tabs open (only defaultProfile in its " +
-			"settings.json, a copy kept beside it)",
+		Description: "Make this distribution WSL's default and, with several WSL profiles, the one new " +
+			"Terminal tabs open",
 		Privilege: "Windows user",
 		Recovery:  "external; the previous defaults are not restored; a copy of Terminal's settings.json is kept",
 		Title:     "Open new terminals in this distribution",
 		Summary:   "plain wsl and new Windows Terminal tabs open it",
-		What: "Makes this distribution the one plain `wsl` opens (Docker Desktop can leave its own as the " +
-			"default) and, when Windows Terminal has more than one WSL profile, the profile new Terminal tabs " +
-			"open: it sets only defaultProfile in Terminal's settings.json, keeping everything else in the " +
-			"file, and keeps a copy of the file next to it. With one distribution that wsl already opens, or " +
-			"one WSL profile in Terminal, there is nothing to choose, so it is not asked and Terminal's own " +
-			"default, such as PowerShell, stays; Docker Desktop left as wsl's default is asked about even with " +
-			"one distribution of your own. Terminal set to restore your last window's tabs " +
-			"at start (firstWindowPreference persistedWindowLayout) still restores them; the default decides " +
-			"new tabs and a window with nothing to restore.",
-		Touches: "WSL settings and Windows Terminal settings.json (defaultProfile only)",
-		RunsAs:  "you, on Windows",
-		Undo: "wsl --set-default <name>, and choose the default profile in Terminal's settings, or restore " +
-			"the settings.json copy. " + writerRecordNote,
+		What:      "Makes this distribution the one plain `wsl` and new Windows Terminal tabs open.",
+		Touches:   "WSL settings and Windows Terminal settings.json (defaultProfile only, a copy kept)",
+		RunsAs:    "you, on Windows",
+		Undo:      "wsl --set-default <name>, and pick Terminal's default profile or restore its settings.json copy",
 	},
 	{
 		Name:        "windows-path",
@@ -551,7 +530,7 @@ var optionalEffects = []operation.Effect{
 		Recovery:    "external; PATH is not reverted",
 		Title:       "Add Windows bin folders to PATH",
 		Summary:     "Windows finds the tools Workbench puts there",
-		What:        "Adds %USERPROFILE%\\bin and %USERPROFILE%\\.local\\bin to your Windows user PATH, after what is already there.",
+		What:        "Appends %USERPROFILE%\\bin and %USERPROFILE%\\.local\\bin to your Windows user PATH.",
 		Touches:     "your Windows user PATH",
 		RunsAs:      "you, on Windows",
 		Undo:        "Remove the two entries in Environment Variables",
@@ -564,7 +543,7 @@ var optionalEffects = []operation.Effect{
 		Recovery:    "external; kernel setting and file are not reverted",
 		Title:       "Lower swapping",
 		Summary:     "keeps programs in memory; swaps only under real pressure",
-		What:        "Sets vm.swappiness to 10, so idle programs stay in memory on this large-memory WSL machine, and keeps it across restarts.",
+		What:        "Sets vm.swappiness to 10, kept across restarts, so idle programs stay in memory.",
 		Touches:     "/etc/sysctl.d/99-dev.conf",
 		RunsAs:      "you, with sudo",
 		Undo:        "Delete /etc/sysctl.d/99-dev.conf and restart WSL",

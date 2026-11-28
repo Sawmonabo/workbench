@@ -249,7 +249,7 @@ func recoveryLimits() []string {
 		limits = append(
 			limits,
 			"Revert leaves the Windows Terminal settings, PowerShell profile, .wslconfig and default distribution",
-			"Revert leaves "+writerRecord+", which is safe to delete",
+			"Revert leaves "+writerRecord+" as it is",
 		)
 	}
 	return limits

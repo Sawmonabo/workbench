@@ -12,12 +12,8 @@ import (
 )
 
 // writerRecord is the Windows record of which WSL distribution writes each
-// file only one of them may write, and writerRecordNote what the steps' Undo
-// says of it.
-const (
-	writerRecord     = `%LOCALAPPDATA%\Workbench\writers.json`
-	writerRecordNote = writerRecord + " records which WSL distribution writes it; deleting that file is safe"
-)
+// file only one of them may write.
+const writerRecord = `%LOCALAPPDATA%\Workbench\writers.json`
 
 // writerSteps are the Windows-side steps whose file only one distribution
 // writes: the one home/.chezmoitemplates/windows-writers.sh's record names. A
@@ -120,10 +116,9 @@ func takeOverEffects(probed []operation.Effect) []operation.Effect {
 			Privilege: step.Privilege,
 			Recovery:  step.Recovery,
 			Title:     step.Title + " (take over from " + distribution + ")",
-			Summary:   distribution + " writes it now; this distribution writes it from this apply on",
-			What: "Runs the " + step.Name + " step from this distribution, although " +
-				distribution + " is recorded as the one that writes it, and records this distribution instead. " +
-				distribution + " then leaves it alone; moving it back is workbench apply --choose there.",
+			Summary:   "this distribution writes it from this apply on, in place of " + distribution,
+			What: "Runs the " + step.Name + " step from this distribution in place of " + distribution +
+				", and records this distribution as its writer.",
 			Touches: step.Touches + ", and " + writerRecord,
 			RunsAs:  step.RunsAs,
 			Undo:    step.Undo,

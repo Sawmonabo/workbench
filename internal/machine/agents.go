@@ -336,29 +336,19 @@ func (p *preparation) planAgentUpdate(
 		effect.Recovery = "external; the previous release is kept"
 		if channel != "" {
 			effect.What = "Updates Codex from " + install.version + " to " + target +
-				" with OpenAI's standalone installer (chatgpt.com/codex/install.sh --release latest), as codex update does, so Codex keeps updating itself in the background. The apply first checks that Codex's latest channel still offers " +
-				target + ", and afterwards that " + target + " is the release installed; otherwise the update is blocked, and a newer release the installer took instead may remain installed."
+				" as codex update does, keeping its background updates."
 		} else {
 			effect.What = "Updates Codex from " + install.version + " to " + target +
-				" with OpenAI's standalone installer (chatgpt.com/codex/install.sh --release " + target +
-				"); afterwards " + target + " must be the release installed, or the update is blocked. Installing a set release removes the standalone package's auto-update-version marker, so Codex stops updating itself in the background and stays at the pin. codex update turns background updates back on; it installs the newest release and writes the marker again."
+				" with OpenAI's standalone installer, which stops its background updates."
 		}
 		effect.Touches = "~/.codex/packages/standalone and ~/.local/bin/codex"
-		effect.Undo = "Not reverted automatically: the previous release stays in ~/.codex/packages/standalone/releases, and the installer's --release " +
-			install.version + " selects it again"
+		effect.Undo = "Not reverted automatically: the installer's --release " + install.version +
+			" selects the previous release again"
 	case "native":
 		effect.Description = "Update Claude Code " + versions + " through its native installer" + source
 		effect.Recovery = "external; the installer keeps the newest earlier versions"
-		effect.What = "Updates Claude Code from " + install.version + " to " + target +
-			" with claude install " + target + ", the native installer's own command, which leaves its release channel (autoUpdatesChannel) as it is. The apply first checks the GPG signature on Anthropic's release manifest for " +
-			target + ", then downloads " + target + "'s binary for this machine to a private folder and runs it only if it matches that manifest's SHA-256. claude install downloads " +
-			target + " again itself; the binary it installs must match as well, or it is removed, " +
-			install.version + " is put back and the update is blocked. Claude Code keeps updating itself in the background on its channel"
-		if channel == "" {
-			effect.What += ", never below the minimumVersion Workbench sets in its settings: the version installed while that is older than the pin, the pin once this update has run."
-		} else {
-			effect.What += "."
-		}
+		effect.What = "Updates Claude Code from " + install.version + " to " + target + " with claude install " +
+			target + ", once its signed release manifest checks out."
 		effect.Touches = "~/.local/share/claude/versions and ~/.local/bin/claude"
 		effect.Undo = "Not reverted automatically: claude install " + install.version +
 			" brings back the previous version"

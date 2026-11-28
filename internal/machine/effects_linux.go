@@ -11,12 +11,12 @@ import (
 // Windows is touched or run.
 var wslEditorEffect = operation.Effect{
 	Name:        linuxEditorEffect.Name,
-	Description: "Canonical extensions, except those that run only on the Windows side, installed into this distribution's VS Code server (~/.vscode-server/extensions) with the newest server's own command line that lists its extensions; nothing to do until VS Code (stable) has opened a folder here; a link in the extensions folder's path, or no working server, blocks this effect",
+	Description: "Listed extensions, except Windows-side ones, installed into this distribution's VS Code server",
 	Privilege:   linuxEditorEffect.Privilege,
 	Recovery:    linuxEditorEffect.Recovery,
 	Title:       "VS Code extensions",
 	Summary:     "your extension set in VS Code's server in this distribution",
-	What:        "Installs the VS Code extensions Workbench lists into this distribution's VS Code server, which VS Code on Windows uses when it opens a folder here. Extensions that run only on the Windows side, such as Remote - WSL, are left out. Until VS Code has opened a folder here there is no server, and nothing to do.",
+	What:        "Installs the listed VS Code extensions into this distribution's VS Code server, once there is one.",
 	Touches:     "~/.vscode-server/extensions",
 	RunsAs:      linuxEditorEffect.RunsAs,
 	Undo:        "Not reverted automatically: uninstall an extension in VS Code while it has a folder here open",
