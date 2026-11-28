@@ -304,7 +304,7 @@ func targetACL(fd int, selector, path string, h holder) (platform.ACL, error) {
 		return platform.ACL{}, Fail(
 			ExitBlocked,
 			"metadata",
-			"Cannot read the ACL of "+display.Path(path)+": "+err.Error(),
+			"Cannot read the ACL of "+display.Path(path)+": "+err.Error()+h.retry(nil, path),
 		)
 	}
 	return acl, nil
@@ -403,7 +403,7 @@ func readImageAttributes(fd int, path string, h holder) (map[string][]byte, erro
 			ExitBlocked,
 			"metadata",
 			"The names of the extended attributes of "+display.Path(path)+" take more than the "+
-				display.Limit(int64(len(names)))+" Workbench reads",
+				display.Limit(int64(len(names)))+" Workbench reads"+h.retry(nil, path),
 		)
 	}
 	if err != nil {
@@ -429,7 +429,7 @@ func readImageAttributes(fd int, path string, h holder) (map[string][]byte, erro
 				ExitBlocked,
 				"metadata",
 				"The extended attribute "+what+" is larger than the "+
-					display.Limit(int64(len(data)))+" Workbench keeps",
+					display.Limit(int64(len(data)))+" Workbench keeps"+h.retry(nil, path),
 			)
 		}
 		if err != nil {
