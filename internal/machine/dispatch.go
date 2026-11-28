@@ -4,7 +4,7 @@ import (
 	"path/filepath"
 	"slices"
 
-	"github.com/Sawmonabo/workbench/internal/migrate"
+	"github.com/Sawmonabo/workbench/internal/machine/envfile"
 )
 
 // dispatchServer is one dispatch MCP server as Codex and Claude Code both
@@ -47,7 +47,7 @@ func dispatchServers(a Answers, bin, config, home string) []dispatchServer {
 		server := &servers[i]
 		server.Command = bin
 		server.Args = []string{
-			"mcp-gate", "--folder", work, "--env-file", migrate.WorkEnvPath(config), "--",
+			"mcp-gate", "--folder", work, "--env-file", envfile.WorkEnvPath(config), "--",
 			filepath.Join(nvmRoot(home), "nvm-exec"), "node",
 			filepath.Join(checkout, server.Name, "dist", "index.js"),
 		}

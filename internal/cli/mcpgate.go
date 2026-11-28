@@ -12,7 +12,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/Sawmonabo/workbench/internal/machine"
+	"github.com/Sawmonabo/workbench/internal/machine/envfile"
 	"github.com/Sawmonabo/workbench/internal/operation"
 )
 
@@ -44,7 +44,7 @@ func mcpGateCommand(o *options) *cobra.Command {
 				operation.ExitFailed, "mcp_gate", envFile+" is missing or readable by others",
 			), "mcp-gate: ")
 		}
-		pairs, bad := machine.ParseEnvFile(data)
+		pairs, bad := envfile.ParseEnvFile(data)
 		for _, line := range bad {
 			_, _ = fmt.Fprintf(
 				cmd.ErrOrStderr(),

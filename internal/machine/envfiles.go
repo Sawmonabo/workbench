@@ -7,10 +7,10 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
-	"regexp"
 	"slices"
 	"strings"
 
+	"github.com/Sawmonabo/workbench/internal/machine/envfile"
 	"github.com/Sawmonabo/workbench/internal/migrate"
 	"github.com/Sawmonabo/workbench/internal/operation"
 )
@@ -21,79 +21,7 @@ import (
 var envRoles = []struct {
 	role  string
 	names []string
-}{{"work", migrate.WorkEnvNames}, {"personal", nil}}
-
-// envName is a name an env file may set, and envReserved the names it may
-// not: the ones the shell hooks run through, which the hook would unset
-// outside the folder. That is PATH and HOME, zsh's path (tied to PATH) and
-// PWD (the zsh hook's folder), bash's PROMPT_COMMAND and zsh's
-// precmd_functions and chpwd_functions (what runs the hook), the regex match
-// results the hooks' tests overwrite (bash's BASH_REMATCH, zsh's MATCH,
-// MBEGIN, MEND, match, mbegin and mend), and the hooks' own variables. Case counts: Path or http_proxy loads.
-var (
-	envName     = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
-	envReserved = regexp.MustCompile(
-		`^(PATH|path|HOME|PWD|PROMPT_COMMAND|precmd_functions|chpwd_functions|` +
-			`BASH_REMATCH|MATCH|MBEGIN|MEND|match|mbegin|mend|__workbench_.*|_wb_.*)$`,
-	)
-)
-
-// ParseEnvFile reads an env file's NAME=value lines with a value, in file
-// order: the names to set. Blank lines, # comments and a NAME= line with an
-// empty value are skipped, so a name the owner has not filled in never hides
-// a tool's own setting. bad holds every other line, by number from 1 and why
-// it is skipped: one that is not NAME=value with a valid name that is not
-// reserved, and a value that is unquoted, has no space or tab at either end
-// and no carriage return at its end. The file is never sourced, so `export
-// NAME=value`, a quoted or padded value or a Windows line ending would load
-// wrong, and a reserved name would break the shell or the hook. A value is
-// everything after the first =, as written, and never part of a reason. The
-// shell hooks in home/private_dot_bashrc.tmpl and home/dot_zshrc.tmpl read the
-// same way.
-func ParseEnvFile(data []byte) (pairs [][2]string, bad []BadEnvLine) {
-	number := 0
-	for line := range strings.Lines(string(data)) {
-		number++
-		line = strings.TrimSuffix(line, "\n")
-		if trimmed := strings.TrimSpace(line); trimmed == "" || strings.HasPrefix(trimmed, "#") {
-			continue
-		}
-		name, value, ok := strings.Cut(line, "=")
-		if reason := badEnvReason(name, value, ok); reason != "" {
-			bad = append(bad, BadEnvLine{number, reason})
-			continue
-		}
-		if value != "" {
-			pairs = append(pairs, [2]string{name, value})
-		}
-	}
-	return pairs, bad
-}
-
-// BadEnvLine is an env file line ParseEnvFile skips: its number, from 1, and
-// why, in words that never hold its value.
-type BadEnvLine struct {
-	Number int
-	Reason string
-}
-
-// badEnvReason is why a NAME=value line split at its first = (ok false when
-// it has none) is skipped, or "" when it loads.
-func badEnvReason(name, value string, ok bool) string {
-	switch {
-	case !ok || !envName.MatchString(name):
-		return "is not NAME=value"
-	case envReserved.MatchString(name):
-		return "sets " + name + ", which the shell hook needs"
-	case strings.HasPrefix(value, `"`) || strings.HasPrefix(value, "'"):
-		return "has a quoted value; write it without quotes"
-	case strings.HasSuffix(value, "\r"):
-		return "ends in a Windows line ending"
-	case strings.Trim(value, " \t") != value:
-		return "has a space or tab at the start or end of its value"
-	}
-	return ""
-}
+}{{"work", envfile.WorkEnvNames}, {"personal", nil}}
 
 // EnvFilesProbe is the env-files step's probe lines. The step only creates a
 // missing file for a role the machine has, so every other line has nothing to
@@ -138,7 +66,7 @@ func envFileLines(path, file string, names []string) []string {
 			"= Workbench can't read " + file + " as a private file (mode 600, one link, yours)",
 		}
 	}
-	pairs, bad := ParseEnvFile(data)
+	pairs, bad := envfile.ParseEnvFile(data)
 	set := map[string]bool{}
 	for _, pair := range pairs {
 		set[pair[0]] = true
@@ -179,7 +107,7 @@ func EnvFilesRun(_ context.Context, c operation.Context, a Answers, say func(str
 	operation.RemoveStaleWrites(c.Paths.Config)
 	// The answers are checked, so each is one line of text, and they hold no
 	// token once 0005 has nothing left to move.
-	values, _ := migrate.WorkValues(a)
+	values, _ := envfile.WorkValues(a)
 	said := false
 	for _, env := range envRoles {
 		file := env.role + ".env"
@@ -196,7 +124,7 @@ func EnvFilesRun(_ context.Context, c operation.Context, a Answers, say func(str
 		// lists no names, starts empty.
 		content := []byte{}
 		if env.role == "work" {
-			content = migrate.WorkEnv(values)
+			content = envfile.WorkEnv(values)
 		}
 		if err := operation.CreatePrivateFile(path, content); err != nil {
 			return err

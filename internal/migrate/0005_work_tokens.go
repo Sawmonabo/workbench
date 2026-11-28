@@ -2,32 +2,14 @@ package migrate
 
 import (
 	"context"
-	"path/filepath"
 	"strings"
-	"unicode"
 
 	"github.com/pelletier/go-toml/v2"
 
 	"github.com/Sawmonabo/workbench/internal/display"
+	"github.com/Sawmonabo/workbench/internal/machine/envfile"
 	"github.com/Sawmonabo/workbench/internal/operation"
 )
-
-// WorkEnvNames are the names work.env holds, in order.
-var WorkEnvNames = []string{
-	"JIRA_BASE_URL",
-	"JIRA_EMAIL",
-	"JIRA_API_TOKEN",
-	"CONFLUENCE_BASE_URL",
-	"CONFLUENCE_EMAIL",
-	"CONFLUENCE_API_TOKEN",
-	"TEMPO_API_TOKEN",
-	"GITLAB_URL",
-	"GITLAB_TOKEN",
-}
-
-// tokenKeys are the retired machine answers 0005 moves, each with the
-// work.env name it moves to.
-var tokenKeys = [][2]string{{"jira_api_token", "JIRA_API_TOKEN"}, {"gitlab_token", "GITLAB_TOKEN"}}
 
 // WorkTokens moves the work tokens earlier questionnaires saved as machine
 // answers into work.env, which the work tools read by name. It writes
@@ -65,8 +47,8 @@ var WorkTokens = Migration{
 				return nil, found.err
 			}
 			if err := operation.CreatePrivateFile(
-				WorkEnvPath(l.Runtime.Config),
-				WorkEnv(found.values),
+				envfile.WorkEnvPath(l.Runtime.Config),
+				envfile.WorkEnv(found.values),
 			); err != nil {
 				return nil, err
 			}
@@ -74,7 +56,7 @@ var WorkTokens = Migration{
 		default:
 			return nil, operation.Fail(operation.ExitConflict, "conflict", found.text)
 		}
-		for _, key := range tokenKeys {
+		for _, key := range envfile.TokenKeys {
 			delete(found.data, key[0])
 		}
 		encoded, err := toml.Marshal(found.config)
@@ -84,9 +66,6 @@ var WorkTokens = Migration{
 		return nil, operation.ReplacePrivateFile(l.Runtime.MachineConfig(), encoded)
 	},
 }
-
-// WorkEnvPath is work.env in Workbench's config folder config.
-func WorkEnvPath(config string) string { return filepath.Join(config, "work.env") }
 
 // tokensFound is where 0005 stands: its status and text, the whole of
 // machine.toml as read with its [data] table, and the work.env values to
@@ -104,14 +83,14 @@ type tokensFound struct {
 // Its text names files and keys, never a value.
 func findWorkTokens(l Locations) tokensFound {
 	machine := display.PathFrom(l.Home, l.Runtime.MachineConfig())
-	env := display.PathFrom(l.Home, WorkEnvPath(l.Runtime.Config))
+	env := display.PathFrom(l.Home, envfile.WorkEnvPath(l.Runtime.Config))
 	config, err := readMachine(l.Runtime.MachineConfig())
 	if err != nil {
 		return tokensFound{status: Pending, text: "can't read " + machine, err: err}
 	}
 	data, _ := config["data"].(map[string]any)
 	var keys []string
-	for _, key := range tokenKeys {
+	for _, key := range envfile.TokenKeys {
 		if _, ok := data[key[0]]; ok {
 			keys = append(keys, key[0])
 		}
@@ -128,7 +107,7 @@ func findWorkTokens(l Locations) tokensFound {
 	}
 	byHand := ", so copy " + named + " from " + machine + " into " + env +
 		" by hand and delete them from " + machine
-	values, bad := WorkValues(data)
+	values, bad := envfile.WorkValues(data)
 	if bad != "" {
 		return tokensFound{
 			status: Conflict,
@@ -136,7 +115,7 @@ func findWorkTokens(l Locations) tokensFound {
 		}
 	}
 	found := tokensFound{config: config, data: data, values: values}
-	held, there, err := operation.ReadPrivateRecord(WorkEnvPath(l.Runtime.Config), 1<<20)
+	held, there, err := operation.ReadPrivateRecord(envfile.WorkEnvPath(l.Runtime.Config), 1<<20)
 	if !there {
 		found.status, found.text = Pending, "moves "+named+" from "+machine+" into a new "+env
 		return found
@@ -144,8 +123,8 @@ func findWorkTokens(l Locations) tokensFound {
 	if err != nil {
 		return tokensFound{status: Conflict, text: "can't read " + env + byHand}
 	}
-	saved := envAssignments(held)
-	for _, key := range tokenKeys {
+	saved := envfile.EnvAssignments(held)
+	for _, key := range envfile.TokenKeys {
 		if _, ok := data[key[0]]; ok && saved[key[1]] != values[key[1]] {
 			return tokensFound{status: Conflict, text: env + " already holds other values" + byHand}
 		}
@@ -165,55 +144,4 @@ func readMachine(path string) (map[string]any, error) {
 		return config, nil
 	}
 	return config, toml.Unmarshal(raw, &config)
-}
-
-// WorkValues are the work.env values the answers in data give: the tokens
-// they hold, the work email (work_email on both roles) as JIRA_EMAIL, and the
-// jira_url and gitlab_url addresses. An answer data lacks gives no value. bad
-// is the first answer that isn't one line of text.
-func WorkValues(data map[string]any) (values map[string]string, bad string) {
-	email := "email"
-	if data["machine_role"] == "both" {
-		email = "work_email"
-	}
-	values = map[string]string{}
-	for _, key := range append(
-		tokenKeys,
-		[2]string{email, "JIRA_EMAIL"},
-		[2]string{"jira_url", "JIRA_BASE_URL"},
-		[2]string{"gitlab_url", "GITLAB_URL"},
-	) {
-		value, present := data[key[0]]
-		if !present {
-			continue
-		}
-		text, ok := value.(string)
-		if !ok || strings.ContainsFunc(text, unicode.IsControl) {
-			return nil, key[0]
-		}
-		values[key[1]] = text
-	}
-	return values, ""
-}
-
-// WorkEnv is work.env holding every [WorkEnvNames] name, in order, with
-// values, and the others empty.
-func WorkEnv(values map[string]string) []byte {
-	var b strings.Builder
-	for _, name := range WorkEnvNames {
-		b.WriteString(name + "=" + values[name] + "\n")
-	}
-	return []byte(b.String())
-}
-
-// envAssignments are the NAME=value lines of an env file; a later line for a
-// name wins.
-func envAssignments(data []byte) map[string]string {
-	assigned := map[string]string{}
-	for line := range strings.Lines(string(data)) {
-		if name, value, ok := strings.Cut(strings.TrimSuffix(line, "\n"), "="); ok {
-			assigned[name] = value
-		}
-	}
-	return assigned
 }
