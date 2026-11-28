@@ -2,6 +2,7 @@ package costs
 
 import (
 	"bytes"
+	"cmp"
 	"encoding/json"
 	"strconv"
 	"strings"
@@ -94,10 +95,10 @@ func (s *codexState) row(ts, id string) Usage {
 	u := Usage{
 		Tool:      "codex",
 		RequestID: id,
-		Model:     firstNonEmpty(s.Model, "unknown"),
-		Project:   firstNonEmpty(s.Cwd, "unknown"),
+		Model:     cmp.Or(s.Model, "unknown"),
+		Project:   cmp.Or(s.Cwd, "unknown"),
 		Session:   s.Thread,
-		Root:      firstNonEmpty(s.Root, s.Thread),
+		Root:      cmp.Or(s.Root, s.Thread),
 		Time:      when,
 	}
 	if s.Plan != "" { // the plan of the latest rate_limits read, at or before this row
@@ -114,7 +115,7 @@ func (s *codexState) row(ts, id string) Usage {
 			u.Model += "@" + s.Tier
 		}
 	case subagent && s.Spawn != "":
-		u.TierFrom = TurnTierFrom(firstNonEmpty(s.Parent, s.Root), s.Spawn)
+		u.TierFrom = TurnTierFrom(cmp.Or(s.Parent, s.Root), s.Spawn)
 	case subagent:
 		u.TierFrom = s.Root
 	}
@@ -263,8 +264,8 @@ func (codex) Parse(line []byte, file *FileState) []Usage {
 		}
 		if decode(rec.Payload, &turn) {
 			codexTurn(rec.Timestamp, turn.TurnID, state, file)
-			state.Model = firstNonEmpty(turn.Model, state.Model)
-			state.Cwd = firstNonEmpty(turn.Cwd, state.Cwd)
+			state.Model = cmp.Or(turn.Model, state.Model)
+			state.Cwd = cmp.Or(turn.Cwd, state.Cwd)
 			state.save(file)
 		}
 	case "token_usage_record":
@@ -289,7 +290,7 @@ func (codex) Parse(line []byte, file *FileState) []Usage {
 			state.save(file)
 		}
 		u := state.row(rec.Timestamp, record.ResponseID)
-		u.Root = firstNonEmpty(record.SessionID, u.Root) // the root session the record names
+		u.Root = cmp.Or(record.SessionID, u.Root) // the root session the record names
 		record.Usage.fill(&u)
 		return []Usage{u}
 	case "event_msg":

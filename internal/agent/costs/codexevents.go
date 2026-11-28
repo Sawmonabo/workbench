@@ -1,6 +1,7 @@
 package costs
 
 import (
+	"cmp"
 	"encoding/json"
 	"time"
 
@@ -37,13 +38,13 @@ func codexEvent(ts string, payload json.RawMessage, state *codexState, file *Fil
 			(event.ThreadID != "" && state.Thread != "" && event.ThreadID != state.Thread) {
 			return nil
 		}
-		state.Model = firstNonEmpty(state.Model, event.Settings.Model)
-		state.Cwd = firstNonEmpty(state.Cwd, event.Settings.Cwd)
+		state.Model = cmp.Or(state.Model, event.Settings.Model)
+		state.Cwd = cmp.Or(state.Cwd, event.Settings.Cwd)
 		state.Next, state.NextSet = codexTier(event.Settings.Tier), true
 		state.save(file)
 		when, _ := time.Parse(time.RFC3339Nano, ts)
 		file.Tiers = append(file.Tiers, TierChange{
-			Thread: firstNonEmpty(event.ThreadID, state.Thread), Time: when, Tier: state.Next,
+			Thread: cmp.Or(event.ThreadID, state.Thread), Time: when, Tier: state.Next,
 		})
 	case "token_count":
 		var event codexTokenInfo
@@ -115,7 +116,7 @@ func codexMeta(ts string, payload json.RawMessage, state *codexState, file *File
 	if !decode(payload, &meta) || meta.ID == "" {
 		return
 	}
-	state.Thread, state.Cwd = meta.ID, firstNonEmpty(meta.Cwd, state.Cwd)
+	state.Thread, state.Cwd = meta.ID, cmp.Or(meta.Cwd, state.Cwd)
 	state.Fork, state.Version = meta.Forked, codexVersion(meta.Version)
 	state.Account = meta.Account
 	state.Root = codexRoot(meta.ID, meta.SessionID, meta.Source)
@@ -135,7 +136,7 @@ func codexMeta(ts string, payload json.RawMessage, state *codexState, file *File
 		(!state.Spawned || state.Version < codexRootTier) {
 		file.Tiers = append(file.Tiers, TierChange{
 			Thread: state.Thread, Time: when, Turn: true,
-			From: TurnTierFrom(firstNonEmpty(state.Parent, state.Root), state.Spawn),
+			From: TurnTierFrom(cmp.Or(state.Parent, state.Root), state.Spawn),
 		})
 	}
 	state.save(file)

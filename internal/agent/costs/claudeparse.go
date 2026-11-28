@@ -2,6 +2,7 @@ package costs
 
 import (
 	"bytes"
+	"cmp"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -244,7 +245,7 @@ func (claude) Parse(line []byte, file *FileState) []Usage {
 	if model == "" {
 		model = "unknown"
 	}
-	id := firstNonEmpty(rec.RequestID, msg.ID, rec.UUID)
+	id := cmp.Or(rec.RequestID, msg.ID, rec.UUID)
 	if model == "<synthetic>" || id == "" {
 		return nil
 	}
@@ -259,7 +260,7 @@ func (claude) Parse(line []byte, file *FileState) []Usage {
 	base := Usage{
 		Tool:      "claude",
 		Time:      when,
-		Project:   firstNonEmpty(rec.Cwd, file.LastCwd, file.Fallback),
+		Project:   cmp.Or(rec.Cwd, file.LastCwd, file.Fallback),
 		Session:   rec.SessionID,
 		Root:      rec.SessionID,
 		RequestID: id,
@@ -282,7 +283,7 @@ func (claude) Parse(line []byte, file *FileState) []Usage {
 		}
 		row := base
 		row.RequestID = id + ":" + strconv.Itoa(i)
-		row.Model = firstNonEmpty(it.Model, model)
+		row.Model = cmp.Or(it.Model, model)
 		it.fill(&row)
 		rows = append(rows, row)
 	}

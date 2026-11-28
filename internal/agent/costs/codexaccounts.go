@@ -1,6 +1,7 @@
 package costs
 
 import (
+	"cmp"
 	"encoding/base64"
 	"os"
 	"path/filepath"
@@ -24,7 +25,7 @@ func (codex) SignIn(home string) SignIn {
 	if auth.apiKey {
 		return SignIn{Account: "unknown", Subscription: "api-key", Label: "API key"}
 	}
-	out := SignIn{Account: firstNonEmpty(auth.email, "unknown")}
+	out := SignIn{Account: cmp.Or(auth.email, "unknown")}
 	if auth.plan != "" {
 		out.Subscription = "codex:" + auth.plan
 		out.Label = codexPlanLabel(auth.plan)
@@ -120,7 +121,7 @@ func readCodexAuth(path string) (codexAuth, bool) {
 		return codexAuth{}, false
 	}
 	return codexAuth{
-		email:     firstNonEmpty(claims.Email, claims.Profile.Email),
+		email:     cmp.Or(claims.Email, claims.Profile.Email),
 		plan:      strings.ToLower(claims.Auth.Plan),
 		accountID: claims.Auth.AccountID,
 	}, true

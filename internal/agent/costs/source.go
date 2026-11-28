@@ -260,12 +260,3 @@ func decode(raw []byte, v any) bool {
 	var wrong *json.UnmarshalTypeError
 	return err == nil || errors.As(err, &wrong)
 }
-
-func firstNonEmpty(values ...string) string {
-	for _, v := range values {
-		if v != "" {
-			return v
-		}
-	}
-	return ""
-}

@@ -2,6 +2,7 @@ package costs
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -54,7 +55,7 @@ func (claude) SignIn(home string) SignIn {
 	if !ok {
 		return SignIn{Account: "unknown"}
 	}
-	out := SignIn{Account: firstNonEmpty(acct.EmailAddress, "unknown")}
+	out := SignIn{Account: cmp.Or(acct.EmailAddress, "unknown")}
 	if acct.OrganizationUUID == "" {
 		return out
 	}
@@ -115,7 +116,7 @@ func (claude) SignIns(home string) []SignIn {
 	var out []SignIn
 	for _, acct := range claudeSignIns(home) {
 		out = append(out, SignIn{
-			Account:      firstNonEmpty(acct.EmailAddress, "unknown"),
+			Account:      cmp.Or(acct.EmailAddress, "unknown"),
 			Subscription: "claude:" + acct.OrganizationUUID,
 			Label:        claudePlanLabel(acct),
 		})
