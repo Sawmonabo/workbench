@@ -70,7 +70,7 @@ func (r *Inventory) walk(ctx context.Context, root *os.Root, path string, depth 
 		return err
 	}
 	if depth > maxDepth {
-		return fmt.Errorf("directory depth exceeds %d; choose a narrower scope", maxDepth)
+		return fmt.Errorf("directory depth exceeds %d", maxDepth)
 	}
 	if path != "." {
 		if _, err := root.Lstat(".git"); err == nil {
@@ -120,7 +120,7 @@ func (r *Inventory) visit(
 	}
 	r.Entries++
 	if r.Entries > maxEntries {
-		return fmt.Errorf("entry limit of %d exceeded; choose a narrower scope", maxEntries)
+		return fmt.Errorf("entry limit of %d exceeded", maxEntries)
 	}
 	name := entry.Name()
 	relative := filepath.Join(path, name)
@@ -148,7 +148,7 @@ func (r *Inventory) visit(
 
 func (r *Inventory) add(item Item) error {
 	if len(r.Items) >= maxItems {
-		return fmt.Errorf("candidate limit of %d exceeded; choose a narrower scope", maxItems)
+		return fmt.Errorf("candidate limit of %d exceeded", maxItems)
 	}
 	r.Items = append(r.Items, item)
 	return nil

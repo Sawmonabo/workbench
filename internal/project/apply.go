@@ -48,7 +48,8 @@ func Apply(
 					return operation.Fail(
 						operation.ExitConflict,
 						"project_conflict",
-						"Project inputs changed during native staging; project files remain unchanged",
+						"The project changed while uv resolved its dependencies",
+						operation.Changed("no project file"),
 					)
 				}
 				currentDigest := current.Plan.Digest()
@@ -56,7 +57,8 @@ func Apply(
 					return operation.Fail(
 						operation.ExitConflict,
 						"project_conflict",
-						"Project inputs changed during native staging; review a fresh plan",
+						"The project changed while uv resolved its dependencies",
+						operation.FixText("review a new plan"),
 					)
 				}
 			}
@@ -198,10 +200,14 @@ func (p *Proposal) runResolution(
 		},
 	)
 	if err != nil && !errors.Is(err, context.Canceled) {
-		err = operation.Fail(
+		headline, body := operation.Explained(err)
+		err = operation.FailWith(
 			operation.ExitFailed,
 			"project_resolution",
-			"Native uv staging failed; project files remain unchanged. "+err.Error(),
+			"uv could not resolve the project's dependencies",
+			operation.Explain(operation.Cause(headline)).
+				With(body).
+				With(operation.Explain(operation.Changed("no project file"))),
 		)
 	}
 	return err
@@ -230,7 +236,8 @@ func (p *Proposal) collectResolution(root, owner string) error {
 			return operation.Fail(
 				operation.ExitConflict,
 				"project_resolution",
-				"Native output was not an explicitly approved target; no project files changed",
+				"uv wrote a file this plan did not approve",
+				operation.Changed("no project file"),
 			)
 		}
 		change.After.Data = data

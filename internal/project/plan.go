@@ -75,11 +75,23 @@ func Plan(
 		return p, operation.Fail(
 			operation.ExitBlocked,
 			"unsupported_language",
-			"Explicitly requested language is discovery-only; only Python, Go and Rust configuration is supported",
+			"--language names a language Workbench only inspects",
+			operation.Line{Label: "configures", Text: "Python, Go and Rust"},
 		)
 	}
 	inventory, err := Inspect(ctx, c.Scope.Root)
 	p.Inventory = inventory
+	if _, known := errors.AsType[*operation.Error](err); err != nil && !known &&
+		!errors.Is(err, context.Canceled) {
+		// The exit code and category of a failure SetError reports.
+		return p, operation.Fail(
+			operation.ExitFailed,
+			"execution",
+			"Inventory incomplete or inaccessible",
+			operation.Cause(err.Error()),
+			operation.FixText("select a narrower readable scope"),
+		)
+	}
 	if err != nil {
 		return p, err
 	}
@@ -95,7 +107,8 @@ func Plan(
 	p.Plan.Inputs = inventory.inputsList()
 	if err = p.blocked(
 		"project_scope",
-		"Project ownership or requested integration needs review; no files changed",
+		"Project ownership or requested integration needs review",
+		operation.Changed("no file"),
 	); err != nil {
 		return p, err
 	}
@@ -323,12 +336,13 @@ func noProject(languages []string) string {
 	return "Select " + strings.Join(named[:len(named)-1], ", ") + ", or " + named[len(named)-1]
 }
 
-// blocked fails the plan while prerequisites remain.
-func (p *Proposal) blocked(category, message string) error {
+// blocked fails the plan while prerequisites remain, with message its
+// headline and parts its body.
+func (p *Proposal) blocked(category, message string, parts ...operation.Part) error {
 	if len(p.Plan.Prerequisites) == 0 {
 		return nil
 	}
-	return operation.Fail(operation.ExitBlocked, category, message)
+	return operation.Fail(operation.ExitBlocked, category, message, parts...)
 }
 
 // addPolicy merges the Python policy into each selected manifest through the
@@ -546,7 +560,8 @@ func (p *Proposal) finish(c operation.Context) error {
 	}
 	return p.blocked(
 		"prerequisites",
-		"Review project prerequisites and produce a complete plan before approval",
+		"Project prerequisites remain",
+		operation.FixText("review them and plan again"),
 	)
 }
 

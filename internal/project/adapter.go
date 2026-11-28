@@ -66,8 +66,12 @@ func checkRecord(path string, doc map[string]any, provenance []string) error {
 	return operation.Fail(
 		operation.ExitBlocked,
 		"provenance",
-		"The Workbench record ["+strings.Join(provenance, ".")+"] in "+path+
-			" needs the integer schema_version = 1 and a policies list of names; correct it before planning",
+		"The Workbench record ["+strings.Join(provenance, ".")+"] in "+path+" is invalid",
+		operation.Line{
+			Label: "needs",
+			Text:  "the integer schema_version = 1 and a policies list of names",
+		},
+		operation.FixText("correct it"),
 	)
 }
 
@@ -146,7 +150,8 @@ func (a *tomlAdapter) transform(
 		return nil, operation.Fail(
 			operation.ExitBlocked,
 			"project_editor",
-			"TOML preservation adapter failed; review unsupported syntax or provenance before changing files",
+			"TOML Kit could not edit the project's TOML files",
+			operation.FixText("review unsupported syntax or the Workbench record"),
 		)
 	}
 	var refusal struct {
@@ -165,7 +170,8 @@ func (a *tomlAdapter) transform(
 		)
 		return nil, a.proposal.blocked(
 			"project_editor",
-			"A manifest's layout needs review; no files changed",
+			"A manifest's layout needs review",
+			operation.Changed("no file"),
 		)
 	}
 	var result []string

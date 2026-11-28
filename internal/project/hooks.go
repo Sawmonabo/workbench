@@ -179,7 +179,8 @@ func (p *Proposal) addHooks(c operation.Context, selected []Project, languages [
 			p.Plan.Warnings = append(
 				p.Plan.Warnings,
 				operation.Warn(
-					"lefthook reads only one main configuration; this one is also present: "+other,
+					"lefthook reads only one main configuration",
+					operation.Line{Label: "also present", Text: other},
 				),
 			)
 		}
@@ -188,11 +189,11 @@ func (p *Proposal) addHooks(c operation.Context, selected []Project, languages [
 	if noTests {
 		p.Plan.Warnings = append(
 			p.Plan.Warnings,
-			operation.Warn("No pre-push test job for Python: the dev group in "+
-				filepath.Join(
-					root,
-					"pyproject.toml",
-				)+" lists no pytest, and Workbench invents no tests"),
+			operation.Warn(
+				"No pre-push test job for Python",
+				operation.Cause("the dev group in "+filepath.Join(root, "pyproject.toml")+
+					" lists no pytest, and Workbench invents no tests"),
+			),
 		)
 	}
 	for _, name := range lefthookLocals {

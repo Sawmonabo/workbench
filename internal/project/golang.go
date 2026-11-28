@@ -110,7 +110,8 @@ func golangciV2(path string, data []byte) (bool, error) {
 		return false, operation.Fail(
 			operation.ExitInvalid,
 			"golangci",
-			"Invalid golangci-lint configuration; correct it before planning: "+path,
+			path+" is not valid golangci-lint configuration",
+			operation.FixText("correct it"),
 		)
 	}
 	// golangci-lint run accepts the number 2 as well as the string "2".
@@ -134,7 +135,8 @@ func (p *Proposal) addRecord(c operation.Context, root string) error {
 			return operation.Fail(
 				operation.ExitInvalid,
 				"provenance",
-				"Invalid TOML in the Workbench record; correct it before planning: "+path,
+				"The Workbench record "+path+" is not valid TOML",
+				operation.FixText("correct it"),
 			)
 		}
 		version, isInteger := record["schema_version"].(int64)
@@ -143,8 +145,12 @@ func (p *Proposal) addRecord(c operation.Context, root string) error {
 			return operation.Fail(
 				operation.ExitBlocked,
 				"provenance",
-				"The Workbench record "+path+
-					" needs the integer schema_version = 1 and a policies list, and nothing else; correct it before planning",
+				"The Workbench record "+path+" is invalid",
+				operation.Line{
+					Label: "needs",
+					Text:  "the integer schema_version = 1 and a policies list, and nothing else",
+				},
+				operation.FixText("correct it"),
 			)
 		}
 		for _, item := range list {
@@ -153,8 +159,9 @@ func (p *Proposal) addRecord(c operation.Context, root string) error {
 				return operation.Fail(
 					operation.ExitBlocked,
 					"provenance",
-					"The Workbench record "+path+
-						" needs a policies list of strings; correct it before planning",
+					"The Workbench record "+path+" is invalid",
+					operation.Line{Label: "needs", Text: "a policies list of strings"},
+					operation.FixText("correct it"),
 				)
 			}
 			policies = append(policies, id)

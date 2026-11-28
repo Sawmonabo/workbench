@@ -92,7 +92,8 @@ func (p *Proposal) checkDependabot(root string, found, ecosystems []string, data
 		return operation.Fail(
 			operation.ExitInvalid,
 			"dependabot",
-			"Invalid Dependabot configuration; correct it before planning: "+found[0],
+			found[0]+" is not valid Dependabot configuration",
+			operation.FixText("correct it"),
 		)
 	}
 	p.keep(root, found[0], dependabotConfigs[0], data, "Dependabot")
@@ -114,8 +115,11 @@ func (p *Proposal) checkDependabot(root string, found, ecosystems []string, data
 	if len(missing) > 0 {
 		p.Plan.Warnings = append(
 			p.Plan.Warnings,
-			operation.Warn(found[0]+" has no updates entry for "+display.List(missing)+
-				"; add them by hand for update pull requests"),
+			operation.Warn(
+				found[0]+" has no updates entry for "+display.List(missing),
+				operation.Outcome("Dependabot opens no update pull requests for them"),
+				operation.FixText("add them by hand"),
+			),
 		)
 	}
 	return nil
@@ -176,8 +180,12 @@ func (p *Proposal) warnRenovate(root string) error {
 	if len(found) > 0 {
 		p.Plan.Warnings = append(
 			p.Plan.Warnings,
-			operation.Warn("Renovate is configured ("+strings.Join(found, ", ")+
-				"); with Dependabot, two update bots would open pull requests for the same dependencies"),
+			operation.Warn(
+				"Renovate is configured",
+				operation.Line{Label: "found", Text: strings.Join(found, ", ")},
+				operation.Outcome("with Dependabot, two update bots would open pull requests "+
+					"for the same dependencies"),
+			),
 		)
 	}
 	return nil

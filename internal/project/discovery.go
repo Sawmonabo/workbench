@@ -61,7 +61,8 @@ func (r *Inventory) read(path string) ([]byte, error) {
 			return nil, operation.Fail(
 				operation.ExitBlocked,
 				"manifest",
-				"Combined metadata exceeds 16 MiB; select a narrower scope",
+				"The project's manifests and lockfiles exceed 16 MiB together",
+				operation.FixText("select a narrower scope"),
 			)
 		}
 		r.inputs[path] = data
@@ -98,7 +99,9 @@ func decodeTOML(data []byte) (map[string]any, error) {
 		return nil, operation.Fail(
 			operation.ExitInvalid,
 			"toml",
-			"TOML metadata starts with a byte order mark, which Workbench does not edit; remove it before planning",
+			"A TOML file starts with a byte order mark",
+			operation.Cause("Workbench does not edit a TOML file with one"),
+			operation.FixText("remove it"),
 		)
 	}
 	var doc map[string]any
@@ -106,7 +109,8 @@ func decodeTOML(data []byte) (map[string]any, error) {
 		return nil, operation.Fail(
 			operation.ExitInvalid,
 			"toml",
-			"Invalid TOML metadata; correct it before planning",
+			"Invalid TOML metadata",
+			operation.FixText("correct it"),
 		)
 	}
 	return doc, nil
