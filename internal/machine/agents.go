@@ -64,12 +64,14 @@ type agentUpdate struct {
 // its version and, for npm, the nvm Node version it is in. A Homebrew copy
 // has its cask instead of a method. A copy of a vendor installer's release
 // run through a launcher the installer did not make has no method, and
-// launcher names the one the installer makes. others are the other copies on
-// the search path, each a different executable; with any, which one runs
-// depends on how the shell starts, so none is updated.
+// launcher names the one the installer makes. A copy in an installer's own
+// folder whose version cannot be read has no method either, and found says
+// what is there. others are the other copies on the search path, each a
+// different executable; with any, which one runs depends on how the shell
+// starts, so none is updated.
 type agentInstall struct {
-	path, method, version, node, cask, launcher string
-	others                                      []string
+	path, method, version, node, cask, launcher, found string
+	others                                             []string
 }
 
 // latestTimeout bounds each lookup of an agent's newest version while
@@ -246,12 +248,16 @@ func copiesWarning(c operation.Context, agent agent, install agentInstall) opera
 }
 
 // leftWarning is the warning of agent's one copy that Workbench does not
-// update: one from elsewhere, or its installer's release behind a launcher
-// of the person's own.
+// update: one from elsewhere, one in nvm's Node or its installer's folder
+// whose version it cannot read (what it found there), or its installer's
+// release behind a launcher of the person's own.
 func leftWarning(c operation.Context, agent agent, install agentInstall) operation.Warning {
 	why := []operation.Part{operation.Cause(
 		"it did not come from npm in nvm's default Node or from its own installer",
 	)}
+	if install.found != "" {
+		why = []operation.Part{operation.Cause(install.found)}
+	}
 	if install.launcher != "" {
 		why = []operation.Part{
 			operation.Cause("it runs its installer's release through a launcher of your " +
@@ -399,7 +405,7 @@ func findAgent(home, nvm string, agent agent) (agentInstall, bool) {
 		}
 		install.path = path
 		if err == nil {
-			install.method, install.version, install.node, install.cask = classifyAgent(
+			install.method, install.version, install.node, install.cask, install.found = classifyAgent(
 				home,
 				resolved,
 				agent,
@@ -422,23 +428,27 @@ func findAgent(home, nvm string, agent agent) (agentInstall, bool) {
 //   - Claude Code's native installer: .local/share/claude/versions/VERSION;
 //   - Homebrew: a Caskroom/CASK/... folder of one of the agent's casks.
 //
-// Anything else returns nothing.
-func classifyAgent(home, resolved string, agent agent) (method, version, node, cask string) {
+// Anything else returns nothing. A copy in nvm's Node folder or the Codex
+// installer's releases folder whose version cannot be read returns what was
+// found there instead, as a leftWarning cause.
+func classifyAgent(home, resolved string, agent agent) (method, version, node, cask, found string) {
 	nodes := filepath.Join(nvmRoot(home), "versions", "node") + "/"
 	if rest, ok := strings.CutPrefix(resolved, nodes); ok {
 		node, rest, _ = strings.Cut(rest, "/")
 		modules := "lib/node_modules/" + agent.npm + "/"
 		if !strings.HasPrefix(rest, modules) {
-			return "", "", "", ""
+			return "", "", "", "", "it is in nvm's Node " + node + ", outside the npm package " +
+				agent.npm
 		}
 		var manifest struct {
 			Version string `json:"version"`
 		}
 		data, err := os.ReadFile(filepath.Join(nodes, node, modules, "package.json"))
 		if err != nil || json.Unmarshal(data, &manifest) != nil {
-			return "", "", "", ""
+			return "", "", "", "", "it is in the npm package " + agent.npm + " in nvm's Node " +
+				node + ", whose package.json Workbench cannot read"
 		}
-		return "npm", manifest.Version, node, ""
+		return "npm", manifest.Version, node, "", ""
 	}
 	releases := filepath.Join(home, ".codex", "packages", "standalone", "releases") + "/"
 	if rest, ok := strings.CutPrefix(resolved, releases); ok && agent.tool == "codex" {
@@ -448,27 +458,29 @@ func classifyAgent(home, resolved string, agent agent) (method, version, node, c
 		}
 		data, err := os.ReadFile(filepath.Join(releases, release, "codex-package.json"))
 		if err == nil && json.Unmarshal(data, &manifest) == nil && manifest.Version != "" {
-			return "standalone", manifest.Version, "", ""
+			return "standalone", manifest.Version, "", "", ""
 		}
 		for _, arch := range []string{"-aarch64-", "-x86_64-"} {
 			if i := strings.Index(release, arch); i > 0 {
-				return "standalone", release[:i], "", ""
+				return "standalone", release[:i], "", "", ""
 			}
 		}
-		return "", "", "", ""
+		return "", "", "", "", "it is in its installer's release " + release +
+			", whose version Workbench cannot read: no codex-package.json, and no " +
+			"-aarch64- or -x86_64- in its name"
 	}
 	versions := filepath.Join(home, ".local", "share", "claude", "versions") + "/"
 	if rest, ok := strings.CutPrefix(resolved, versions); ok && agent.tool == "claude-code" &&
 		!strings.Contains(rest, "/") {
-		return "native", rest, "", ""
+		return "native", rest, "", "", ""
 	}
 	if _, rest, ok := strings.Cut(resolved, "/Caskroom/"); ok {
 		token, _, _ := strings.Cut(rest, "/")
 		if slices.Contains(agent.casks, token) {
-			return "", "", "", token
+			return "", "", "", token, ""
 		}
 	}
-	return "", "", "", ""
+	return "", "", "", "", ""
 }
 
 // nvmRoot is nvm's folder in home, which holds its Node versions, its aliases
