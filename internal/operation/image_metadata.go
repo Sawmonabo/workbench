@@ -126,7 +126,7 @@ func folderACL(path string, h holder, entries []platform.ACE, _ bool, err error)
 	for i, entry := range entries {
 		inherited := entry.Flags&inherits != 0
 		if inherited || entry.Flags&kind == deny && entry.Rights&childChanges != 0 {
-			cause := "that denies adding or removing files in it, so Workbench cannot write there"
+			cause := "that denies adding or removing files in it, and Workbench writes only in a folder without one"
 			if inherited {
 				cause = "that" + inheritedACL
 			}

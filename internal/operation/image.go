@@ -248,6 +248,9 @@ func ReadImage(c Context, path string) (Image, error) {
 		if err != nil {
 			return Image{}, err
 		}
+		if image.Mode != 0o777 {
+			return Image{}, linkModeRefusal(path, image.Mode)
+		}
 	case unix.S_IFREG, unix.S_IFDIR:
 		if stat.Mode&unix.S_IFMT == unix.S_IFREG && (stat.Nlink != 1 || stat.Size > MaxImageBytes) {
 			return Image{}, fileShapeRefusal(path, uint64(stat.Nlink))

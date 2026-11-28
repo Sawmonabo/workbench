@@ -265,6 +265,20 @@ func linkReadRefusal(path string, err error) error {
 	)
 }
 
+// linkModeRefusal refuses the link at path whose own mode, which only macOS
+// sets, is not the 0777 every link Workbench writes has.
+func linkModeRefusal(path string, mode uint32) error {
+	return Fail(
+		ExitInvalid,
+		"image",
+		fmt.Sprintf(
+			"%s is a link with mode %04o, and Workbench keeps a link only with mode 0777",
+			display.Path(path),
+			mode,
+		)+replacedLink.retry([]string{"chmod", "777"}, path),
+	)
+}
+
 // fileShapeRefusal refuses the file at path, with links hard links to it,
 // for the first of the two things an image does not keep: another hard link
 // to it, then a size over MaxImageBytes.
