@@ -88,12 +88,7 @@ func ReadPrivateInput(path string, limit int64, what string) ([]byte, error) {
 		return nil, Fail(ExitInvalid, "input", "Invalid private input bound")
 	}
 	refuse := func(code Exit, category, problem string, body Body) error {
-		return &Error{
-			Category: category,
-			Message:  "Cannot read " + what,
-			Body:     Explain(Cause(problem)).With(body),
-			Code:     code,
-		}
+		return FailWith(code, category, "Cannot read "+what, Explain(Cause(problem)).With(body))
 	}
 	if err := checkPrivateFile(path); err != nil {
 		if problem, ok := errors.AsType[*Error](err); ok {

@@ -85,9 +85,11 @@ func Doctor(ctx context.Context, c operation.Context) ([]operation.Component, er
 			results = append(
 				results,
 				operation.Component{
-					Name:    "native-chezmoi",
-					Status:  operation.StatusConflict,
-					Message: "~/.config/chezmoi/chezmoi.toml points plain chezmoi at " + native.SourceDir,
+					Name:   "native-chezmoi",
+					Status: operation.StatusConflict,
+					Message: "~/.config/chezmoi/chezmoi.toml points plain chezmoi at " + c.ShowPath(
+						native.SourceDir,
+					),
 					Body: operation.Explain(
 						operation.Cause(
 							"plain chezmoi would apply that source over the files Workbench manages",

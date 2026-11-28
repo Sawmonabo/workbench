@@ -159,7 +159,7 @@ func agentHooks(home string) []operation.Component {
 			line.Message = ""
 		}
 		if none {
-			line.Message, topics = "no agent costs or agent guard hooks", nil
+			line.Message, topics = tool.Title+" has no agent costs or agent guard hooks", nil
 		}
 		line.Body = operation.Explain(append(topics, hookFixes(home, tool, states)...)...)
 		lines = append(lines, line)
@@ -192,8 +192,12 @@ func hookFixes(home string, tool costs.Tool, states []string) []operation.Part {
 			)
 		}
 	}
-	if len(toolconfig.ApplyFixes(home, tool.Title, states)) > 0 {
-		parts = append(parts, operation.Fix("workbench", "apply"))
+	if fixes := toolconfig.ApplyFixes(home, tool.Title, states); len(fixes) > 0 {
+		parts = append(
+			parts,
+			operation.Line{Label: "apply", Text: strings.Join(fixes, " and ") + " them"},
+			operation.Fix("workbench", "apply"),
+		)
 	}
 	return parts
 }

@@ -85,17 +85,21 @@ func CodexMove(home string) (Move, bool) {
 func (m Move) Explain(home string) []operation.Warning {
 	var warnings []operation.Warning
 	if m.Source != "" {
-		where := m.Source
-		fix := operation.Fix("unset", m.Variable)
+		where, shown := m.Source, display.PathFrom(home, m.Default)
+		fix := []operation.Part{
+			operation.Fix("unset", m.Variable),
+			operation.FixText("or set it to " + shown),
+		}
 		if m.Source != "the environment" {
 			where = display.PathFrom(home, m.Source)
-			fix = operation.FixText("remove it from that file, or set it there to " + m.Default)
+			fix = []operation.Part{
+				operation.FixText("remove it from that file, or set it there to " + shown),
+			}
 		}
 		warnings = append(warnings, operation.Warn(
 			m.Variable+" in "+where+" points "+m.Tool+" at "+display.PathFrom(home, m.Dir),
-			operation.Cause(m.Tool+" does not read the settings, instructions and costs and "+
-				"guard hooks Workbench installs in "+display.PathFrom(home, m.Default)),
-			fix,
+			append([]operation.Part{operation.Cause(m.Tool + " does not read the settings, " +
+				"instructions and costs and guard hooks Workbench installs in " + shown)}, fix...)...,
 		))
 	}
 	for _, r := range m.Relative {

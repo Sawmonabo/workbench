@@ -814,9 +814,15 @@ are missing, `apply --dry-run` exits 3 and says to run `workbench update`, or
 agent may run, for example after a pin changes. A tool that is there but that
 other users can change is not missing: Workbench does not run it, so
 `apply --dry-run` and `doctor` exit 3 naming the tool, its mode and the
-command that fixes it: `~/.local/share/workbench/tools/chezmoi/2.70.3/chezmoi
-can be changed by other users (mode 0720), so Workbench does not run it; run
-chmod go-w ~/.local/share/workbench/tools/chezmoi/2.70.3/chezmoi and retry`.
+command that fixes it:
+
+```text
+✗ ~/.local/share/workbench/tools/chezmoi/2.70.3/chezmoi can be changed by other
+  users (mode 0720)
+    cause  Workbench runs only a program no other user can change
+    fix    chmod go-w ~/.local/share/workbench/tools/chezmoi/2.70.3/chezmoi
+```
+
 `update` fixes it as well: a tool file that holds exactly the pinned bytes gets
 the mode Workbench installs it with, and one that holds anything else is kept
 and reported (`Existing private tool differs; it was retained`).
@@ -956,15 +962,25 @@ matches, and `brew-maintenance` runs `brew update` at the end of an apply that
 did not refresh at its start.
 
 `--json` produces one versioned object with `schema_version`, `command`, `status`,
-`results`, `warnings`, `errors`, and applicable `operation_id`/`plan_digest`.
+`results`, `warnings`, `errors`, and applicable `operation_id`/`plan_digest`. A
+result, warning or error holds its headline as `message`, and, when it has them,
+its labeled lines as `lines` (`label` and `text`) and the commands that fix it as
+`fix`; the text view prints the same headline with those lines under it, the fix
+last.
 Human results use stdout and diagnostics stderr; help, completion and the
 `--version` flag remain text. Exit codes: 0 complete/unchanged, 1 check/execution failure, 2 invalid input
 or state, 3 blocked prerequisites/support/consent, 4 conflict, 5 partial mutation,
 130 interruption. Requested skipped work is not complete. Exit 3 covers every
 consent refusal (an agent, no terminal, nothing approved, `--choose` without a
 terminal); exit 2 covers flags that contradict each other and an invalid command,
-flag or argument, whose message names the reason, for example
-`Invalid command, flags or arguments: unknown flag: --bogus; run workbench --help`.
+flag or argument, whose cause names the reason, for example:
+
+```text
+✗ Invalid command, flags or arguments
+    cause  unknown flag: --bogus
+    fix    workbench --help
+```
+
 A signal that stops Workbench (SIGINT, SIGTERM, or SIGHUP when the terminal closes)
 during a prompt ends it with exit 130 and writes nothing; during an apply the
 checkpoint is recorded as partial or failed rather than left running. The files

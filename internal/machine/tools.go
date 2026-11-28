@@ -147,24 +147,24 @@ func setupDependencies(
 // for each tool, its headline, and every fix line they give.
 func failedTools(failed []operation.Component) error {
 	if len(failed) == 1 {
-		return &operation.Error{
-			Category: "dependency",
-			Message:  failed[0].Name + ": " + failed[0].Message,
-			Body:     failed[0].Body,
-			Code:     operation.ExitBlocked,
-		}
+		return operation.FailWith(
+			operation.ExitBlocked,
+			"dependency",
+			failed[0].Name+": "+failed[0].Message,
+			failed[0].Body,
+		)
 	}
 	var body operation.Body
 	for _, tool := range failed {
 		body.Lines = append(body.Lines, operation.Line{Label: tool.Name, Text: tool.Message})
 		body = body.With(tool.Body)
 	}
-	return &operation.Error{
-		Category: "dependency",
-		Message:  "Installed tools did not pass their checks",
-		Body:     body,
-		Code:     operation.ExitBlocked,
-	}
+	return operation.FailWith(
+		operation.ExitBlocked,
+		"dependency",
+		"Installed tools did not pass their checks",
+		body,
+	)
 }
 
 // partialOf reports whether name is the temporary file of one of files, left
