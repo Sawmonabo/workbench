@@ -111,11 +111,19 @@ func githubAPI(ctx context.Context, token, path, tag string, answer any) error {
 	)
 	if status, ok := errors.AsType[*download.StatusError](err); ok &&
 		status.Status == http.StatusNotFound {
-		message := "No published Workbench release found"
 		if tag != "" {
-			message = "No Workbench release " + tag + "; see workbench update --list"
+			return operation.Fail(
+				operation.ExitBlocked,
+				"release_unavailable",
+				"No Workbench release "+tag,
+				operation.Fix("workbench", "update", "--list"),
+			)
 		}
-		return operation.Fail(operation.ExitBlocked, "release_unavailable", message)
+		return operation.Fail(
+			operation.ExitBlocked,
+			"release_unavailable",
+			"No published Workbench release found",
+		)
 	}
 	if err != nil {
 		return releaseAnswer(err, location, token != "")
@@ -154,7 +162,7 @@ func releaseAnswer(err error, location string, token bool) error {
 	case !ok:
 		return err
 	case status.Status == http.StatusNotFound:
-		return operation.Fail(operation.ExitBlocked, "release_unavailable", status.Error())
+		return operation.FailAs(operation.ExitBlocked, "release_unavailable", status)
 	case !fromGitHub(location):
 		return err
 	case status.Status == http.StatusForbidden &&
@@ -162,17 +170,18 @@ func releaseAnswer(err error, location string, token bool) error {
 		return operation.Fail(
 			operation.ExitFailed,
 			"download",
-			"GitHub's request limit is used up for now; wait an hour, or log in with gh auth login",
+			"GitHub's request limit is used up for now",
+			operation.FixText("wait an hour"),
+			operation.FixText("or gh auth login"),
 		)
 	case token && (status.Status == http.StatusUnauthorized ||
 		status.Status == http.StatusForbidden):
 		return operation.Fail(
 			operation.ExitFailed,
 			"download",
-			fmt.Sprintf(
-				"GitHub refused the request (HTTP %d); check gh auth status or the GH_TOKEN/GITHUB_TOKEN variables",
-				status.Status,
-			),
+			fmt.Sprintf("GitHub refused the request (HTTP %d)", status.Status),
+			operation.Fix("gh", "auth", "status"),
+			operation.FixText("or check the GH_TOKEN and GITHUB_TOKEN variables"),
 		)
 	}
 	return err

@@ -166,12 +166,9 @@ func Inspect(directory string) (Metadata, error) {
 func ReadMetadata(directory string) (Metadata, error) {
 	var metadata Metadata
 	path := filepath.Join(directory, "release.json")
-	refuse := func(format string, args ...any) error {
-		return operation.Fail(
-			operation.ExitInvalid,
-			"release",
-			display.Path(path)+" "+fmt.Sprintf(format, args...),
-		)
+	refuse := func(problem string, parts ...operation.Part) error {
+		return operation.Fail(operation.ExitInvalid, "release", display.Path(path)+" "+problem,
+			parts...)
 	}
 	raw, err := operation.ReadRegularFile(path, 1<<20)
 	switch {
@@ -185,26 +182,32 @@ func ReadMetadata(directory string) (Metadata, error) {
 		return metadata, operation.Fail(
 			operation.ExitInvalid,
 			"release",
-			"Cannot read "+operation.FileError(path, err).Error(),
+			"Cannot read "+display.Path(path),
+			operation.Cause(operation.FileReason(path, err).Error()),
 		)
 	}
 	if err = operation.DecodeStrict(raw, &metadata); err != nil {
-		return metadata, refuse("is not valid release metadata JSON (%v)", err)
+		return metadata, refuse("is not valid release metadata JSON", operation.Cause(err.Error()))
 	}
 	switch {
 	case metadata.SchemaVersion != 1 || metadata.StateVersion != 1:
 		return metadata, refuse(
-			"has schema version %d and state version %d; this Workbench reads version 1 of both",
-			metadata.SchemaVersion,
-			metadata.StateVersion,
+			fmt.Sprintf(
+				"has schema version %d and state version %d",
+				metadata.SchemaVersion,
+				metadata.StateVersion,
+			),
+			operation.Cause("this Workbench reads version 1 of both"),
 		)
 	case metadata.Target != Target():
-		return metadata, refuse("is built for %q, not this system's %s", metadata.Target, Target())
+		return metadata, refuse(
+			fmt.Sprintf("is built for %q, not this system's %s", metadata.Target, Target()),
+		)
 	case !operation.ValidReleaseName(metadata.Release) ||
 		!operation.ValidDigest(metadata.SourceDigest):
 		return metadata, refuse("names no valid release and source digest")
 	case len(metadata.Files) > maxFiles:
-		return metadata, refuse("lists more than %d files", maxFiles)
+		return metadata, refuse(fmt.Sprintf("lists more than %d files", maxFiles))
 	}
 	return metadata, nil
 }
@@ -325,7 +328,8 @@ func readActivation(c operation.Context) (*activationJournal, error) {
 		return nil, operation.Fail(
 			operation.ExitInvalid,
 			"activation",
-			"Invalid current activation journal; left unchanged",
+			"The update's activation journal is invalid",
+			operation.Kept("the journal as it is"),
 		)
 	}
 	if err = (operation.State{SchemaVersion: 1, ActiveRelease: &journal.Candidate}).Validate(); err != nil {
@@ -350,7 +354,8 @@ func ValidateSelection(c operation.Context) error {
 		return operation.Fail(
 			operation.ExitConflict,
 			"activation_incomplete",
-			"Runtime activation was interrupted; rerun workbench update for the same release",
+			"An update was interrupted while it switched releases",
+			operation.Fix("workbench", "update", journal.Candidate.Identity.Release),
 		)
 	}
 	state, err := operation.ReadState(c.Paths)
@@ -362,7 +367,8 @@ func ValidateSelection(c operation.Context) error {
 		return operation.Fail(
 			operation.ExitConflict,
 			"activation_incomplete",
-			"Active runtime and command entry point differ; rerun workbench update for the same release",
+			"The workbench command does not point at the active release",
+			operation.Fix("workbench", "update", state.ActiveRelease.Identity.Release),
 		)
 	}
 	if state.ActiveRelease.Executable != filepath.Join(
@@ -464,10 +470,17 @@ func switchRuntime(
 		return err
 	}
 	defer func() { _ = os.Remove(pending) }()
+	// The journal stays running, so only an update of its release finishes.
+	finish := operation.Fix("workbench", "update", journal.Candidate.Identity.Release)
 	restore := func(cause error, unrestored string) error {
 		state.ActiveRelease = journal.Previous
 		if m.WriteState(*state) != nil {
-			return operation.Fail(operation.ExitPartial, "activation_incomplete", unrestored)
+			return operation.Fail(
+				operation.ExitPartial,
+				"activation_incomplete",
+				unrestored,
+				finish,
+			)
 		}
 		journal.Status = activationFailed
 		_ = journal.write(c, m)
@@ -478,20 +491,21 @@ func switchRuntime(
 	if err = m.WriteState(*state); err != nil {
 		return restore(
 			err,
-			"Activation state could not be made durable or restored; resume the same install",
+			"Cannot record the new release in Workbench's state or restore the old one",
 		)
 	}
 	if err = os.Rename(pending, c.Paths.Entrypoint()); err != nil {
 		return restore(
 			err,
-			"Entry-point activation failed and state restoration is incomplete; rerun workbench update",
+			"Cannot point the workbench command at the new release or restore the old state",
 		)
 	}
 	if err = operation.SyncDirectory(c.Paths.Bin); err != nil {
 		return operation.Fail(
 			operation.ExitPartial,
 			"activation_incomplete",
-			"Runtime selector changed but durability could not be confirmed; rerun workbench update",
+			"Cannot make the switch to the new release durable",
+			finish,
 		)
 	}
 	journal.Status = activationComplete
@@ -499,7 +513,8 @@ func switchRuntime(
 		return operation.Fail(
 			operation.ExitPartial,
 			"activation_incomplete",
-			"Runtime selectors changed but completion journal could not be made durable; resume the same install",
+			"Cannot record that the switch to the new release finished",
+			finish,
 		)
 	}
 	return nil
@@ -522,7 +537,8 @@ func replacedRuntime(
 			return nil, operation.Fail(
 				operation.ExitConflict,
 				"activation_incomplete",
-				"Finish the interrupted update first: rerun workbench update "+journal.Candidate.Identity.Release,
+				"An interrupted update of "+journal.Candidate.Identity.Release+" is not finished",
+				operation.Fix("workbench", "update", journal.Candidate.Identity.Release),
 			)
 		}
 		previous = journal.Previous
