@@ -297,17 +297,8 @@ func sameImage(a, b Image) bool {
 	if (a.Group == nil) != (b.Group == nil) || a.Group != nil && *a.Group != *b.Group {
 		return false
 	}
-	if a.Kind != b.Kind || a.Mode != b.Mode || a.Link != b.Link || !bytes.Equal(a.Data, b.Data) ||
-		len(a.Attributes) != len(b.Attributes) {
-		return false
-	}
-	for name, value := range a.Attributes {
-		other, ok := b.Attributes[name]
-		if !ok || !bytes.Equal(value, other) {
-			return false
-		}
-	}
-	return true
+	return a.Kind == b.Kind && a.Mode == b.Mode && a.Link == b.Link &&
+		bytes.Equal(a.Data, b.Data) && sameAttributes(a.Attributes, b.Attributes)
 }
 
 // ImageWithGroup makes group ownership explicit without granting ownership
@@ -495,13 +486,17 @@ func readImageAttributes(fd int, path string) (map[string][]byte, error) {
 	return attributes, nil
 }
 
+// writeImageAttributes gives fd, or the link at path when fd is negative,
+// exactly the attributes of an image, apart from the label: carryLabel writes
+// an image's label, and one the image lacks is left as the system gave it,
+// since SELinux lets no one remove a label.
 func writeImageAttributes(fd int, path string, attributes map[string][]byte) error {
 	existing, err := readImageAttributes(fd, path)
 	if err != nil {
 		return err
 	}
 	for name := range existing {
-		if _, ok := attributes[name]; ok {
+		if _, ok := attributes[name]; ok || name == platform.LabelAttribute {
 			continue
 		}
 		if fd < 0 {
@@ -514,9 +509,12 @@ func writeImageAttributes(fd int, path string, attributes map[string][]byte) err
 		}
 	}
 	for name, data := range attributes {
-		if fd < 0 {
+		switch {
+		case name == platform.LabelAttribute:
+			err = carryLabel(fd, path, existing, data)
+		case fd < 0:
 			err = unix.Lsetxattr(path, name, data, 0)
-		} else {
+		default:
 			err = unix.Fsetxattr(fd, name, data, 0)
 		}
 		if err != nil {
@@ -537,9 +535,17 @@ func setImageGroup(fd int, group uint32) error {
 	return unix.Fchown(fd, -1, int(group))
 }
 
-// Native group correction uses the opened inode for both the exact-image proof
-// and chown, so replacing a path cannot redirect the approved metadata write.
-func enforceNativeGroup(c Context, path string, observed Image, group uint32) error {
+// enforceNativeMetadata gives a target native wrote the approved group and,
+// unless label is nil, that label (carryLabel). It uses the opened inode for
+// both the exact-image proof and the change, so replacing a path cannot
+// redirect the approved metadata write.
+func enforceNativeMetadata(
+	c Context,
+	path string,
+	observed Image,
+	group uint32,
+	label []byte,
+) error {
 	if observed.Kind != ImageFile && observed.Kind != ImageDirectory {
 		return Fail(
 			ExitBlocked,
@@ -601,6 +607,11 @@ func enforceNativeGroup(c Context, path string, observed Image, group uint32) er
 	}
 	if err = setImageGroup(fd, group); err != nil {
 		return err
+	}
+	if label != nil {
+		if err = carryLabel(fd, path, current.Attributes, label); err != nil {
+			return err
+		}
 	}
 	return file.Sync()
 }

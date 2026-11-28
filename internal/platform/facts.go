@@ -70,6 +70,13 @@ const GroupFromFolder = groupFromFolder
 // attributes, and false on macOS, whose ACLs FileSecurity reads.
 const ACLsAreAttributes = aclsAreAttributes
 
+// LabelAttribute is the extended attribute that holds a file's security
+// label, which a new file gets from the system's policy and a rename keeps:
+// security.selinux on Linux, where SELinux labels each file it sees and the
+// label stays on disk while SELinux is off, and empty on macOS, whose files
+// carry no such attribute.
+const LabelAttribute = labelAttribute
+
 // TouchIDPossible reports whether sudo can be set up to ask for Touch ID
 // here: true on macOS, false on Linux.
 const TouchIDPossible = touchIDPossible

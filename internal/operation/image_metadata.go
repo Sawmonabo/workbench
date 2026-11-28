@@ -1,24 +1,32 @@
 package operation
 
 import (
+	"bytes"
 	"errors"
+	"slices"
+
+	"golang.org/x/sys/unix"
 
 	"github.com/Sawmonabo/workbench/internal/platform"
 )
 
-// preservedAttributes are the extended attributes images carry verbatim. Each
+// preservedAttributes are the extended attributes images carry. On macOS each
 // is small, grants no access and is commonly added by macOS: download
 // provenance and quarantine, Finder flags and the last used date. Every other
 // attribute blocks planning, and so does an ACL except where folderACL admits it.
 // Where ACLs are extended attributes (platform.ACLsAreAttributes), as on Linux,
-// any attribute may be one, so none is carried and attributeACL blocks each.
+// only the security label (platform.LabelAttribute) is carried, as
+// carryLabel writes it, and attributeACL blocks every other attribute: an ACL
+// (system.posix_acl_access, system.posix_acl_default), file capabilities
+// (security.capability), and user.* and trusted.* attributes a replacement
+// would not have.
 var preservedAttributes = carriedAttributes()
 
-// carriedAttributes is preservedAttributes: none where ACLs are extended
-// attributes.
+// carriedAttributes is preservedAttributes: only the label where ACLs are
+// extended attributes.
 func carriedAttributes() []string {
 	if platform.ACLsAreAttributes {
-		return nil
+		return []string{platform.LabelAttribute}
 	}
 	return []string{
 		"com.apple.provenance",
@@ -31,7 +39,7 @@ func carriedAttributes() []string {
 // fileMetadata refuses metadata a target Workbench replaces cannot carry: any
 // file flag a replacement would not have (all but platform.KeptFlags), the
 // flags that stop a replace among them, any ACL and, where ACLs are extended
-// attributes, any attribute.
+// attributes, any attribute but the label (attributeACL).
 func fileMetadata(fd int, path string) error {
 	return metadata(fd, path, platform.KeptFlags, targetFlags, noACL)
 }
@@ -42,7 +50,7 @@ func fileMetadata(fd int, path string) error {
 // or flags, so it may keep the ACL entries folderACL admits and the flags a
 // folder Workbench writes into may keep (platform.FolderFlags) but the hidden
 // flag, which the checkpoint records only on a folder Workbench writes into.
-// Any attribute still blocks where ACLs are extended attributes.
+// Any attribute but the label still blocks where ACLs are extended attributes.
 func containerMetadata(fd int, path string) error {
 	return metadata(fd, path, platform.FolderFlags&^platform.HiddenFlag, targetFlags, folderACL)
 }
@@ -54,8 +62,8 @@ func containerMetadata(fd int, path string) error {
 // flags platform.FolderFlags names: the hidden flag macOS puts on ~/Library,
 // which only hides the folder in Finder, and on Linux any inode flag but the
 // immutable and append-only ones, under which those entries cannot change.
-// Where ACLs are extended attributes, any attribute there blocks planning, as
-// on a target.
+// Where ACLs are extended attributes, any attribute there but the label
+// blocks planning, as on a target.
 func parentMetadata(fd int, path string) error {
 	return metadata(
 		fd,
@@ -167,16 +175,67 @@ const targetAttributes = "Targets with extended attributes or unverified ACLs ca
 
 // attributeACL refuses, where ACLs are extended attributes
 // (platform.ACLsAreAttributes), fd, or path itself when fd is negative, when it
-// has any extended attribute or they cannot be counted: FileSecurity sees no
-// ACL there, and any attribute may be one. refusal is the blocked error's
-// message.
+// has an extended attribute images do not carry, or its names cannot be read:
+// FileSecurity sees no ACL there, and an ACL is such an attribute. The label
+// alone passes, by its exact name. refusal is the blocked error's message.
 func attributeACL(fd int, path, refusal string) error {
 	if !platform.ACLsAreAttributes {
 		return nil
 	}
-	count, err := platform.ExtendedAttributeCount(fd, path)
-	if err != nil || count != 0 {
+	names, err := platform.ExtendedAttributeNames(fd, path)
+	if err != nil {
 		return Fail(ExitBlocked, "metadata", refusal)
 	}
+	for _, name := range names {
+		if !slices.Contains(preservedAttributes, name) {
+			return Fail(ExitBlocked, "metadata", refusal)
+		}
+	}
 	return nil
+}
+
+// sameAttributes reports whether two images' attributes match, apart from the
+// label: a relabel, as restorecon makes, is the system's and no edit, so it
+// neither stops a write nor makes one. carryLabel and the native correction
+// (nativeLabel) compare the label themselves.
+func sameAttributes(a, b map[string][]byte) bool {
+	equal := func(x, y map[string][]byte) bool {
+		for name, value := range x {
+			if name == platform.LabelAttribute {
+				continue
+			}
+			if other, ok := y[name]; !ok || !bytes.Equal(value, other) {
+				return false
+			}
+		}
+		return true
+	}
+	return equal(a, b) && equal(b, a)
+}
+
+// carryLabel gives fd, or the link at path when fd is negative, the label
+// desired, an earlier image's, as sed -i, Vim and Emacs give a file they
+// replace its old label; current is what the system gave the inode. A label
+// it already has is not written, so the common case needs no relabel
+// permission. Where the inode has none and the system refuses one (EPERM,
+// EOPNOTSUPP), SELinux is off: the system labels no file, setting a label
+// takes CAP_SYS_ADMIN, and turning SELinux back on relabels the whole file
+// system, so the inode stays without one, as every file made meanwhile. Any
+// other refusal fails the write before its rename, so a replacement never
+// takes a label other than the file's it replaces.
+func carryLabel(fd int, path string, current map[string][]byte, desired []byte) error {
+	label, labeled := current[platform.LabelAttribute]
+	if labeled && bytes.Equal(label, desired) {
+		return nil
+	}
+	var err error
+	if fd < 0 {
+		err = unix.Lsetxattr(path, platform.LabelAttribute, desired, 0)
+	} else {
+		err = unix.Fsetxattr(fd, platform.LabelAttribute, desired, 0)
+	}
+	if !labeled && (errors.Is(err, unix.EPERM) || errors.Is(err, unix.EOPNOTSUPP)) {
+		return nil
+	}
+	return err
 }

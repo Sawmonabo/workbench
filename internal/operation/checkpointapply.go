@@ -1,9 +1,12 @@
 package operation
 
 import (
+	"bytes"
 	"context"
 	"slices"
 	"strings"
+
+	"github.com/Sawmonabo/workbench/internal/platform"
 )
 
 // StartNative persists uncertainty before handing authority to the native engine.
@@ -17,10 +20,11 @@ func (cp *Checkpoint) StartNative() error {
 }
 
 // FinalizeNative restores only the approved group after native atomic creation
-// inherited its temporary directory's group. Every target's expected content,
-// type and mode is checked first; unknown content never authorizes metadata edits.
-// It is called only following successful native execution.
-func (cp *Checkpoint) FinalizeNative() error { return cp.restoreNativeGroups(false) }
+// inherited its temporary directory's group, and the label a replaced target
+// had (see nativeLabel). Every target's expected content, type and mode is
+// checked first; unknown content never authorizes metadata edits. It is called
+// only following successful native execution.
+func (cp *Checkpoint) FinalizeNative() error { return cp.restoreNativeMetadata(false) }
 
 // SettleFailedNative is FinalizeNative for a native run that failed (a script
 // exited nonzero, say) or was interrupted once native had stopped. The files
@@ -32,12 +36,12 @@ func (cp *Checkpoint) FinalizeNative() error { return cp.restoreNativeGroups(fal
 // target that cannot be corrected does not stop the others; Finish records each
 // as it finds it. The only error it could return, a lost mutation, makes Finish
 // fail as well.
-func (cp *Checkpoint) SettleFailedNative() { _ = cp.restoreNativeGroups(true) }
+func (cp *Checkpoint) SettleFailedNative() { _ = cp.restoreNativeMetadata(true) }
 
-// restoreNativeGroups is the shared body of both. Without failed, any target
-// that does not match its approved image fails the call before any group is
-// changed.
-func (cp *Checkpoint) restoreNativeGroups(failed bool) error {
+// restoreNativeMetadata is the shared body of both. Without failed, any target
+// that does not match its approved image fails the call before any group or
+// label is changed.
+func (cp *Checkpoint) restoreNativeMetadata(failed bool) error {
 	if err := cp.mutation.Check(); err != nil {
 		return err
 	}
@@ -55,15 +59,37 @@ func (cp *Checkpoint) restoreNativeGroups(failed bool) error {
 		observed[i], settled[i] = current, true
 	}
 	for i, change := range cp.changes {
-		if !settled[i] || change.After.Kind == ImageAbsent ||
-			*observed[i].Group == *change.After.Group {
+		if !settled[i] || change.After.Kind == ImageAbsent {
 			continue
 		}
-		if err := correctNativeGroup(c, change, observed[i]); err != nil && !failed {
+		label := nativeLabel(change, observed[i])
+		if *observed[i].Group == *change.After.Group && label == nil {
+			continue
+		}
+		if err := correctNativeMetadata(c, change, observed[i], label); err != nil && !failed {
 			return err
 		}
 	}
 	return nil
+}
+
+// nativeLabel is the label to put back on a file or folder native replaced, or
+// nil when there is none to put back. Native stages a file in its temporary
+// folder whenever a rename from there reaches the target (renameio's
+// TempDir), and a rename keeps the label the file got there, so a file that
+// was there before gets its earlier label again, as Workbench's own replace
+// keeps it (carryLabel). A file native creates keeps the label native's write
+// gave it: it had none to keep.
+func nativeLabel(change TargetChange, observed Image) []byte {
+	if change.Before.Kind != change.After.Kind ||
+		change.Before.Kind != ImageFile && change.Before.Kind != ImageDirectory {
+		return nil
+	}
+	label, ok := change.Before.Attributes[platform.LabelAttribute]
+	if !ok || bytes.Equal(observed.Attributes[platform.LabelAttribute], label) {
+		return nil
+	}
+	return label
 }
 
 // nativeOutput reads a target after a native run and returns it when it is the
@@ -92,9 +118,9 @@ func nativeOutput(c Context, change TargetChange) (Image, error) {
 	return current, nil
 }
 
-// correctNativeGroup gives a target the approved group, once it is still the
-// image nativeOutput observed.
-func correctNativeGroup(c Context, change TargetChange, observed Image) error {
+// correctNativeMetadata gives a target the approved group and, unless label is
+// nil, that label, once it is still the image nativeOutput observed.
+func correctNativeMetadata(c Context, change TargetChange, observed Image, label []byte) error {
 	current, err := ReadImage(c, change.Path)
 	if err != nil {
 		return err
@@ -106,7 +132,7 @@ func correctNativeGroup(c Context, change TargetChange, observed Image) error {
 			"Native target changed before group preservation; stop for review",
 		)
 	}
-	return enforceNativeGroup(c, change.Path, observed, *change.After.Group)
+	return enforceNativeMetadata(c, change.Path, observed, *change.After.Group, label)
 }
 
 // CheckPreservable is the native planner's check of one edit: it refuses

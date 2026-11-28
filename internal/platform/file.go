@@ -1,10 +1,10 @@
 package platform
 
 import (
-	"bytes"
 	"errors"
 	"io/fs"
 	"path/filepath"
+	"strings"
 
 	"golang.org/x/sys/unix"
 )
@@ -39,7 +39,7 @@ func RenameAt(fd int, from, to string, exclusive bool) error {
 // all. An error is the call's errno, or ErrUnsupportedACL for security data
 // whose layout it does not recognize, so a caller fails closed. On Linux it
 // always reports no ACL and no error: POSIX ACLs there are extended
-// attributes (ACLsAreAttributes), which ExtendedAttributeCount counts.
+// attributes (ACLsAreAttributes), which ExtendedAttributeNames lists.
 func FileSecurity(fd int, path string) (entries []ACE, present bool, err error) {
 	return fileSecurity(fd, path)
 }
@@ -87,13 +87,12 @@ func existingStatfs(path string) (unix.Statfs_t, error) {
 	}
 }
 
-// ExtendedAttributeCount is the number of extended attribute names of fd,
-// or of path itself, not a link's target, when fd is negative. A call
-// without a buffer only bounds the name list's length: on overlayfs it also
-// counts the trusted.overlay.* names the read leaves out, so the names are
-// read into a buffer that size and counted. A list that grew in between
-// fails with ERANGE.
-func ExtendedAttributeCount(fd int, path string) (int, error) {
+// ExtendedAttributeNames are the extended attribute names of fd, or of path
+// itself, not a link's target, when fd is negative. A call without a buffer
+// only bounds the name list's length: on overlayfs it also counts the
+// trusted.overlay.* names the read leaves out, so the names are read into a
+// buffer that size. A list that grew in between fails with ERANGE.
+func ExtendedAttributeNames(fd int, path string) ([]string, error) {
 	list := func(names []byte) (int, error) {
 		if fd < 0 {
 			return unix.Llistxattr(path, names)
@@ -102,12 +101,12 @@ func ExtendedAttributeCount(fd int, path string) (int, error) {
 	}
 	size, err := list(nil)
 	if err != nil || size == 0 {
-		return 0, err
+		return nil, err
 	}
 	names := make([]byte, size)
 	size, err = list(names)
 	if err != nil {
-		return 0, err
+		return nil, err
 	}
-	return bytes.Count(names[:size], []byte{0}), nil
+	return strings.FieldsFunc(string(names[:size]), func(r rune) bool { return r == 0 }), nil
 }

@@ -75,6 +75,9 @@ const groupFromFolder = true
 // extended attributes, and FileSecurity reads it.
 const aclsAreAttributes = false
 
+// labelAttribute is empty: no macOS attribute holds a security label.
+const labelAttribute = ""
+
 // touchIDPossible is true: sudo can be set up to ask for Touch ID here.
 const touchIDPossible = true
 

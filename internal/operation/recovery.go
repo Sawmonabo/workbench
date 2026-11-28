@@ -147,7 +147,12 @@ func (cp *Checkpoint) confirm(i int, current Image) bool {
 // it if it is a folder holding other files.
 func (cp *Checkpoint) regroupConfirmed() error {
 	for i, observed := range cp.regroup {
-		if err := correctNativeGroup(cp.mutation.context, cp.changes[i], observed); err != nil {
+		if err := correctNativeMetadata(
+			cp.mutation.context,
+			cp.changes[i],
+			observed,
+			nil,
+		); err != nil {
 			return err
 		}
 	}

@@ -39,7 +39,7 @@ func renameAt(fd int, from, to string, exclusive bool) error {
 
 // fileSecurity reports no ACL: Linux keeps POSIX ACLs as the extended
 // attributes system.posix_acl_access and system.posix_acl_default, which
-// ExtendedAttributeCount counts.
+// ExtendedAttributeNames lists.
 func fileSecurity(_ int, _ string) (entries []ACE, present bool, err error) {
 	return nil, false, nil
 }

@@ -89,6 +89,10 @@ const groupFromFolder = false
 // attributes system.posix_acl_access and system.posix_acl_default.
 const aclsAreAttributes = true
 
+// labelAttribute is SELinux's: a file's context is its security.selinux
+// attribute.
+const labelAttribute = "security.selinux"
+
 // touchIDPossible is false: sudo cannot be set up to ask for Touch ID here.
 const touchIDPossible = false
 
