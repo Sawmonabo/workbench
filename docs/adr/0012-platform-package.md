@@ -111,7 +111,12 @@ every caller.
   message that names each system's own things takes its words from a table
   keyed by `System`: the refusal of private state off a native file system
   (`operation.foreignFilesystem`) and the platform check's note for an
-  unsupported release (`machine.supportNote`). Apart from `effects_darwin.go`
+  unsupported release (`machine.supportNote`). The one rule that reads
+  `System` is the support rule that note words, `machine.supportedRelease`:
+  a release name means a release only on its own system, because on Linux
+  `HostRelease` gives whatever `ID` `/etc/os-release` holds, so the rule
+  pairs each name it accepts with its system, and an os-release whose `ID`
+  is `macOS` is no supported Mac. Apart from `effects_darwin.go`
   and `effects_linux.go`, no file outside the package has a system suffix,
   and a safeguard test that needs one system's features builds on both and
   skips where a fact says they are missing.

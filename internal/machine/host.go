@@ -46,7 +46,7 @@ func hostVersion(ctx context.Context, c operation.Context, result *operation.Com
 		return
 	}
 	result.Message = name + " " + version + " on " + runtime.GOARCH
-	if supportedRelease(name, version) {
+	if supportedRelease(platform.System, name, version) {
 		result.Status = operation.StatusComplete
 	} else {
 		result.Message += supportNote[platform.System]
@@ -57,18 +57,21 @@ func hostVersion(ctx context.Context, c operation.Context, result *operation.Com
 }
 
 // supportedRelease reports whether Workbench supports the release
-// platform.HostRelease names: macOS 15 or later, Ubuntu 22.04, 24.04 and 26.04
-// and AlmaLinux 10. AlmaLinux is checked by its major version only, since it
-// ships a new 10.x minor release every six months.
-func supportedRelease(name, version string) bool {
+// platform.HostRelease names on system (platform.System): macOS 15 or later on
+// darwin, and Ubuntu 22.04, 24.04 and 26.04 and AlmaLinux 10 on linux. A
+// release name counts only on its own system, because on Linux it is whatever
+// ID /etc/os-release holds: one that says macOS is no supported Mac. AlmaLinux
+// is checked by its major version only, since it ships a new 10.x minor
+// release every six months.
+func supportedRelease(system, name, version string) bool {
 	major, _, _ := strings.Cut(version, ".")
-	switch name {
-	case "macOS":
+	switch {
+	case system == "darwin" && name == "macOS":
 		number, _ := strconv.Atoi(major)
 		return number >= 15
-	case "ubuntu":
+	case system == "linux" && name == "ubuntu":
 		return slices.Contains([]string{"22.04", "24.04", "26.04"}, version)
-	case "almalinux":
+	case system == "linux" && name == "almalinux":
 		return major == "10"
 	}
 	return false

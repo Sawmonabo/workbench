@@ -191,7 +191,8 @@ With role `work` (and for the work half of `both`):
 ### 4.2 The platform check accepts AlmaLinux 10
 
 `supportedRelease` in `internal/machine/host.go` also marks the platform
-complete when `ID` is `almalinux` and the major part of `VERSION_ID` is `10`.
+complete when `platform.System` is `linux`, `ID` is `almalinux` and the major
+part of `VERSION_ID` is `10`; each release name counts only on its own system.
 AlmaLinux 10 gets a minor release every six months under one major version
 until 2035, unlike Ubuntu's fixed LTS list, so the check uses the major
 version only. The message stays `ID VERSION_ID/arch`, plus the WSL note.
