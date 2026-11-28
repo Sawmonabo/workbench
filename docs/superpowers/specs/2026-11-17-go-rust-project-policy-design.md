@@ -35,7 +35,7 @@ depends on it must check it first.
   `pyrightconfig.json` or `uv.toml`, a `[tool.pyright]` table, or `tool.ruff.extend`.
   In each case a merged setting would be ignored or refused by the tool.
   Python merges, and stops only where merging would be dead or rejected.
-- **`--extensions`** merges `.vscode/extensions.json` through HuJSON (`editor.go`).
+- **`--extensions`** merges `.vscode/extensions.json` through HuJSON (`extensions.go`).
   **`--gitignore`** appends entries, and stops on any negation line it does not
   know.
 - **`--ci`** (`ci.go`) needs all of these:
@@ -916,8 +916,8 @@ There is no new framework. Each concern stays with its existing owner.
 | Planning | `internal/project/plan.go` | `Plan` accepts `go` and `rust`; the source is the selected IDs joined by `_` (a release identifier allows no `,`), with a digest over their assets; new files `golang.go` and `rust.go` hold each language's additions |
 | `Cargo.toml` edits | `internal/project/adapter.py` (TOML Kit) | The request names the provenance path, `tool.workbench`, `workspace.metadata.workbench` or `package.metadata.workbench`. The Ruff selection branch runs only for the Python policy. |
 | Whole-file writes | `Proposal.add` | No editor; absent means create |
-| `.vscode/extensions.json`, `.gitignore` | `editor.go` | Policy-aware. `mergeIgnore` now checks negations only when it has something to append. |
-| Hooks and Dependabot | new `internal/project/hooks.go` | Renders and combines each language's jobs; writes the grouped `dependabot.yml` and the auto-merge workflow, its `dependabot/fetch-metadata` pin read from `[github_actions]` |
+| `.vscode/extensions.json`, `.gitignore` | `extensions.go`, `ignore.go` | Policy-aware. `mergeIgnore` now checks negations only when it has something to append. |
+| Hooks and Dependabot | new `internal/project/hooks.go`, `dependabot.go` and `automerge.go` | Renders and combines each language's jobs; writes the grouped `dependabot.yml` and the auto-merge workflow, its `dependabot/fetch-metadata` pin read from `[github_actions]` |
 | Workflow | `internal/project/ci.go` | The workflow choice of section 6.3 and the shared merge; `goJob`, the Go workflow choice and the Go pins (read from the selected source's `versions.toml`) live in `golang.go`, and `rustJob` and the Rust pins in `rust.go`; the workflow choice (`testWorkflow`) and the pin reading (`readSourceVersions`) are shared |
 | Flags | `internal/cli/project.go` | `--hooks` and `--dependabot`; `--gitignore` help made general |
 | mbx step | `internal/machine/effects.go` (the effect, its source and the doctor line), `source.go` (the `[mbx]` pin and its checks), `plan.go` (stale choices judged against offered steps), plus the shared script, the shell templates and `versions.toml` | One effect |

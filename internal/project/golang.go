@@ -191,6 +191,23 @@ func (p *Proposal) readInput(path string) ([]byte, error) {
 	return data, nil
 }
 
+// existingInputs reads each file called one of names in root as a plan input
+// ([Proposal.readInput]), in order, and returns the paths of those that are
+// there.
+func (p *Proposal) existingInputs(root string, names []string) ([]string, error) {
+	var found []string
+	for _, name := range names {
+		data, err := p.readInput(filepath.Join(root, name))
+		if err != nil {
+			return nil, err
+		}
+		if data != nil {
+			found = append(found, filepath.Join(root, name))
+		}
+	}
+	return found, nil
+}
+
 // goDirective matches go.mod's go line, which actions/setup-go reads through
 // go-version-file to choose the Go version.
 var goDirective = regexp.MustCompile(`(?m)^go[ \t]+[0-9]`)

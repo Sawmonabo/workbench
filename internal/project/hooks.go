@@ -133,15 +133,9 @@ func repositoryFailure(message string) error {
 // group lists pytest; tests are never invented.
 func (p *Proposal) addHooks(c operation.Context, selected []Project, languages []string) error {
 	root := c.Scope.Root
-	var found []string
-	for _, name := range lefthookConfigs {
-		data, err := p.readInput(filepath.Join(root, name))
-		if err != nil {
-			return err
-		}
-		if data != nil {
-			found = append(found, filepath.Join(root, name))
-		}
+	found, err := p.existingInputs(root, lefthookConfigs)
+	if err != nil {
+		return err
 	}
 	var hooks hookFile
 	var ids []string

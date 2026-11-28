@@ -57,15 +57,9 @@ func (p *Proposal) addDependabot(c operation.Context, languages []string) error 
 		return err
 	}
 	data := renderDependabot(ecosystems, ids)
-	var found []string
-	for _, name := range dependabotConfigs {
-		existing, err := p.readInput(filepath.Join(root, name))
-		if err != nil {
-			return err
-		}
-		if existing != nil {
-			found = append(found, filepath.Join(root, name))
-		}
+	found, err := p.existingInputs(root, dependabotConfigs)
+	if err != nil {
+		return err
 	}
 	if len(found) == 0 {
 		if err := p.add(
@@ -163,15 +157,9 @@ const dependabotGroup = "minor-and-patch"
 // warnRenovate warns when the repository at root configures Renovate, which
 // would open update pull requests beside Dependabot's.
 func (p *Proposal) warnRenovate(root string) error {
-	var found []string
-	for _, name := range renovateConfigs {
-		data, err := p.readInput(filepath.Join(root, name))
-		if err != nil {
-			return err
-		}
-		if data != nil {
-			found = append(found, filepath.Join(root, name))
-		}
+	found, err := p.existingInputs(root, renovateConfigs)
+	if err != nil {
+		return err
 	}
 	manifest := filepath.Join(root, "package.json")
 	data, err := p.readInput(manifest)
