@@ -49,7 +49,7 @@ func doctorCommand(o *options) *cobra.Command {
 					}},
 					components...,
 				)
-				result.Results = append(result.Results, agentHooks(c.Home)...)
+				result.Results = append(result.Results, agentHooks(c)...)
 				result.Results = append(result.Results, guardWatcher(cmd.Context()))
 				result.Results = append(result.Results, oldAgentFolders(c)...)
 				// A check that found nothing wrong reads ok, not the complete
@@ -97,7 +97,8 @@ func doctorSummary(components []operation.Component) (string, operation.Body) {
 // neither blocks Workbench, and workbench apply installs them and, in Codex,
 // trusts them. Each group with a hook that does not run has a line of its
 // own, labeled with the group's command.
-func agentHooks(home string) []operation.Component {
+func agentHooks(c operation.Context) []operation.Component {
+	home := c.Home
 	var lines []operation.Component
 	for _, tool := range costs.Tools {
 		if tool.Source == nil {
@@ -163,7 +164,7 @@ func agentHooks(home string) []operation.Component {
 		if none {
 			line.Message, topics = tool.Title+" has no agent costs or agent guard hooks", nil
 		}
-		line.Body = operation.Explain(append(topics, hookFixes(home, tool, states)...)...)
+		line.Body = operation.Explain(append(topics, hookFixes(c, tool, states)...)...)
 		lines = append(lines, line)
 	}
 	return lines
@@ -174,7 +175,8 @@ func agentHooks(home string) []operation.Component {
 // (toolconfig.ApplyFixes; nothing in a folder a variable moved, which
 // doctor's own line for the move explains), and the settings file the tool
 // skips, which no apply fixes: the apply keeps the user's settings.
-func hookFixes(home string, tool costs.Tool, states []string) []operation.Part {
+func hookFixes(c operation.Context, tool costs.Tool, states []string) []operation.Part {
+	home := c.Home
 	var parts []operation.Part
 	// Claude Code skips a settings file with a setting it refuses, hooks
 	// and all, and Codex does not start with a config.toml it cannot parse.
@@ -195,7 +197,7 @@ func hookFixes(home string, tool costs.Tool, states []string) []operation.Part {
 		}
 	}
 	if toolconfig.ApplyFixes(home, tool.Title, states) {
-		parts = append(parts, operation.Fix("workbench", "apply"))
+		parts = append(parts, operation.FixText(c.WorkbenchCommand()+" apply"))
 	}
 	return parts
 }
@@ -262,7 +264,9 @@ func oldAgentFolders(c operation.Context) []operation.Component {
 	if status == operation.StatusPending {
 		// The next apply's migrations step does it too, or says why a folder
 		// stays.
-		line.Body = body.With(operation.Explain(operation.Fix("workbench", "migrate")))
+		line.Body = body.With(
+			operation.Explain(operation.FixText(c.WorkbenchCommand() + " migrate")),
+		)
 	}
 	return []operation.Component{line}
 }

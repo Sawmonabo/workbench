@@ -65,7 +65,7 @@ func Execute(ctx context.Context, args []string, in io.Reader, out, diagnostics 
 			"invocation",
 			"Invalid command, flags or arguments",
 			operation.Cause(err.Error()),
-			operation.Fix("workbench", "--help"),
+			workbenchFix(pathsOnly(), append(subcommand(cmd), "--help")),
 		)
 		name := "workbench"
 		if cmd != nil {

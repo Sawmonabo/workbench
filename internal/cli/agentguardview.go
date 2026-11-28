@@ -29,7 +29,7 @@ func runGuardView(cmd *cobra.Command, o *options) error {
 			operation.ExitBlocked,
 			"json",
 			"agent guard has no JSON output",
-			operation.Fix("workbench", "agent", "guard", "logs", "--json"),
+			workbenchFix(pathsOnly(), []string{"agent", "guard", "logs", "--json"}),
 		)
 	}
 	if o.nonInteractive || !platform.IsTerminal(os.Stdin.Fd()) ||
@@ -38,7 +38,7 @@ func runGuardView(cmd *cobra.Command, o *options) error {
 			operation.ExitBlocked,
 			"terminal",
 			"agent guard needs a terminal",
-			operation.Fix("workbench", "agent", "guard", "logs", "--follow"),
+			workbenchFix(pathsOnly(), []string{"agent", "guard", "logs", "--follow"}),
 		)
 	}
 	if operation.AgentSession() {

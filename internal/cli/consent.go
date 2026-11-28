@@ -56,17 +56,16 @@ var unplannedFlags = []string{
 }
 
 // replan is the commands that make and approve a new plan of cmd's run, each
-// a fix line: the dry run that prints the plan and its digest, then the run
-// that approves the plan by that digest, each with cmd's arguments and every
-// flag it was given that picks the plan (all but unplannedFlags, and but one
-// given its default), words a shell reads back, a path under c's home
-// written from ~.
+// a fix line (see [workbenchFix]): the dry run that prints the plan and its
+// digest, then the run that approves the plan by that digest, each with
+// cmd's arguments and every flag it was given that picks the plan (all but
+// unplannedFlags, and but one given its default).
 func replan(cmd *cobra.Command, c operation.Context) []operation.Part {
-	words := append(strings.Fields(cmd.CommandPath()), cmd.Flags().Args()...)
+	words := append(subcommand(cmd), cmd.Flags().Args()...)
 	flags := givenFlags(cmd, unplannedFlags)
 	return []operation.Part{
-		fixCommand(c, slices.Concat(words, []string{"--dry-run", "--json"}, flags)),
-		fixCommand(c, slices.Concat(words, []string{"--approve-plan", "DIGEST"}, flags)),
+		workbenchFix(c, slices.Concat(words, []string{"--dry-run", "--json"}, flags)),
+		workbenchFix(c, slices.Concat(words, []string{"--approve-plan", "DIGEST"}, flags)),
 	}
 }
 
@@ -79,8 +78,17 @@ func runAgain(
 	args []string,
 	drop ...string,
 ) operation.Part {
-	words := append(strings.Fields(cmd.CommandPath()), args...)
-	return fixCommand(c, append(words, givenFlags(cmd, append(drop, "help"))...))
+	words := append(subcommand(cmd), args...)
+	return workbenchFix(c, append(words, givenFlags(cmd, append(drop, "help"))...))
+}
+
+// subcommand is the words of cmd's command after workbench: apply, project
+// apply; none for workbench itself.
+func subcommand(cmd *cobra.Command) []string {
+	if cmd == nil {
+		return nil
+	}
+	return strings.Fields(cmd.CommandPath())[1:]
 }
 
 // givenFlags are the flags cmd was given, as words to type, but those named
@@ -105,14 +113,23 @@ func givenFlags(cmd *cobra.Command, skip []string) []string {
 	return flags
 }
 
-// fixCommand is words as one fix line, each a word a shell reads back, a
-// path under c's home written from ~.
-func fixCommand(c operation.Context, words []string) operation.Part {
-	quoted := make([]string, len(words))
-	for i, word := range words {
-		quoted[i] = c.ShellPath(word)
+// workbenchFix is the fix line that runs workbench with words: what to type
+// to run it (see [operation.Context.WorkbenchCommand]), then each of words as
+// a word a shell reads back, a path under c's home written from ~.
+func workbenchFix(c operation.Context, words []string) operation.Part {
+	quoted := []string{c.WorkbenchCommand()}
+	for _, word := range words {
+		quoted = append(quoted, c.ShellPath(word))
 	}
 	return operation.FixText(strings.Join(quoted, " "))
+}
+
+// pathsOnly is a context of Workbench's paths alone, resolved read-only, for
+// a fix line made where no command's context is at hand (see
+// [workbenchFix]); one that cannot be resolved still names workbench.
+func pathsOnly() operation.Context {
+	c, _ := operation.Resolve(operation.Options{ReadOnly: true})
+	return c
 }
 
 // checkConsent is the approval rule apply and migrate share, checked

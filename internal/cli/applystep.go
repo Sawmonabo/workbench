@@ -15,7 +15,7 @@ import (
 // does what its own RunE does, and a cmd without one is only the step. Both
 // run inside an apply that holds the locks, so they resolve paths only and
 // print their own lines. A run outside the step is refused with fix, the
-// words of the command that runs the step.
+// words after workbench of the command that runs the step.
 func applyStep(
 	o *options,
 	cmd *cobra.Command,
@@ -35,11 +35,13 @@ func applyStep(
 			)
 		case own == nil:
 			return o.runPrinted(cmd, func(*operation.Result) error {
+				c := pathsOnly()
 				return operation.Fail(
 					operation.ExitInvalid,
 					"invocation",
 					cmd.Name()+" is an apply step",
-					operation.FixText("give it --probe or run"),
+					workbenchFix(c, fix),
+					workbenchFix(c, append(subcommand(cmd), "--probe")),
 				)
 			})
 		}
@@ -64,7 +66,7 @@ func applyStep(
 						operation.ExitBlocked,
 						"consent",
 						step+" run is the apply's "+effect+" step",
-						operation.Fix(fix...),
+						workbenchFix(pathsOnly(), fix),
 					)
 				}
 				return run(cmd)

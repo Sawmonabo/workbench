@@ -63,7 +63,7 @@ func migrateCommand(o *options) *cobra.Command {
 		o,
 		cmd,
 		"migrations",
-		[]string{"workbench", "migrate"},
+		[]string{"migrate"},
 		migrateProbe,
 		func(cmd *cobra.Command) error {
 			locations, err := migrate.Locate()
@@ -108,7 +108,7 @@ func migrateList(cmd *cobra.Command, c operation.Context) (operation.Result, err
 	result.Warnings = append(result.Warnings, operation.WarnAll(locations.Notes...)...)
 	for _, f := range findings {
 		component := operation.Component{Name: f.ID, Title: f.ID + " " + f.Title}
-		run := operation.Explain(operation.Fix("workbench", "migrate"))
+		run := operation.Explain(operation.FixText(c.WorkbenchCommand() + " migrate"))
 		component.Body = f.Body
 		switch f.Status {
 		case migrate.Done:

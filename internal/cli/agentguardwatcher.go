@@ -32,17 +32,16 @@ type connectedMsg struct {
 	problem operation.Warning
 }
 
-// What the view says when no watcher answers, each a headline and, where
-// there is one, the fix: a watcher that is not running, one of a release too
-// old to serve this view, which never answers the hello, and one that speaks
+// watcherAbsent is what the view says when no watcher runs.
+var watcherAbsent = operation.Warn("The watcher is not running; the next agent command starts it")
+
+// watcherUnusable is what the view says when a watcher answers that cannot
+// serve it, a headline and the update that fixes it: one of a release too
+// old for this view, which never answers the hello, or one that speaks
 // another protocol version.
-var (
-	watcherAbsent = operation.Warn("The watcher is not running; the next agent command starts it")
-	watcherOlder  = operation.Warn("The watcher's release is too old for this view",
-		operation.Fix("workbench", "update"))
-	watcherOther = operation.Warn("The watcher speaks another protocol version",
-		operation.Fix("workbench", "update"))
-)
+func watcherUnusable(headline string) operation.Warning {
+	return operation.Warn(headline, workbenchFix(pathsOnly(), []string{"update"}))
+}
 
 // watcherSilent is what the view says while the watcher's lock is held and
 // nothing answers on its socket: doctor's headline, cause and fix (see
@@ -132,9 +131,11 @@ func connectWatcher() tea.Msg {
 	_ = client.Close()
 	switch {
 	case errors.Is(err, os.ErrDeadlineExceeded):
-		return connectedMsg{problem: watcherOlder}
+		return connectedMsg{
+			problem: watcherUnusable("The watcher's release is too old for this view"),
+		}
 	case errors.Is(err, guard.ErrProtocolVersion):
-		return connectedMsg{problem: watcherOther}
+		return connectedMsg{problem: watcherUnusable("The watcher speaks another protocol version")}
 	}
 	// A watcher answered the dial, so one runs: it may be exiting or handing
 	// over, which the next attempt finds out.

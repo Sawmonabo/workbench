@@ -24,7 +24,7 @@ func envFilesCommand(o *options) *cobra.Command {
 		o,
 		cmd,
 		"env-files",
-		[]string{"workbench", "apply"},
+		[]string{"apply"},
 		func(out io.Writer) error {
 			c, answers, err := stepAnswers()
 			if err != nil {

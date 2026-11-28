@@ -28,7 +28,7 @@ func claudeMCPCommand(o *options) *cobra.Command {
 		o,
 		cmd,
 		"claude-mcp",
-		[]string{"workbench", "apply"},
+		[]string{"apply"},
 		func(out io.Writer) error {
 			c, answers, err := stepAnswers()
 			if err != nil {

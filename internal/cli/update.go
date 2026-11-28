@@ -3,12 +3,12 @@ package cli
 import (
 	"cmp"
 	"context"
-	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
 
+	"github.com/Sawmonabo/workbench/internal/display"
 	"github.com/Sawmonabo/workbench/internal/machine"
 	"github.com/Sawmonabo/workbench/internal/operation"
 	"github.com/Sawmonabo/workbench/internal/release"
@@ -369,7 +369,10 @@ func removeStale(m *operation.Mutation, plan operation.Plan) []operation.Warning
 		if err := m.RemovePrivateDirectory(edit.Path); err != nil {
 			warnings = append(
 				warnings,
-				operation.Warn(fmt.Sprintf("could not remove %s: %v", edit.Path, err)),
+				operation.Warn(
+					"Could not remove "+display.Path(edit.Path),
+					operation.Cause(operation.FileReason(edit.Path, err).Error()),
+				),
 			)
 		}
 	}
