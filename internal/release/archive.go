@@ -15,12 +15,13 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/Sawmonabo/workbench/internal/download"
 	"github.com/Sawmonabo/workbench/internal/operation"
 )
 
 // Conservative engineering ceilings, not production capacity qualification.
 const (
-	MaxDownload       = MaxSize
+	MaxDownload       = download.MaxSize
 	maxExpanded int64 = 256 << 20
 	maxFiles          = 4096
 )

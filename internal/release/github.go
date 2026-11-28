@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Sawmonabo/workbench/internal/download"
 	"github.com/Sawmonabo/workbench/internal/operation"
 )
 
@@ -90,7 +91,7 @@ func (r Remote) Bundle(ctx context.Context, progress func(done, total int64)) (B
 		ctx,
 		r.asset,
 		MaxDownload,
-		Request{Accept: "application/octet-stream", Token: r.token, Progress: progress},
+		download.Request{Accept: "application/octet-stream", Token: r.token, Progress: progress},
 	)
 	if err != nil {
 		return Bundle{}, err
@@ -105,7 +106,7 @@ func githubAPI(ctx context.Context, token, path, tag string, answer any) error {
 		ctx,
 		"https://api.github.com/repos/"+repository+path,
 		4<<20,
-		Request{Accept: "application/vnd.github+json", Token: token},
+		download.Request{Accept: "application/vnd.github+json", Token: token},
 	)
 	if errors.Is(err, errNotFound) {
 		message := "No published Workbench release found"
@@ -127,12 +128,17 @@ func githubAPI(ctx context.Context, token, path, tag string, answer any) error {
 // does not exist.
 var errNotFound = operation.Fail(operation.ExitBlocked, "release_unavailable", "Not found")
 
-// getRelease is [Get] for a release, from GitHub's API or a bundle's
+// getRelease is [download.Get] for a release, from GitHub's API or a bundle's
 // address, returning the body: a missing resource is a release that is not
 // there, and GitHub's refusals say what to do about them.
-func getRelease(ctx context.Context, location string, limit int64, r Request) ([]byte, error) {
-	data, _, err := Get(ctx, location, limit, r)
-	status, ok := errors.AsType[*StatusError](err)
+func getRelease(
+	ctx context.Context,
+	location string,
+	limit int64,
+	r download.Request,
+) ([]byte, error) {
+	data, _, err := download.Get(ctx, location, limit, r)
+	status, ok := errors.AsType[*download.StatusError](err)
 	switch {
 	case !ok:
 		return data, err

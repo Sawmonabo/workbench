@@ -14,8 +14,8 @@ import (
 	"time"
 
 	"github.com/Sawmonabo/workbench/internal/display"
+	"github.com/Sawmonabo/workbench/internal/download"
 	"github.com/Sawmonabo/workbench/internal/operation"
-	"github.com/Sawmonabo/workbench/internal/release"
 	"github.com/Sawmonabo/workbench/internal/sqlitefile"
 )
 
@@ -251,7 +251,7 @@ func cachedText(label string, age time.Duration) string {
 }
 
 // refreshOfficial is a conditional GET of the tool's pricing page (see
-// [release.Get]), made with no transaction open, and then one short transaction that stores the list it
+// [download.Get]), made with no transaction open, and then one short transaction that stores the list it
 // brought (see [Ledger.replaceOfficial]); it needs no import lock. It is best
 // effort: any failure, or a page that holds no price, keeps the tool's prices,
 // records the attempt time and returns a one-line reason. Without force a
@@ -282,9 +282,9 @@ func refreshOfficial(ctx context.Context, ledger *Ledger, tool Tool, force bool)
 	if cached.LastModified != "" {
 		header.Set("If-Modified-Since", cached.LastModified)
 	}
-	body, response, err := release.Get(fetchCtx, url, pageLimit, release.Request{Header: header})
+	body, response, err := download.Get(fetchCtx, url, pageLimit, download.Request{Header: header})
 	switch {
-	case errors.Is(err, release.ErrNotModified) && len(cached.rates()) > 0:
+	case errors.Is(err, download.ErrNotModified) && len(cached.rates()) > 0:
 		fetched = epoch(time.Now())
 		return keep(label + ": official card not modified")
 	case err != nil:

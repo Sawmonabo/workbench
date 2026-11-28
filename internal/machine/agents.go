@@ -19,9 +19,9 @@ import (
 	"github.com/pelletier/go-toml/v2"
 
 	"github.com/Sawmonabo/workbench/internal/agent/toolconfig"
+	"github.com/Sawmonabo/workbench/internal/download"
 	"github.com/Sawmonabo/workbench/internal/operation"
 	"github.com/Sawmonabo/workbench/internal/platform"
-	"github.com/Sawmonabo/workbench/internal/release"
 )
 
 // agentUpdatesScript carries out the planned Codex and Claude Code updates;
@@ -551,11 +551,11 @@ func fetchJSON(ctx context.Context, location string, target any) error {
 }
 
 // fetch reads a document of at most 8 MiB over HTTPS within timeout (see
-// [release.Get]); its error starts with location.
+// [download.Get]); its error starts with location.
 func fetch(ctx context.Context, location string, timeout time.Duration) ([]byte, error) {
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	body, _, err := release.Get(ctx, location, 8<<20, release.Request{})
+	body, _, err := download.Get(ctx, location, 8<<20, download.Request{})
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", location, err)
 	}
