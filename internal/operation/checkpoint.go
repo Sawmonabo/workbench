@@ -168,7 +168,8 @@ func journalRoom(changes []TargetChange) error {
 		return Fail(
 			ExitBlocked,
 			"checkpoint_limit",
-			"Extended attributes exceed the "+display.Limit(journalBytes)+" recovery journal",
+			"The changed files' extended attributes exceed "+display.Limit(journalBytes),
+			Cause("Workbench's record of one apply holds at most that much of them"),
 		)
 	}
 	return nil
@@ -198,35 +199,41 @@ func scopeDigest(c Context) string {
 // Workbench's own files, whose image is not a folder other users cannot
 // write in: the image on disk, or the planned one when planned.
 func ownFolderRefusal(path string, image Image, planned bool) error {
-	shown := display.Path(path) + " holds Workbench's own files"
-	var message string
+	shown := display.Path(path)
+	headline := shown + " holds Workbench's own files"
+	var parts []Part
 	switch {
 	case planned && image.Kind != ImageDirectory:
-		message = shown + ", and the plan would replace or remove it, which would take those files with it"
+		parts = []Part{Cause("the plan would replace or remove it, and those files with it")}
 	case planned:
-		message = fmt.Sprintf(
-			"%s, and the plan would give it mode %04o, which lets other users write in it",
-			shown,
+		parts = []Part{Cause(fmt.Sprintf(
+			"the plan would give it mode %04o, which lets other users write in it",
 			image.Mode,
-		)
+		))}
 	case image.Kind == ImageAbsent:
-		message = display.Path(path) + ", where Workbench's own files go, does not exist"
+		headline = shown + " does not exist"
+		parts = []Part{Cause("Workbench's own files go there")}
 	case image.Kind != ImageDirectory:
-		message = shown + " but is " + imageKindName(image.Kind) + ", not a folder"
+		headline = shown + " is " + imageKindName(image.Kind) + ", not a folder"
+		parts = []Part{Cause("Workbench's own files go there")}
 	default:
-		message = fmt.Sprintf(
-			"%s, and its mode %04o lets other users write in it",
-			shown,
-			image.Mode,
-		)
-		message += retry([]string{"chmod", "go-w"}, path)
+		headline = shown + " is writable by other users"
+		parts = []Part{
+			Cause(
+				fmt.Sprintf(
+					"its mode %04o lets them change Workbench's own files in it",
+					image.Mode,
+				),
+			),
+			FixPath(path, "chmod", "go-w"),
+		}
 	}
-	return Fail(ExitBlocked, "checkpoint", message)
+	return Fail(ExitBlocked, "checkpoint", headline, parts...)
 }
 
 func validateChanges(c Context, changes []TargetChange) error {
 	if len(changes) > MaxCheckpointTargets {
-		return Fail(ExitBlocked, "checkpoint", "Checkpoint permits at most 256 explicit targets")
+		return Fail(ExitBlocked, "checkpoint", "An apply can change at most 256 files")
 	}
 	seen := map[string]bool{}
 	total, attributes := 0, 0
@@ -262,21 +269,23 @@ func validateChanges(c Context, changes []TargetChange) error {
 		}
 		if change.Before.Kind == ImageDirectory && change.After.Kind != ImageAbsent &&
 			change.After.Kind != ImageDirectory {
-			shown := display.Path(change.Path)
 			return Fail(
 				ExitBlocked,
 				"checkpoint",
-				shown+" is a folder, and Workbench does not replace a folder with "+
-					imageKindName(change.After.Kind)+"; move it aside and retry",
+				display.Path(change.Path)+" is a folder",
+				Cause("Workbench does not replace a folder with "+imageKindName(change.After.Kind)),
+				FixText("move it aside"),
 			)
 		}
 		if change.After.Kind == ImageDirectory && change.Before.Kind != ImageAbsent &&
 			change.Before.Kind != ImageDirectory {
+			kind := imageKindName(change.Before.Kind)
 			return Fail(
 				ExitBlocked,
 				"checkpoint",
-				display.Path(change.Path)+" is "+imageKindName(change.Before.Kind)+
-					", and Workbench does not replace it with a folder; move it aside and retry",
+				display.Path(change.Path)+" is "+kind,
+				Cause("Workbench does not replace "+kind+" with a folder"),
+				FixText("move it aside"),
 			)
 		}
 	}
@@ -284,14 +293,16 @@ func validateChanges(c Context, changes []TargetChange) error {
 		return Fail(
 			ExitBlocked,
 			"checkpoint_limit",
-			"Extended attributes exceed the reserved 16 KiB pair limit",
+			"The changed files' extended attributes exceed 16 KiB",
+			Cause("Workbench keeps at most 16 KiB of them for revert"),
 		)
 	}
 	if total > MaxCheckpointImageBytes {
 		return Fail(
 			ExitBlocked,
 			"checkpoint_limit",
-			"Pre/post images exceed the 32 MiB checkpoint limit",
+			"The changed files exceed 32 MiB",
+			Cause("Workbench keeps at most 32 MiB of them, before and after, for revert"),
 		)
 	}
 	return nil
@@ -468,11 +479,12 @@ func checkApproved(c Context, plan Plan, before *SourceIdentity, changes []Targe
 			return err
 		}
 		if !sameImage(current, change.Before) {
-			shown := display.Path(change.Path)
 			return Fail(
 				ExitConflict,
 				"conflict",
-				shown+" changed after the plan was made, so nothing was written; plan again",
+				display.Path(change.Path)+" changed after the plan was made",
+				Changed("nothing"),
+				FixText("plan again"),
 			)
 		}
 	}

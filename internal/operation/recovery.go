@@ -19,7 +19,8 @@ func selectCheckpoint(c Context, selector RecoverySelector) (*Checkpoint, bool, 
 		return nil, false, Fail(
 			ExitBlocked,
 			"selection",
-			"List checkpoints and explicitly select an ID; recovery has no implicit latest selection",
+			"Revert needs a checkpoint ID",
+			Cause("it never picks the latest checkpoint by itself"),
 		)
 	}
 	checkpoints, err := loadCheckpoints(c)
@@ -49,19 +50,23 @@ func selectCheckpoint(c Context, selector RecoverySelector) (*Checkpoint, bool, 
 		return nil, false, Fail(
 			ExitConflict,
 			"selection",
-			"No checkpoint has that ID; choose one of: "+strings.Join(
-				choices,
-				", ",
-			),
+			"No checkpoint has that ID",
+			Line{Label: "checkpoints", Text: strings.Join(choices, ", ")},
 		)
 	}
 	if selected.journal.RecoveryCreated &&
 		(selected.journal.Status == JournalRunning || selected.journal.Status == JournalPartial) &&
 		((selected.journal.Direction == "reverse") != reverse) {
+		resume := selected.record.ID
+		if selected.journal.Direction == "forward" {
+			resume = selected.record.RecoveryID
+		}
 		return nil, false, Fail(
 			ExitConflict,
 			"recovery",
-			"Resume or reconcile the interrupted recovery direction before undoing it",
+			"Revert of checkpoint "+resume+" did not finish",
+			Cause("this would undo it before it finished"),
+			FixText("run that revert again first"),
 		)
 	}
 	return selected, reverse, nil
@@ -98,12 +103,13 @@ func (cp *Checkpoint) preflight(reverse bool) (map[int]string, error) {
 		if len(edited) > shown {
 			names += fmt.Sprintf(" and %d more", len(edited)-shown)
 		}
-		return nil, Fail(
-			ExitConflict,
-			"conflict",
-			"Changed since Workbench wrote them, so nothing was restored: "+names+
-				". Undo those changes, then run revert again",
-		)
+		headline, parts := edited[0]+" changed since Workbench wrote it", []Part{}
+		if len(edited) > 1 {
+			headline = "Files changed since Workbench wrote them"
+			parts = append(parts, Line{Label: "files", Text: names})
+		}
+		parts = append(parts, Changed("nothing"), FixText("undo those changes"))
+		return nil, Fail(ExitConflict, "conflict", headline, parts...)
 	}
 	return heldDirectories(c, cp.changes, reverse)
 }
@@ -259,11 +265,9 @@ func heldConflict(held map[int]string) error {
 	return Fail(
 		ExitConflict,
 		"conflict",
-		"Folders this would remove now hold files Workbench did not write, so nothing was changed: "+
-			strings.Join(
-				heldNames(held),
-				"; ",
-			),
+		"Folders this would remove hold files Workbench did not write",
+		Line{Label: "folders", Text: strings.Join(heldNames(held), "; ")},
+		Changed("nothing"),
 	)
 }
 
@@ -274,7 +278,7 @@ func RecoveryPlan(c Context, selector RecoverySelector) (_ Plan, err error) {
 	plan := Plan{
 		Scope: c.Scope,
 		RecoveryLimits: []string{
-			"Restores exact retained files only; packages, extensions, registry/environment, services and uncheckpointed script writes are not reverted",
+			"Revert puts back saved files only, not packages, extensions, the registry, environment variables, services or what scripts changed",
 		},
 	}
 	cp, reverse, err := selectCheckpoint(c, selector)
@@ -291,7 +295,10 @@ func RecoveryPlan(c Context, selector RecoverySelector) (_ Plan, err error) {
 		plan.Warnings = append(
 			plan.Warnings,
 			Warn(
-				"This apply stopped before Workbench recorded every file, so each was checked now: only files holding exactly what it wrote are restored",
+				"This apply stopped before Workbench recorded every file",
+				Outcome(
+					"revert checked each one now and restores only those holding exactly what the apply wrote",
+				),
 			),
 		)
 	}
@@ -299,7 +306,7 @@ func RecoveryPlan(c Context, selector RecoverySelector) (_ Plan, err error) {
 	for _, name := range heldNames(held) {
 		plan.Warnings = append(
 			plan.Warnings,
-			Warn("Stays, because it holds files Workbench did not write: "+name),
+			Warn(name+" stays", Cause("it holds files Workbench did not write")),
 		)
 	}
 	plan.Source = cp.record.Applied
@@ -440,7 +447,9 @@ func finishRecovery(c Context, m *Mutation, state *State, cp *Checkpoint, revers
 		return Fail(
 			ExitPartial,
 			"state",
-			"Files restored; current-state finalization failed; retained checkpoint remains available",
+			"Files restored, but Workbench could not record it",
+			Cause(err.Error()),
+			Outcome("checkpoint "+cp.ID+" is kept"),
 		)
 	}
 	return nil

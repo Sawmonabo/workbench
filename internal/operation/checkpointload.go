@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+
+	"github.com/Sawmonabo/workbench/internal/display"
 )
 
 // LastApplied returns, for each target path in c's scope, the image the
@@ -89,7 +91,9 @@ func decodePrivate(path string, limit int64, what string, value any) error {
 		return Fail(
 			ExitInvalid,
 			"checkpoint_format",
-			"Malformed checkpoint ("+err.Error()+"); no repair or deletion attempted",
+			display.Path(path)+" is malformed",
+			Cause(err.Error()),
+			Changed("nothing: Workbench neither repairs nor deletes it"),
 		)
 	}
 	return nil
@@ -131,10 +135,11 @@ func loadCheckpoints(c Context) ([]*Checkpoint, error) {
 			return nil, Fail(
 				ExitInvalid,
 				"checkpoint_format",
-				"Unexpected checkpoint entry "+filepath.Join(
-					directory,
-					entry.Name(),
-				)+"; no cleanup attempted",
+				display.Path(
+					filepath.Join(directory, entry.Name()),
+				)+" does not belong in the checkpoint folder",
+				Changed("nothing"),
+				FixText("move it aside"),
 			)
 		}
 		// The folders and files are checked, and their size bounded, before
@@ -346,7 +351,7 @@ func readJournal(directory string, i, targets int) (checkpointJournal, error) {
 		return j, Fail(
 			ExitInvalid,
 			"checkpoint_format",
-			"Invalid recovery journal; retained images require review",
+			display.Path(path)+" holds an invalid checkpoint record",
 		)
 	}
 	for _, known := range j.Known {
@@ -423,7 +428,8 @@ func readStoredImage(directory, digest string) (Image, error) {
 		return Image{}, Fail(
 			ExitInvalid,
 			"checkpoint_format",
-			"Malformed checkpoint image ("+err.Error()+")",
+			"A file saved in a checkpoint is malformed",
+			Cause(err.Error()),
 		)
 	}
 	return image, nil
