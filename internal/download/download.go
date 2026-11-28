@@ -95,7 +95,11 @@ func Get(
 		outgoing.Header.Set("Authorization", "Bearer "+r.Token)
 	}
 	// A stall limit, not a total-time limit: a slow link may take long as long
-	// as bytes keep arriving.
+	// as bytes keep arriving. The one timer covers the wait for the response's
+	// header as well as each read of its body, restarting when the header
+	// arrives and after every read that brings bytes, so a server that sends
+	// nothing for a minute, before its header or after, always stops the
+	// download the same way.
 	download, cancel := context.WithCancelCause(ctx)
 	defer cancel(nil)
 	outgoing = outgoing.WithContext(download)
@@ -108,6 +112,7 @@ func Get(
 		}
 		return nil, nil, failure(location, cause(err))
 	}
+	stall.Reset(stallLimit)
 	defer func() { _ = response.Body.Close() }()
 	if response.StatusCode != http.StatusOK {
 		return nil, response.Header, &StatusError{
@@ -204,7 +209,9 @@ var downloadClient = &http.Client{
 }
 
 // downloadTransport is the default transport's proxy, dial, TLS and idle
-// behavior plus a response-header deadline, shared so connections are reused.
+// behavior, shared so connections are reused. It sets no response-header
+// deadline: [Get]'s stall timer bounds that wait, so the one case of a server
+// that sends nothing has one timer and one answer.
 var downloadTransport = &http.Transport{
 	Proxy: http.ProxyFromEnvironment,
 	DialContext: (&net.Dialer{
@@ -216,7 +223,6 @@ var downloadTransport = &http.Transport{
 	IdleConnTimeout:       90 * time.Second,
 	TLSHandshakeTimeout:   10 * time.Second,
 	ExpectContinueTimeout: time.Second,
-	ResponseHeaderTimeout: stallLimit,
 }
 
 var errStalled = errors.New("download stalled")
