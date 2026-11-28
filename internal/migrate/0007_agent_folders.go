@@ -246,7 +246,7 @@ func (s folderState) text(home string) string {
 	case movable:
 		return "moves " + old + " to " + root
 	case unread:
-		return "can't read " + old
+		return unreadable(home, s.old, s.err)
 	case noSwap:
 		return "leaves " + old + " in use where it is, since its file system can't swap two names"
 	case inUse:

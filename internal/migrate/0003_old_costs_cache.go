@@ -29,7 +29,7 @@ var oldCostsCache = Migration{
 		ours, other, err := oldCacheFiles(l)
 		folder := display.PathFrom(l.Home, l.OldScriptCache)
 		if err != nil {
-			return Pending, "can't read " + folder
+			return Pending, unreadable(l.Home, l.OldScriptCache, err)
 		}
 		if operation.IsFolder(l.OldScriptCache) && len(ours) == 0 && len(other) == 0 {
 			return Pending, "removes the empty folder " + folder

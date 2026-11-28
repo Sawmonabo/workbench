@@ -36,7 +36,7 @@ var completionCache = Migration{
 			text = append(text, "deletes "+strings.Join(ours, ", "))
 		}
 		if len(unread) > 0 {
-			text = append(text, "can't read "+strings.Join(unread, ", "))
+			text = append(text, unread...)
 		}
 		if len(other) > 0 {
 			text = append(text, keeps(other))
@@ -81,15 +81,15 @@ func completionPaths(l Locations) []string {
 }
 
 // oldCompletions are the old caches still there, home-relative: ours carry
-// the marker, other files of those names don't, and unread can't be read, so
-// they count as there.
+// the marker, other files of those names don't, and unread says of each one
+// that can't be read why (see unreadable), so they count as there.
 func oldCompletions(l Locations) (ours, other, unread []string) {
 	for _, path := range completionPaths(l) {
 		marked, err := writtenByStartup(path)
 		switch {
 		case errors.Is(err, fs.ErrNotExist):
 		case err != nil:
-			unread = append(unread, display.PathFrom(l.Home, path))
+			unread = append(unread, unreadable(l.Home, path, err))
 		case marked:
 			ours = append(ours, display.PathFrom(l.Home, path))
 		default:

@@ -250,13 +250,12 @@ func safeParents(path string) error {
 		info, err := os.Lstat(current)
 		if err == nil {
 			if info.Mode()&os.ModeSymlink != 0 {
-				return Fail(
-					ExitInvalid,
-					"path",
-					display.Path(
-						current,
-					)+" is a link; Workbench keeps its own files only in real folders, so make it one",
-				)
+				fix := "Workbench keeps its own files only in real folders, so make it one"
+				if current == path {
+					fix = "Workbench keeps its own files and folders as real ones, " +
+						"so put what the link points to in its place"
+				}
+				return Fail(ExitInvalid, "path", display.Path(current)+" is a link; "+fix)
 			}
 			if current != path && !info.IsDir() {
 				return Fail(

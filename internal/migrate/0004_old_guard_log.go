@@ -46,7 +46,7 @@ var oldGuardLog = Migration{
 			case operation.NotRegularLog(err):
 				other = append(other, shown)
 			case err != nil:
-				todo = append(todo, "can't read "+shown)
+				todo = append(todo, unreadable(l.Home, path, err))
 			case filepath.Ext(path) == ".1":
 				todo = append(todo, "deletes "+shown)
 			default:

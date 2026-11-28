@@ -709,7 +709,7 @@ it is named as a file Workbench didn't write.
 
 **Removing the old folders:** each old `claude-costs/` folder is removed only
 when it is empty, and never when it is a link. The check names an empty old
-folder ("removes the empty folder X") and an unreadable one ("can't read X"),
+folder ("removes the empty folder X") and an unreadable one ("can't read X (permission denied)", the reason the system gave),
 each keeping `0001` *Pending*; a run fails when it can't remove an empty
 folder for any reason but its no longer being empty. A file the migration doesn't
 know stays and is named, and once nothing is
