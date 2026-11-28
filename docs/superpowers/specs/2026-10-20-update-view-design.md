@@ -174,6 +174,6 @@ header.
   version and previous version, and a download's bytes and size. A progress
   that does not handle them ignores them, so `apply`, which installs the same
   tools, keeps its status line.
-- `internal/release` counts the bytes of each HTTPS download it makes.
+- `internal/download` counts the bytes of each HTTPS download.
 - `internal/machine` reports each tool as it reaches it.
 - `internal/cli` owns the view, its words and its colors.
