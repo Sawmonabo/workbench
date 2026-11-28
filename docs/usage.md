@@ -329,8 +329,9 @@ moves it. Wherever the guard folder is, the hooks, the watcher, `agent guard`,
 `agent guard history` and `agent guard logs` use it only while it, its
 `notes/`, `killed/` and `agents/` folders and the state folder above are
 real folders (not links) of mode 0700, yours, on the machine's own file
-system, and refuse it otherwise in the same words, such as `Existing …/notes
-must be a private directory (mode 0700); it was not changed`. An entry asks whether a watcher or an import works in a folder with a
+system, and refuse it otherwise in the same words, such as `…/notes has mode
+0755, and Workbench keeps its own files only in a folder with mode 0700; run
+chmod 700 …/notes and retry`. An entry asks whether a watcher or an import works in a folder with a
 shared lock on that folder's lock file, which only an exclusive lock
 refuses: the watcher's or the import's own, or, for an instant, that of an
 entry moving the folder, which takes it only when the folder can move. So
@@ -1128,7 +1129,8 @@ revert registry, environment, services, package caches or uncheckpointed script
 effects. Supported bytes/types/modes/groups/link targets are recorded, along
 with the macOS provenance, quarantine, Finder info and last-used-date attributes
 and, on Linux, the SELinux label (`security.selinux`); other extended
-attributes, ACLs, file flags, hard links and special files block preservation.
+attributes, ACLs, file flags, hard links and special files block preservation,
+and each refusal names the file, what it holds and the command that clears it.
 The exception is what macOS puts on its own folders: the default "deny delete"
 ACL on a folder Workbench writes into or one that holds its files, and the
 hidden flag on a folder Workbench writes into, such as `~/Library`. Native
@@ -1150,13 +1152,16 @@ names only to a process with `CAP_SYS_ADMIN`, so one on a file Workbench
 replaces is not seen and is not kept. Of the inode flags `chattr` sets and
 `lsattr` shows, a file Workbench replaces may carry only those the file system
 sets itself, `e`, `I`, `N`, `h` and `E`; any other, such as `i` (immutable), `a`
-(append-only) or `A`, stops the plan with `Target filesystem flags cannot be
-preserved`. A folder Workbench writes into, or one that holds its files, may
-carry any flag but `i` and `a`, under which nothing in it can be added, replaced
-or removed; with either the plan stops with `Target folder filesystem flags
-cannot be preserved`. Neither message names the file: `lsattr -d` on the targets
-and their folders shows which one has the flag, and `chattr -i` or `chattr -a`
-(as root) clears it. A file system that keeps no inode flags, such as tmpfs on a
+(append-only) or `A`, stops the plan with the file, its flags as `lsattr` shows
+them and the command that clears them: `~/.bashrc has the flag i, under which
+no file can replace it; run sudo chattr -i ~/.bashrc and retry`. A folder
+Workbench writes into, or one that holds its files, may carry any flag but `i`
+and `a`, under which nothing in it can be added, replaced or removed; with
+either the plan stops the same way: `~/.config has the flag a, under which no
+file in it can be added, replaced or removed; run sudo chattr -a ~/.config and
+retry`. Each refusal of an attribute names it, never its value, with the
+command that removes it (`setfacl -b`, `setfacl -k`, `sudo setcap -r`,
+`setfattr -x NAME`). A file system that keeps no inode flags, such as tmpfs on a
 kernel before Linux 6.0, counts as having none; FUSE and 9P mounts are refused
 before their flags are read.
 
@@ -1193,8 +1198,9 @@ configuration keeps `~/.config` private (0700), so a `~/.config` that other
 users can list sees that edit. On a Mac it likewise keeps
 `~/Library/Application Support` private (0700), as macOS
 creates it, so a Mac whose folder was loosened sees that edit, with the folder's
-ACL kept. A folder with other flags, ACLs or attributes stops Workbench with the
-`chmod` that matches the configuration.
+ACL kept. A folder with other flags, ACLs or attributes stops Workbench, naming
+what the folder holds with the command that removes it, and the `chmod` that
+gives the folder the configuration's mode instead.
 A parent that other users can write to stops Workbench, naming the folder and
 giving the command to paste, quoted for the shell where the name needs it:
 `run chmod go-w ~/.local and retry`.
