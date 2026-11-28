@@ -44,11 +44,12 @@ type FolderCheck struct {
 	Kept                []string
 }
 
-// CheckOwnFolders checks the costs data and state folders in use, changing
-// nothing, as a check that only reads Workbench's own folders does (see
-// [operation.CheckPrivateDirectory]): one others can write in, or one this
-// user may not read or search, is refused, so nothing reads in it what is not
-// there, or what is not Workbench's. A missing folder passes.
+// CheckOwnFolders checks the costs data and state folders in use, as a check
+// that only reads Workbench's own folders does (see
+// [operation.CheckPrivateDirectory]): one others can write in is refused, so
+// nothing reads in it what is not Workbench's, and one this user may not read
+// or search gets 0700, so nothing reads in it what is not there; it changes
+// nothing else. A missing folder passes.
 func CheckOwnFolders(p Paths) error {
 	for _, f := range [][2]string{{p.Runtime.Data, filepath.Dir(p.Ledger)}, {p.Runtime.State, p.State}} {
 		name, err := filepath.Rel(f[0], f[1])
@@ -502,7 +503,8 @@ func gate(ctx context.Context, paths Paths, move bool) (Paths, error) {
 	// CheckFolders reads what the costs folders hold, so each is judged as
 	// Workbench's own folders are first: one others can write in is refused
 	// before anything in it is read; the state folder, which only the import
-	// worker writes in, is used as it is by every other caller; the data
+	// worker writes in, is used as it is by every other caller, but for one
+	// its owner may not read or search, which gets 0700; the data
 	// folder, which every caller writes in, then gets 0700 when it has another
 	// mode, as one its owner may not read or search would hide the ledger.
 	if name, err := filepath.Rel(paths.Runtime.State, paths.State); !move && err == nil &&

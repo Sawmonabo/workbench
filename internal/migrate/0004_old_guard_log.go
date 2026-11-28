@@ -37,6 +37,11 @@ var oldGuardLog = Migration{
 	Recovery: "nothing to undo: the removed lines are in an old format nothing reads, and " +
 		"the guard's records stay",
 	Check: func(l Locations) Found {
+		// The log is read in the guard folder, so a folder refused there
+		// is said instead (see guard.CheckedRoot).
+		if _, err := guard.CheckedRoot(l.Runtime.State); err != nil {
+			return Found{Status: Pending, Refusal: err}
+		}
 		var todo, other, unread []string
 		for _, path := range guardLogPaths(l) {
 			shown := display.PathFrom(l.Home, path)

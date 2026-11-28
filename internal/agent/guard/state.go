@@ -52,14 +52,45 @@ type folders struct {
 	logger                                          *slog.Logger
 }
 
-// stateFolder is Workbench's state folder. It reads nothing and creates
-// nothing.
+// stateFolder is Workbench's state folder, with the folders of the guard
+// folder's path under agent/ given the checks of a folder that is only read
+// (see [operation.CheckPrivateDirectory]) before Root looks in them: one its
+// owner may not read or search gets 0700, and one others can write in is
+// refused. It creates nothing.
 func stateFolder() (string, error) {
 	c, err := operation.Resolve(operation.Options{ReadOnly: true})
 	if err != nil {
 		return "", err
 	}
+	if err = checkNewRoot(c.Paths.State); err != nil {
+		return "", err
+	}
 	return c.Paths.State, nil
+}
+
+// checkNewRoot gives agent/guard in the state folder state, and agent above
+// it, the checks of a folder that is only read, for stateFolder and
+// CheckedRoot.
+func checkNewRoot(state string) error {
+	name, err := filepath.Rel(state, newRoot(state))
+	if err == nil {
+		err = operation.CheckPrivateDirectory(state, name)
+	}
+	return err
+}
+
+// CheckedRoot is where Root says the guard folder is in the state folder
+// state, for an entry that reads in it without opening it, such as migration
+// 0004: the folders on its path, and its notes, killed and agents folders,
+// first get the checks a reader gives them (see check), so a folder its owner
+// may not read or search gets 0700 before anything in it is read, and one
+// others can write in is refused.
+func CheckedRoot(state string) (string, error) {
+	if err := checkNewRoot(state); err != nil {
+		return "", err
+	}
+	f := locate(state, "")
+	return f.root, f.check()
 }
 
 // Root is where the guard folder is in the state folder state, for every
@@ -95,14 +126,19 @@ func Folder(state string) (old, root, lock string) {
 // guard folder where Root says, asked as every entry asks (see
 // [operation.LockHeld]): a watcher, from its start until it exits, or, for
 // an instant, a hook or `workbench migrate` moving the folder (see Move). It
-// creates nothing, and its error names the lock from the home folder (see
+// creates nothing, gives the guard folder the checks a reader gives it first
+// (see check), and its error names the lock from the home folder (see
 // [operation.FileError]).
 func WatcherRuns() (bool, error) {
 	state, err := stateFolder()
 	if err != nil {
 		return false, err
 	}
-	lock := locate(state, "").lock()
+	f := locate(state, "")
+	if err = f.check(); err != nil {
+		return false, err
+	}
+	lock := f.lock()
 	held, err := operation.LockHeld(lock)
 	if err != nil {
 		return false, operation.FileError(lock, err)

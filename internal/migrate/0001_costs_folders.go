@@ -25,10 +25,13 @@ var costsFolders = Migration{
 		check := costs.CheckFolders(l.OldCosts, l.Costs)
 		if check.State != costs.FoldersDone {
 			// What it found is read in the costs folders, so a folder
-			// refused there is said instead.
+			// refused there is said instead, and what they hold is read
+			// again once a folder its owner could not read or search has
+			// 0700.
 			if err := costs.CheckOwnFolders(l.Costs); err != nil {
 				return Found{Status: Pending, Refusal: err}
 			}
+			check = costs.CheckFolders(l.OldCosts, l.Costs)
 		}
 		headline, body := check.Said()
 		found := Found{Headline: headline, Body: body}

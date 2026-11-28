@@ -203,7 +203,8 @@ func hookFixes(home string, tool costs.Tool, states []string) []operation.Part {
 // when one does, whether it answers on its socket. The watcher starts with
 // an agent session and exits when idle, so one that is not running is no
 // problem. A lock held with no answer is said as the view says it (see
-// guard.WatcherSilent).
+// guard.WatcherSilent), and a guard folder refused is said in its refusal's
+// words.
 func guardWatcher(ctx context.Context) operation.Component {
 	line := operation.Component{
 		Name:    "agent-guard-watcher",
@@ -216,6 +217,9 @@ func guardWatcher(ctx context.Context) operation.Component {
 		line.Status = operation.StatusConflict
 		line.Message = "cannot tell whether the watcher runs"
 		line.Body = operation.Explain(operation.Cause(err.Error()))
+		if refusal, ok := errors.AsType[*operation.Error](err); ok {
+			line.Message, line.Body = refusal.Message, refusal.Body
+		}
 		return line
 	case !runs:
 		line.Status = operation.StatusSkipped
