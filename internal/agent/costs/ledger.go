@@ -256,12 +256,13 @@ func (l *Ledger) prepare(ctx context.Context, exists, upgrade bool) error {
 			l.step("compacting")
 			l.compacted, l.compactErr = true, l.compact(ctx)
 		}
-		l.step("")
 		if l.compactErr != nil && ctx.Err() != nil {
 			// The open's caller, whose context is done, could not use the
-			// upgraded ledger anyway.
+			// upgraded ledger anyway. The steps end on the stop, not on the
+			// upgrade's end, so the open ends as any stopped upgrade does.
 			return operation.Fail(operation.ExitInterrupted, "interrupted", compactStopped)
 		}
+		l.step("")
 	default:
 		return versionProblem(l.Path, version)
 	}

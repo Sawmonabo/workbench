@@ -64,9 +64,9 @@ func (u *upgradeLine) show(title string) {
 
 // close ends a line the open left running, as err, the open's error, says. A
 // failure ends it as failed, and the result prints the error after it. An
-// interrupt ends it as one faint line, the error's own message, which says
-// what stopped and what that leaves (see costs.Paths.Open); the result then
-// leaves the error out, as it does a stop the update view showed.
+// interrupt ends it as one faint line, the error in one line, which says what
+// stopped and what that leaves (see costs.Paths.Open); the result then leaves
+// the error out, as it does a stop the update view showed.
 func (u *upgradeLine) close(err error) {
 	if u.line == nil {
 		return
@@ -77,7 +77,7 @@ func (u *upgradeLine) close(err error) {
 	}
 	var stopped operation.Result
 	stopped.SetError(err)
-	u.end(faint.Render(forTerm("· " + stopped.Errors[0].Message)))
+	u.end(faint.Render(forTerm("· " + stopped.Errors[0].Error())))
 	u.o.stopShown = true
 }
 
