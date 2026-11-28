@@ -92,8 +92,8 @@ func (w *watcher) addFinished(f Finished) {
 	}
 	if w.dropped == 0 {
 		w.f.event(slog.LevelWarn, EventError, fmt.Sprintf(
-			"the finished commands the guard history has not taken are over %d MiB; "+
-				"dropping the oldest, which are not kept", pendingLimit>>20),
+			"finished commands waiting for the guard history are over %d MiB; "+
+				"dropping the oldest", pendingLimit>>20),
 			"dropped", dropped, "error", w.history.failure())
 	}
 	w.dropped += dropped

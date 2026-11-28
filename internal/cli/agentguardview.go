@@ -51,6 +51,7 @@ func runGuardView(cmd *cobra.Command, o *options) error {
 	// The color profile Bubble Tea reports arrives after the first frame:
 	// until then the view decides as every other colored output does.
 	model := &guardView{
+		state:   guardStateFolder(),
 		width:   terminalWidth(os.Stdout),
 		height:  24,
 		tagged:  map[string]bool{},
@@ -70,6 +71,16 @@ func runGuardView(cmd *cobra.Command, o *options) error {
 		_ = model.hist.db.Close()
 	}
 	return err
+}
+
+// guardStateFolder is the state folder, as operation.Resolve finds it for
+// every guard entry, "" when it cannot be found.
+func guardStateFolder() string {
+	c, err := operation.Resolve(operation.Options{ReadOnly: true})
+	if err != nil {
+		return ""
+	}
+	return c.Paths.State
 }
 
 // guardView is the live view: the watcher's latest snapshot, the finished
@@ -117,7 +128,11 @@ type guardView struct {
 	width       int
 	height      int
 	connected   bool
-	problem     string
+	problem     operation.Warning
+	// state is the state folder, which holds the guard folder, so a status
+	// line naming a path in it wraps the path whole (see holdPaths); "" when
+	// it cannot be found.
+	state string
 	// dialing is set while a connection attempt runs, so a tick never starts
 	// a second one: a watcher that never answers holds an attempt 3 s.
 	dialing bool
@@ -236,7 +251,7 @@ func (m *guardView) update(msg tea.Msg) tea.Cmd {
 			m.problem = msg.problem
 			return nil
 		}
-		m.client, m.connected, m.problem = msg.client, true, ""
+		m.client, m.connected, m.problem = msg.client, true, operation.Warning{}
 		m.rebuild()
 		return waitSnapshot(m.client.Snapshots())
 	case snapshotMsg:

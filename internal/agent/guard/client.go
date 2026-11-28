@@ -55,10 +55,10 @@ func socketPath() (string, error) {
 	path := f.socket()
 	if len(path) > platform.SocketPathLimit {
 		return "", fmt.Errorf(
-			"the guard socket path %s is over %d bytes; the state folder %s is too deep for a socket",
+			"the state folder %s is too deep for a socket (%s is over %d bytes)",
+			state,
 			path,
 			platform.SocketPathLimit,
-			state,
 		)
 	}
 	return path, nil

@@ -165,8 +165,8 @@ func (w *watcher) unitsFailed(err error) {
 	if !w.unitSaveFailed {
 		w.unitSaveFailed = true
 		w.f.event(slog.LevelError, EventError,
-			"cannot read or keep the records of the detached work the guard tracks; a watcher "+
-				"that starts after this one is killed may not find it", "error", err)
+			"cannot read or keep the detached work's records; a later watcher may not find "+
+				"that work", "error", err)
 	}
 }
 

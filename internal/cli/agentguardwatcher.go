@@ -12,6 +12,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/Sawmonabo/workbench/internal/agent/guard"
+	"github.com/Sawmonabo/workbench/internal/operation"
 )
 
 // snapshotMsg is a snapshot the watcher sent.
@@ -28,23 +29,28 @@ type stoppedMsg []guard.StopResult
 // or why no watcher answered.
 type connectedMsg struct {
 	client  *guard.Client
-	problem string
+	problem operation.Warning
 }
 
-// The texts the view shows when no watcher answers.
-const (
-	watcherAbsent = "The watcher is not running; the next agent command starts it."
-	watcherOlder  = "The watcher's release is too old for this view; run workbench update."
-	watcherOther  = "The watcher speaks another protocol version; run workbench update."
+// What the view says when no watcher answers, each a headline and, where
+// there is one, the fix: a watcher that is not running, one of a release too
+// old to serve this view, which never answers the hello, and one that speaks
+// another protocol version.
+var (
+	watcherAbsent = operation.Warn("The watcher is not running; the next agent command starts it")
+	watcherOlder  = operation.Warn("The watcher's release is too old for this view",
+		operation.Fix("workbench", "update"))
+	watcherOther = operation.Warn("The watcher speaks another protocol version",
+		operation.Fix("workbench", "update"))
 )
 
 // watcherSilent is what the view says while the watcher's lock is held and
-// nothing answers on its socket: doctor's line (see
-// guard.WatcherSilentHeadline), as a sentence.
-var watcherSilent = func() string {
-	said := guard.WatcherSilentBody.Sentence(guard.WatcherSilentHeadline)
-	return strings.ToUpper(said[:1]) + said[1:] + "."
-}()
+// nothing answers on its socket: doctor's headline, cause and fix (see
+// guard.WatcherSilentHeadline).
+var watcherSilent = operation.Warning{
+	Message: strings.ToUpper(guard.WatcherSilentHeadline[:1]) + guard.WatcherSilentHeadline[1:],
+	Body:    guard.WatcherSilentBody,
+}
 
 // waitSnapshot waits for the watcher's next snapshot, or for the end of the
 // connection, as Bubble Tea's realtime example waits on a channel.
@@ -69,7 +75,7 @@ func dialWatcher(ctx context.Context) (client *guard.Client, absent bool, err er
 // refused socket is told by the watcher's lock, as doctor and every entry
 // tell whether a watcher runs (see guard.WatcherRuns): with the lock free no
 // watcher runs, and with it held one is starting or cannot serve (see
-// guard.WatcherSilent). A hello that times out means a watcher of an older
+// watcherSilent). A hello that times out means a watcher of an older
 // release took the socket over without serving it; a hello without a
 // protocol version in common means another release; any other failed hello
 // is shown as it is.
@@ -82,14 +88,14 @@ func connectWatcher() tea.Msg {
 		runs, lockErr := guard.WatcherRuns()
 		switch {
 		case lockErr != nil:
-			return connectedMsg{problem: "Cannot tell whether the guard's watcher runs: " +
-				lockErr.Error()}
+			return connectedMsg{problem: operation.Warn(
+				"Cannot tell whether the watcher runs: " + lockErr.Error())}
 		case runs:
 			return connectedMsg{problem: watcherSilent}
 		}
 		return connectedMsg{problem: watcherAbsent}
 	case err != nil:
-		return connectedMsg{problem: "Cannot reach the guard's watcher: " + err.Error()}
+		return connectedMsg{problem: operation.Warn("Cannot reach the watcher: " + err.Error())}
 	}
 	if err = client.Hello(); err == nil {
 		return connectedMsg{client: client}
@@ -103,8 +109,8 @@ func connectWatcher() tea.Msg {
 	}
 	// A watcher answered the dial, so one runs: it may be exiting or handing
 	// over, which the next attempt finds out.
-	return connectedMsg{problem: "The watcher did not finish the hello (" + err.Error() +
-		")."}
+	return connectedMsg{problem: operation.Warn(
+		"The watcher did not finish connecting: " + err.Error())}
 }
 
 // take shows a new snapshot: a finished command that left its pending list
