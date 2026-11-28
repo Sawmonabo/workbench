@@ -27,7 +27,8 @@ func consentFor(o *options, digest string) operation.Consent {
 // refused (exit 3): it needs --approve-plan from a plan someone read, --yes
 // from a person who trusts it, or a person at a terminal. A coding agent can
 // type at a pseudo-terminal and --yes would apply a plan it never read, so it
-// gets only --approve-plan. The refusal names command's dry run.
+// gets only --approve-plan. The refusal names command's dry run and its
+// approval with the flags that pick the plan, which both must repeat.
 func checkConsent(o *options, command string) error {
 	switch {
 	case o.yes && o.approvePlan != "":
@@ -42,12 +43,23 @@ func checkConsent(o *options, command string) error {
 	case o.yes || o.approvePlan != "", o.interactive() && hasTerminal():
 		return nil
 	}
+	dryRun := []string{"workbench", command, "--dry-run", "--json"}
+	approve := []string{"workbench", command, "--approve-plan", "DIGEST"}
+	if o.localBuild {
+		dryRun, approve = append(dryRun, "--local-build"), append(approve, "--local-build")
+	}
+	fix := func(words []string) operation.Part {
+		if o.resolve.Destination == "" {
+			return operation.Fix(words...)
+		}
+		return operation.FixPath(o.resolve.Destination, append(words, "--destination")...)
+	}
 	return operation.Fail(
 		operation.ExitBlocked,
 		"consent",
 		"Nothing approved this plan",
-		operation.FixText("workbench "+command+" --dry-run --json"),
-		operation.FixText("workbench "+command+" --approve-plan DIGEST"),
+		fix(dryRun),
+		fix(approve),
 	)
 }
 
