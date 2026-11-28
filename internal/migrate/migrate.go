@@ -316,17 +316,19 @@ func keeps(names []string) string {
 // (wanted names the planning binary's migrations, from WORKBENCH_MIGRATIONS),
 // "migrations: = 0005-work-tokens: …" when 0005 has nothing to run but asks
 // the owner to delete the tokens, or the one line "migrations: = none to run".
-// No line holds "; ", which the plan uses to join one step's lines.
+// No line holds "; ", which the plan uses to join one step's lines: a
+// detail's own "; ", such as a refused read's advice, is written ", ".
 func Probe(l Locations, wanted []string) []string {
 	var lines []string
 	for _, f := range Check(l) {
+		detail := strings.ReplaceAll(f.Detail, "; ", ", ")
 		switch {
 		case due(f):
-			lines = append(lines, "migrations: "+f.ID+": "+f.Detail)
+			lines = append(lines, "migrations: "+f.ID+": "+detail)
 		case f.Status == Conflict:
-			lines = append(lines, "migrations: ? "+f.ID+": "+f.Detail)
-		case f.ID == WorkTokens.ID && f.Detail != "":
-			lines = append(lines, "migrations: = "+f.ID+": "+f.Detail)
+			lines = append(lines, "migrations: ? "+f.ID+": "+detail)
+		case f.ID == WorkTokens.ID && detail != "":
+			lines = append(lines, "migrations: = "+f.ID+": "+detail)
 		}
 	}
 	for _, id := range unknown(wanted) {

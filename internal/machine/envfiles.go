@@ -61,10 +61,10 @@ func EnvFilesProbe(c operation.Context, a Answers) []string {
 func envFileLines(path, file string, names []string) []string {
 	data, err := operation.ReadPrivateInput(path, 1<<20, file)
 	if err != nil {
-		// Its reason holds "; ", which the plan view joins lines with.
-		return []string{
-			"= Workbench can't read " + file + " as a private file (mode 600, one link, yours)",
-		}
+		// The read's refusal names the file and what is wrong with it, never
+		// what it holds. The plan view joins a step's lines with "; ", so a
+		// "; " of its own becomes ", ".
+		return []string{"= " + strings.ReplaceAll(err.Error(), "; ", ", ")}
 	}
 	pairs, bad := envfile.Parse(data)
 	set := map[string]bool{}

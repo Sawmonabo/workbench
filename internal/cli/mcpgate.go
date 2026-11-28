@@ -38,11 +38,15 @@ func mcpGateCommand(o *options) *cobra.Command {
 		if err != nil || !gateInside(folder, os.Getenv("CLAUDE_PROJECT_DIR"), cwd) {
 			return quietServer(cmd.InOrStdin(), cmd.OutOrStdout())
 		}
+		// The read's refusal names the file and what is wrong with it, never
+		// what it holds.
 		data, err := operation.ReadPrivateInput(envFile, 1<<20, "the env file")
 		if err != nil {
-			return o.filterFailure(cmd, operation.Fail(
-				operation.ExitFailed, "mcp_gate", envFile+" is missing or readable by others",
-			), "mcp-gate: ")
+			return o.filterFailure(
+				cmd,
+				operation.Fail(operation.ExitFailed, "mcp_gate", err.Error()),
+				"mcp-gate: ",
+			)
 		}
 		pairs, bad := envfile.Parse(data)
 		for _, line := range bad {

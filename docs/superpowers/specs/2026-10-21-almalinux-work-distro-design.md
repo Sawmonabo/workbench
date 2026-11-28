@@ -652,6 +652,11 @@ which only creates `work.env`. The step's plan lines:
   delete it` (and the same for `personal.env` on a machine without the
   personal role). No plan line holds `; `, which the plan view uses to join
   lines. Workbench does not delete it.
+- `env-files: = Cannot read work.env: <path> is larger than its 1 MiB bound`
+  when the file is there but cannot be read as a private file: the private
+  read's own refusal, naming the file and what is wrong with it (a link, not
+  the owner's, open to others, a second hard link, unreadable, too large) and
+  never what it holds, with its `; ` written `, `.
 - `env-files: = waiting for migration 0005 to create work.env` while 0005
   still has work to do.
 
@@ -821,6 +826,15 @@ lists it under that step when the retired keys are present. It reads
 - **`work.env` exists with anything else.** It changes neither file and the
   plan says to copy the tokens by hand and delete the two keys. It never
   merges, following the migration rules in `AGENTS.md`.
+- **`work.env` cannot be read as a private file.** It changes neither file,
+  and the plan line is the private read's own refusal, such as `Cannot read
+  work.env: <path> is larger than its 1 MiB bound`, with its `; ` written
+  `, `. The next run that can read it goes on.
+- **`machine.toml` cannot be read or decoded.** It changes neither file and
+  stays pending, and so does 0006, which reads it the same way. The plan
+  line, and a run's error, is the private read's own refusal, or for a file
+  that does not decode `<path> isn't valid TOML (line 2, column 18)`: never
+  the decoder's own words, which can quote the file and so a token.
 - **Role has no work.** It does nothing, and the plan says the keys are
   there and should be removed.
 - No value is printed, logged or put in `--json`.
@@ -1007,10 +1021,12 @@ How the gate decides:
   with a value
   to the environment, overriding an inherited one, and replaces itself with
   the server (`exec`). No extra process stays, and the server runs through
-  `nvm-exec` with `NODE_VERSION=default`, as today. When the file is missing
-  or unsafe (any group or other permission bit set), it exits with an error
-  naming the file, so the agent shows the server as failed, which is the
-  true state.
+  `nvm-exec` with `NODE_VERSION=default`. When the file is missing or
+  unsafe (a link, not the user's, any group or other permission bit set, a
+  second hard link, unreadable or over 1 MiB), it exits with the private
+  read's refusal, which names the file and what is wrong with it and never
+  what it holds, so the agent shows the server as failed, which is the true
+  state.
 - **Anywhere else.** It never starts the server and reads no file. It answers
   the MCP `initialize` request with no capabilities (no `tools`, so Claude
   Code's `/mcp` does not flag it), answers `ping`, answers `tools/list`,

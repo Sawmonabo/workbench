@@ -2,6 +2,8 @@ package migrate
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"strings"
 
 	"github.com/pelletier/go-toml/v2"
@@ -84,9 +86,9 @@ type tokensFound struct {
 func findWorkTokens(l Locations) tokensFound {
 	machine := display.PathFrom(l.Home, l.Runtime.MachineConfig())
 	env := display.PathFrom(l.Home, envfile.Path(l.Runtime.Config, "work"))
-	config, err := readMachine(l.Runtime.MachineConfig())
+	config, err := readMachine(l)
 	if err != nil {
-		return tokensFound{status: Pending, text: "can't read " + machine, err: err}
+		return tokensFound{status: Pending, text: err.Error(), err: err}
 	}
 	data, _ := config["data"].(map[string]any)
 	var keys []string
@@ -125,7 +127,9 @@ func findWorkTokens(l Locations) tokensFound {
 		return found
 	}
 	if err != nil {
-		return tokensFound{status: Conflict, text: "can't read " + env + byHand}
+		// The read's refusal names work.env and what is wrong with it, never
+		// what it holds; once work.env can be read, the next run goes on.
+		return tokensFound{status: Conflict, text: err.Error()}
 	}
 	saved := envfile.Assignments(held)
 	for _, key := range envfile.TokenAnswers {
@@ -137,9 +141,14 @@ func findWorkTokens(l Locations) tokensFound {
 	return found
 }
 
-// readMachine decodes machine.toml at path; a missing file is an empty one.
-func readMachine(path string) (map[string]any, error) {
+// readMachine decodes machine.toml; a missing file is an empty one. Its error
+// never quotes the file, which holds the work tokens until 0005 has moved
+// them: a refused read names the file and what is wrong with it, and a file
+// that does not decode is named with the line and column, since the decoder's
+// own words can quote what the file holds.
+func readMachine(l Locations) (map[string]any, error) {
 	config := map[string]any{}
+	path := l.Runtime.MachineConfig()
 	raw, found, err := operation.ReadPrivateRecord(
 		path,
 		operation.MachineConfigLimit,
@@ -151,5 +160,13 @@ func readMachine(path string) (map[string]any, error) {
 	if !found {
 		return config, nil
 	}
-	return config, toml.Unmarshal(raw, &config)
+	if err = toml.Unmarshal(raw, &config); err != nil {
+		shown := display.PathFrom(l.Home, path) + " isn't valid TOML"
+		if decode, ok := errors.AsType[*toml.DecodeError](err); ok {
+			row, column := decode.Position()
+			shown += fmt.Sprintf(" (line %d, column %d)", row, column)
+		}
+		return nil, errors.New(shown)
+	}
+	return config, nil
 }
