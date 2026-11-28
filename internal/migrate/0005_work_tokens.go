@@ -39,6 +39,9 @@ var WorkTokens = Migration{
 		if found.status == Pending && found.err != nil {
 			return Pending, "", found.err
 		}
+		if found.byHand != "" {
+			return found.status, found.text + ", so " + found.byHand, nil
+		}
 		return found.status, found.text, nil
 	},
 	Run: func(_ context.Context, l Locations) ([]string, error) {
@@ -59,7 +62,11 @@ var WorkTokens = Migration{
 			}
 		case Unfinished:
 		default:
-			return nil, operation.Fail(operation.ExitConflict, "conflict", found.text)
+			var fix []operation.Part
+			if found.byHand != "" {
+				fix = append(fix, operation.FixText(found.byHand))
+			}
+			return nil, operation.Fail(operation.ExitConflict, "conflict", found.text, fix...)
 		}
 		for _, key := range envfile.TokenAnswers {
 			delete(found.data, key[0])
@@ -78,6 +85,7 @@ var WorkTokens = Migration{
 type tokensFound struct {
 	status Status
 	text   string
+	byHand string // the fix of a conflict: what to copy and delete by hand
 	err    error
 	config map[string]any
 	data   map[string]any
@@ -110,13 +118,14 @@ func findWorkTokens(l Locations) tokensFound {
 			text:   machine + " holds " + named + " without the work role: delete them",
 		}
 	}
-	byHand := ", so copy " + named + " from " + machine + " into " + env +
+	byHand := "copy " + named + " from " + machine + " into " + env +
 		" by hand and delete them from " + machine
 	values, bad := envfile.WorkValues(data)
 	if bad != "" {
 		return tokensFound{
 			status: Conflict,
-			text:   bad + " in " + machine + " isn't one line of text" + byHand,
+			text:   bad + " in " + machine + " isn't one line of text",
+			byHand: byHand,
 		}
 	}
 	found := tokensFound{config: config, data: data, values: values}
@@ -137,7 +146,11 @@ func findWorkTokens(l Locations) tokensFound {
 	saved := envfile.Assignments(held)
 	for _, key := range envfile.TokenAnswers {
 		if _, ok := data[key[0]]; ok && saved[key[1]] != values[key[1]] {
-			return tokensFound{status: Conflict, text: env + " already holds other values" + byHand}
+			return tokensFound{
+				status: Conflict,
+				text:   env + " already holds other values",
+				byHand: byHand,
+			}
 		}
 	}
 	found.status, found.text = Unfinished, "deletes "+named+" from "+machine+", which "+env+" already holds"
