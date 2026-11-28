@@ -93,6 +93,11 @@ func resolveDependencies(
 			version, err := probeVersion(ctx, c, name, candidate.Path)
 			if err != nil {
 				component.Message, component.Body = operation.Explained(err)
+				if operation.Category(err) == "dependency" &&
+					operation.ExitCode(err) == operation.ExitBlocked {
+					// No program is there any more: installing it puts one there.
+					component.Body = component.Body.With(operation.Explain(InstallFix(c)...))
+				}
 				if refusal == nil && operation.Category(err) == "tool" {
 					refusal = err
 				}
