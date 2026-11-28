@@ -610,7 +610,8 @@ from one leaves that page printed.
 
 ```
 internal/agent/costs/
-  source.go          Source interface, Usage row, the source list
+  source.go          Source interface and its capabilities, Usage row, the source list
+  evidence.go        the evidence levels in rank order, and rows counted by level
   claude.go, claudeparse.go, claudeaccounts.go, claudeprices.go
                      Claude Code: transcripts, record parsing, the signed-in account, prices
   codex.go, codexparse.go, codexevents.go, codexaccounts.go, codexprices.go
@@ -626,12 +627,14 @@ internal/agent/costs/
   accounts.go, accountresolution.go, signins.go, infer.go, sessionplans.go, tiers.go
                      account attribution and its fix-up, subscriptions, plans, price tiers
   ingest.go          worker over every source: offsets, lock, log, rate refresh
-  rates.go, pricepage.go, canonicaljson.go
+  hook.go            the session hooks' commands and the start of the detached worker
+  rates.go, prices.go, calibrate.go, pricepage.go, canonicaljson.go
                      card resolution: the most specific prefix, then official, calibrated,
-                     built-in; the price pages; the official prices the ledger keeps
-  report.go, focus.go
-                     groups, rollup, scope, totals, a project's or model's page; returns rows
-                     and prints nothing
+                     built-in; the official prices the ledger keeps and their refresh; the
+                     rates solved from the tools' own cost records; the price pages
+  report.go, coverage.go, focus.go, status.go
+                     groups, rollup, scope, totals, what the ledger holds for a tool, a
+                     project's or model's page, the status; returns rows and prints nothing
   move.go, ledgermove.go, oldpaths.go, oldfolders.go
                      the costs folders where they stand and their move under agent/
 internal/agent/toolconfig/
