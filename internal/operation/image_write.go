@@ -109,8 +109,8 @@ func enforceNativeMetadata(
 
 // writeDirectoryImage creates name when absent, then sets the desired
 // attributes, group, mode, hidden flag and ACL through a descriptor, each
-// that differs from current, the image it holds. It never replaces a
-// non-directory.
+// that differs from current, the image it holds, the mode as it reads after
+// mkdir and the group (setImageMode). It never replaces a non-directory.
 func writeDirectoryImage(fd int, name, path string, current, desired Image) error {
 	if current.Kind != ImageAbsent && current.Kind != ImageDirectory {
 		return Fail(
@@ -143,7 +143,7 @@ func writeDirectoryImage(fd int, name, path string, current, desired Image) erro
 	if err = setImageGroup(directoryFD, *desired.Group); err != nil {
 		return err
 	}
-	if err = unix.Fchmod(directoryFD, desired.Mode); err != nil {
+	if err = setImageMode(directoryFD, desired.Mode); err != nil {
 		return err
 	}
 	return writeImageSecurity(directoryFD, "", path, current, desired, changedFolder)

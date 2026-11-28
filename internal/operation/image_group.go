@@ -50,7 +50,8 @@ func validateImageGroup(c Context, path string, image Image) error {
 // changes. Existing targets retain their group, and a folder its set-group-ID
 // bit; new targets use native parent inheritance: the group a new file at
 // path gets, and on a folder the set-group-ID bit where a new folder takes it
-// from the folder it is made in (platform.FolderTakesSetgid). Callers bind the
+// from the folder it is made in (platform.FolderTakesSetgid). A folder keeps
+// the bit only where the write leaves it (keepsSetgid). Callers bind the
 // completed image into their plan digest.
 func ImageWithGroup(c Context, path string, image Image) (Image, error) {
 	if image.Kind == ImageAbsent {
@@ -72,8 +73,13 @@ func imageWithGroup(c Context, path string, before, image Image) (Image, error) 
 	}
 	if before.Kind != ImageAbsent {
 		image.Group = before.Group
-		if before.Kind == ImageDirectory && image.Kind == ImageDirectory {
-			image.Mode |= before.Mode & unix.S_ISGID
+		if before.Kind == ImageDirectory && image.Kind == ImageDirectory &&
+			before.Mode&unix.S_ISGID != 0 {
+			kept, err := keepsSetgid(*before.Group, image.Mode, before.Mode&0o777)
+			if err != nil || !kept {
+				return image, err
+			}
+			image.Mode |= unix.S_ISGID
 		}
 		return image, nil
 	}
@@ -84,9 +90,32 @@ func imageWithGroup(c Context, path string, before, image Image) (Image, error) 
 	group := inheritedGroup(parent)
 	image.Group = &group
 	if image.Kind == ImageDirectory && platform.FolderTakesSetgid && parent.Mode&unix.S_ISGID != 0 {
+		made, err := platform.NewFolderMode(image.Mode)
+		if err != nil {
+			return Image{}, err
+		}
+		kept, err := keepsSetgid(group, image.Mode, made)
+		if err != nil || !kept {
+			return image, err
+		}
 		image.Mode |= unix.S_ISGID
 	}
 	return image, nil
+}
+
+// keepsSetgid reports whether a folder of group, which holds the
+// set-group-ID bit and the permission bits held, keeps the bit once
+// Workbench gives it mode (setImageMode): a member of group keeps it, as its
+// chmod may set it; any other user only where held is mode already, so no
+// chmod comes, since a chmod by a user who is not a member takes the bit
+// off on Linux (setattr_copy in fs/attr.c) and fails for a mode that holds
+// it on macOS (vnode_authattr in xnu's vfs_subr.c). held is what the folder
+// holds, or for a new one what mkdir gives it (platform.NewFolderMode).
+func keepsSetgid(group, mode, held uint32) (bool, error) {
+	if held == mode&0o777 {
+		return true, nil
+	}
+	return canSetGroup(group)
 }
 
 // imageMode is the part of mode, a file's, that an image keeps: its
