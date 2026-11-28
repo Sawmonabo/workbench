@@ -565,7 +565,9 @@ func checkEntryPoint(entry string, known []*operation.ReleaseRecord) error {
 		return operation.Fail(
 			operation.ExitConflict,
 			"command_collision",
-			"An unrelated workbench command already occupies the installation path",
+			"An unrelated workbench command is at "+display.Path(entry),
+			operation.Kept("the command as it is"),
+			operation.FixText("move it aside"),
 		)
 	}
 	link, err := os.Readlink(entry)
