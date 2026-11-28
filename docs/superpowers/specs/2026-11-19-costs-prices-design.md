@@ -111,7 +111,7 @@ Anti-goals:
 
 | Concern | Owner |
 | --- | --- |
-| The reads and writes of the tables, the refresh, the price list | `internal/agent/costs/rates.go` |
+| The reads and writes of the tables, the refresh, the price list | `internal/agent/costs/prices.go` |
 | The schema, the tables' included, and its upgrade | `internal/agent/costs/schema.go`, `upgrade.go` |
 | The deletion of the list files | `internal/migrate/0008_price_lists.go` |
 
