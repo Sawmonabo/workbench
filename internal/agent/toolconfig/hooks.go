@@ -24,27 +24,18 @@ const (
 	HookSkipped   = "skipped"   // the tool cannot use the file that holds it or its trust
 )
 
-// ApplyFixes is what workbench apply does about a tool's hooks in states, as
-// doctor and agent costs status say it: "installs" when one is HookMissing,
-// and "trusts" when one is HookUntrusted or, for Codex, which runs a hook only
-// once it is recorded as trusted, when one is missing. It is nothing while a
+// ApplyFixes reports whether workbench apply fixes a tool's hooks in states,
+// as doctor and agent costs status say it: it installs one that is
+// HookMissing and trusts one that is HookUntrusted. It does neither while a
 // variable moves the tool, named by its [Move] title, away from the folder
 // Workbench installs in (see [Moves]), as the apply installs nothing there.
-func ApplyFixes(home, title string, states []string) []string {
-	absent := slices.Contains(states, HookMissing)
-	var fixes []string
-	if absent {
-		fixes = append(fixes, "installs")
+func ApplyFixes(home, title string, states []string) bool {
+	if !slices.Contains(states, HookMissing) && !slices.Contains(states, HookUntrusted) {
+		return false
 	}
-	if slices.Contains(states, HookUntrusted) || absent && title == codexTitle {
-		fixes = append(fixes, "trusts")
-	}
-	if len(fixes) == 0 || slices.ContainsFunc(Moves(home), func(m Move) bool {
+	return !slices.ContainsFunc(Moves(home), func(m Move) bool {
 		return m.Tool == title && m.Source != ""
-	}) {
-		return nil
-	}
-	return fixes
+	})
 }
 
 // HookCommand is one hook Workbench installs in a tool: the event it runs on and a

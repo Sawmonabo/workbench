@@ -130,7 +130,7 @@ func hookStates(tool costs.ToolStatus) string {
 		hooks = append(hooks, event+" "+state)
 	}
 	line := strings.Join(hooks, ", ")
-	if len(toolconfig.ApplyFixes(display.Home(), tool.Title, states)) > 0 {
+	if toolconfig.ApplyFixes(display.Home(), tool.Title, states) {
 		line += " (workbench apply)"
 	}
 	return line

@@ -32,8 +32,15 @@ type runtimePins struct {
 // pinned mode would still change ("" when nothing), a note that replaces the
 // pin, and whether the step that installs it is skipped.
 type runtimeState struct {
-	name, have, from, pin, off, note string
-	found, skipped                   bool
+	name, have, from, pin, note string
+	// off is a runtime an apply would install or switch to a pin, and lines
+	// what is off that the line's headline does not say.
+	off   bool
+	lines []operation.Line
+	// kept is what an apply does about a runtime it leaves as it is, beside
+	// note.
+	kept           string
+	found, skipped bool
 }
 
 // checkRuntimes reports Node, Python, Rust, Go and bun against the pins of the
@@ -107,19 +114,23 @@ func (r runtimeState) component(mode string) operation.Component {
 	case r.have == "":
 		line.Status, line.Message = operation.StatusAbsent, "not installed"
 		line.Body = operation.Explain(operation.Fix("workbench", "apply"))
-	case r.off != "" && r.skipped:
+	case r.off && r.skipped:
 		line.Status = operation.StatusSkipped
 		line.Message = shown + " (pinned " + r.pin + ")"
 		line.Body = operation.Explain(operation.Cause(skippedStep))
-	case r.off != "":
+	case r.off:
 		line.Status = operation.StatusPending
 		line.Message = shown + " (pinned " + r.pin + ")"
-		line.Body = operation.Explain(
-			operation.Line{Label: "apply", Text: r.off},
-			operation.Fix("workbench", "apply"),
-		)
+		parts := make([]operation.Part, 0, len(r.lines)+1)
+		for _, off := range r.lines {
+			parts = append(parts, off)
+		}
+		line.Body = operation.Explain(append(parts, operation.Fix("workbench", "apply"))...)
 	case r.note != "":
 		line.Message = shown + " (" + r.note + ")"
+		if r.kept != "" {
+			line.Body = operation.Explain(operation.Line{Label: "apply", Text: r.kept})
+		}
 	case r.pin == "":
 		line.Message = shown
 	case mode == "pinned":
@@ -143,21 +154,24 @@ func nodeState(home, mode string, pins runtimePins) runtimeState {
 	if mode != "pinned" || state.have == "" {
 		return state
 	}
-	var changes []string
-	if state.have != pins.NodeDefault {
-		changes = append(changes, "makes "+pins.NodeDefault+" the default")
-	}
 	var missing []string
 	for _, version := range pins.Node {
 		if !operation.LeadsToFolder(filepath.Join(nvmRoot(home), "versions", "node", "v"+version)) {
 			missing = append(missing, version)
 		}
 	}
-	if len(missing) > 0 {
-		changes = append(changes, "installs "+strings.Join(missing, ", "))
-	}
-	state.off = strings.Join(changes, " and ")
+	state.off = state.have != pins.NodeDefault || len(missing) > 0
+	state.lines = missingLine(missing)
 	return state
+}
+
+// missingLine is the line naming the pinned versions that are not
+// installed, none when every one is.
+func missingLine(missing []string) []operation.Line {
+	if len(missing) == 0 {
+		return nil
+	}
+	return []operation.Line{{Label: "missing", Text: strings.Join(missing, ", ")}}
 }
 
 // uvPython is a Python uv installed: cpython-X.Y.Z-..., not the cpython-X.Y-...
@@ -199,9 +213,7 @@ func pythonState(home, mode string, pins runtimePins) runtimeState {
 			missing = append(missing, version)
 		}
 	}
-	if len(missing) > 0 {
-		state.off = "installs " + strings.Join(missing, ", ")
-	}
+	state.off, state.lines = len(missing) > 0, missingLine(missing)
 	return state
 }
 
@@ -254,9 +266,10 @@ func rustState(home, mode string, pins runtimePins) runtimeState {
 	pinned, _ := filepath.Glob(filepath.Join(root, "toolchains", pins.Rust+"-*"))
 	switch {
 	case len(pinned) == 0:
-		state.off = "installs " + pins.Rust + " and makes it the default"
+		state.off, state.lines = true, missingLine([]string{pins.Rust})
 	case !strings.HasPrefix(settings.Default, pins.Rust+"-"):
-		state.off = "makes " + pins.Rust + " the default"
+		state.off = true
+		state.lines = []operation.Line{{Label: "installed", Text: pins.Rust + ", not the default"}}
 	}
 	return state
 }
@@ -320,7 +333,7 @@ func goState(home, mode string, pins runtimePins) runtimeState {
 	case platform.GoBunFromHomebrew:
 		state.from, state.pin = " from Homebrew", ""
 	case mode == "pinned" && state.have != pins.Go:
-		state.off = "installs " + pins.Go
+		state.off = true
 	}
 	return state
 }
@@ -344,7 +357,7 @@ func bunState(
 	case platform.GoBunFromHomebrew:
 		state.from, state.pin = " from Homebrew", ""
 	case mode == "pinned" && state.have != pins.Bun:
-		state.note = "pin " + pins.Bun + " is for a new install; workbench apply keeps an installed bun"
+		state.note, state.kept = "pin "+pins.Bun+" is for a new install", "keeps the installed bun"
 	}
 	return state
 }

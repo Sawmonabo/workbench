@@ -33,18 +33,18 @@ type connectedMsg struct {
 
 // The texts the view shows when no watcher answers.
 const (
-	watcherAbsent = "The guard's watcher is not running; it starts with the next agent " +
-		"command."
-	watcherOlder = "The watcher runs an older Workbench release that does not serve this " +
-		"view; run workbench update."
-	watcherOther = "The watcher runs a Workbench release that speaks another protocol " +
-		"version; run workbench update."
+	watcherAbsent = "The watcher is not running; the next agent command starts it."
+	watcherOlder  = "The watcher's release is too old for this view; run workbench update."
+	watcherOther  = "The watcher speaks another protocol version; run workbench update."
 )
 
 // watcherSilent is what the view says while the watcher's lock is held and
-// nothing answers on its socket: doctor's words (see guard.WatcherSilent), as
-// a sentence.
-var watcherSilent = strings.ToUpper(guard.WatcherSilent[:1]) + guard.WatcherSilent[1:] + "."
+// nothing answers on its socket: doctor's line (see
+// guard.WatcherSilentHeadline), as a sentence.
+var watcherSilent = func() string {
+	said := guard.WatcherSilentBody.Sentence(guard.WatcherSilentHeadline)
+	return strings.ToUpper(said[:1]) + said[1:] + "."
+}()
 
 // waitSnapshot waits for the watcher's next snapshot, or for the end of the
 // connection, as Bubble Tea's realtime example waits on a channel.

@@ -192,12 +192,8 @@ func hookFixes(home string, tool costs.Tool, states []string) []operation.Part {
 			)
 		}
 	}
-	if fixes := toolconfig.ApplyFixes(home, tool.Title, states); len(fixes) > 0 {
-		parts = append(
-			parts,
-			operation.Line{Label: "apply", Text: strings.Join(fixes, " and ") + " them"},
-			operation.Fix("workbench", "apply"),
-		)
+	if toolconfig.ApplyFixes(home, tool.Title, states) {
+		parts = append(parts, operation.Fix("workbench", "apply"))
 	}
 	return parts
 }
@@ -233,15 +229,11 @@ func guardWatcher(ctx context.Context) operation.Component {
 	client, err := guard.Dial(ctx)
 	if err != nil {
 		line.Status = operation.StatusConflict
-		cause := guard.WatcherSilentCause
+		line.Message, line.Body = guard.WatcherSilentHeadline, guard.WatcherSilentBody
 		if !errors.Is(err, syscall.ENOENT) && !errors.Is(err, syscall.ECONNREFUSED) {
-			cause += " (" + err.Error() + ")"
+			line.Body = operation.Explain(operation.Line{Label: "socket", Text: err.Error()}).
+				With(line.Body)
 		}
-		line.Message = guard.WatcherSilentHeadline
-		line.Body = operation.Explain(
-			operation.Cause(cause),
-			operation.Fix(guard.WatcherSilentFix...),
-		)
 		return line
 	}
 	_ = client.Close()

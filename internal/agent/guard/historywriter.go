@@ -275,7 +275,7 @@ type lastingRecord struct {
 
 // lasts logs the record of the watcher's condition name, one that lasts
 // until ended, such as a socket it cannot serve, which doctor and the view
-// send people to the log for (see WatcherSilent). A condition that lasts
+// send people to the log for (see WatcherSilentBody). A condition that lasts
 // already is not logged again: its record becomes this one, unlogged. Once a
 // minute the writer's cut of the log logs it again (see writerRun.cutLog):
 // before a cut by the time kept that would delete it, so a condition that
