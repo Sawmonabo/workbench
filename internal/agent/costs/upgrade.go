@@ -188,13 +188,16 @@ func (l *Ledger) beginLong(ctx context.Context, conn *sql.Conn) (*sql.Tx, bool, 
 }
 
 // The errors of an open a cancel of its context stopped: during its own
-// upgrade, whose transaction rolled back, or while it waited for another
-// process's (see beginLong), which goes on.
+// upgrade, whose transaction rolled back, while it waited for another
+// process's (see beginLong), which goes on, or while it compacted the
+// upgraded ledger, which the next import compacts (see Ledger.compactAgain).
 const (
 	upgradeStopped = "Stopped the costs ledger's upgrade: the ledger is unchanged, " +
 		"and the next command that opens it upgrades it"
 	waitStopped = "Stopped waiting for another Workbench to upgrade the costs ledger: " +
 		"that upgrade goes on"
+	compactStopped = "Stopped compacting the costs ledger: it is upgraded, " +
+		"and the next import compacts it"
 )
 
 // stopped is err, or, when err is an error of an upgrade a cancel of ctx

@@ -99,7 +99,8 @@ func (p Paths) openGated(
 // has moved the ledger. ctx and steps are as [Paths.Open] takes them.
 //
 // A compaction the open's upgrade left undone is noted in the import log, and
-// the next import worker tries it again (see Ledger.compact).
+// the next import worker tries it again (see Ledger.compact). One a cancel of
+// ctx stopped fails the open instead (see Ledger.prepare).
 func (p Paths) open(ctx context.Context, steps UpgradeSteps) (*Ledger, error) {
 	if _, err := p.dataFolder(""); err != nil {
 		return nil, err
@@ -256,6 +257,11 @@ func (l *Ledger) prepare(ctx context.Context, exists, upgrade bool) error {
 			l.compacted, l.compactErr = true, l.compact(ctx)
 		}
 		l.step("")
+		if l.compactErr != nil && ctx.Err() != nil {
+			// The open's caller, whose context is done, could not use the
+			// upgraded ledger anyway.
+			return operation.Fail(operation.ExitInterrupted, "interrupted", compactStopped)
+		}
 	default:
 		return versionProblem(l.Path, version)
 	}
