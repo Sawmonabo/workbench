@@ -3,6 +3,7 @@ package cli
 import (
 	"os"
 	"strings"
+	"unicode/utf8"
 
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
@@ -13,9 +14,9 @@ import (
 // This file is the one rule for where text breaks when it is fitted to a
 // width: only at a space between two words. A word is never broken at a
 // hyphen or anywhere else inside it; a path is one word, with the spaces in
-// its names (see joinPaths); and a fix line's words are the words a shell
-// reads (see commandWords). A word wider than the line is kept whole or
-// broken as the output needs (see longWord).
+// its names (see joinPaths); and a fix line is one command, which a person
+// copies or types as one (see fixCommandLines). A word wider than the line
+// is kept whole or broken as the output needs (see longWord).
 
 // longWord is what a wrap does with a word wider than its line.
 type longWord int
@@ -94,13 +95,104 @@ func hanging(lead, text string, width int, long longWord) []string {
 	return under(lead, lines)
 }
 
-// fixCommandLines is command after lead, wrapped to width only between the
-// words a shell reads (see commandWords), each line after the first under
-// the first's text, at least 10 cells of it; a word wider than that is
-// treated as long says.
+// fixCommandLines is command after lead, a fix line, which a person copies
+// or types as one command. Printed output (keepLong) writes it whole on one
+// line, as shells and command-line tools print a command: the terminal shows
+// the rest on its next row and copies the two rows as one line. A
+// full-screen view (breakLong), whose rows the terminal copies as lines of
+// their own, breaks it as continuedLines does, each line after the first
+// under the first's text, at least 10 cells of it.
 func fixCommandLines(lead, command string, width int, long longWord) []string {
+	command = glyphs.text.Replace(command)
+	if long == keepLong {
+		return []string{lead + command}
+	}
 	room := max(width-ansi.StringWidth(lead), 10)
-	return under(lead, fitWords(commandWords(glyphs.text.Replace(command)), room, long))
+	return continuedLines(lead, commandWords(command), room, max(width, 10))
+}
+
+// continuedLines is words, a command's, after lead in lines a shell reads
+// back as that one command: each line it goes on from ends in a backslash, a
+// shell's line continuation. It breaks between two words, ending the line in
+// " \" and starting the next under lead, room cells after it; a word wider
+// than that is cut inside (see cutCommandWord) and goes on at the next line's
+// first column, flush cells wide, since a shell joins the two halves of a
+// word only when nothing comes between them.
+func continuedLines(lead string, words []word, room, flush int) []string {
+	pad := strings.Repeat(" ", ansi.StringWidth(lead))
+	var lines []string
+	line, used, limit := lead, 0, room
+	for i, w := range words {
+		text, cells := w.text, ansi.StringWidth(w.text)
+		end := 2 // the " \" a line that goes on ends with
+		if i == len(words)-1 {
+			end = 0
+		}
+		space := ansi.StringWidth(w.space)
+		if used > 0 && used+space+cells+end > limit {
+			lines = append(lines, line+" \\")
+			line, used, limit = pad, 0, room
+		}
+		if used > 0 {
+			line, used = line+w.space, used+space
+		}
+		for used+cells+end > limit {
+			head, rest, ok := cutCommandWord(text, limit-used)
+			if !ok {
+				break // a word with nowhere to cut it stays whole past the edge
+			}
+			lines = append(lines, line+head)
+			line, used, limit = "", 0, flush
+			text, cells = rest, ansi.StringWidth(rest)
+		}
+		line, used = line+text, used+cells
+	}
+	return append(lines, line)
+}
+
+// cutCommandWord cuts the shell word text so its head, with the backslash
+// that continues it, fits in room cells, and a shell joins head and rest
+// back into text: inside '…' or $'…' quotes the head closes them before its
+// backslash and the rest opens them again, and it never cuts inside a
+// character or after a backslash that escapes the next one. It cuts after
+// the last slash that fits, else as late as fits, else after the first
+// character; ok is false when text has nowhere to cut it.
+func cutCommandWord(text string, room int) (head, rest string, ok bool) {
+	states := quoteStates(text)
+	var cuts []int // where text may be cut, in order
+	for i := 1; i < len(text); i++ {
+		if utf8.RuneStart(text[i]) && !states[i].escaped {
+			cuts = append(cuts, i)
+		}
+	}
+	split := func(at int) (string, string) {
+		switch states[at].state {
+		case singleQuoted:
+			return text[:at] + `'\`, "'" + text[at:]
+		case ansiCQuoted:
+			return text[:at] + `'\`, "$'" + text[at:]
+		case bare, doubleQuoted: // a shell joins a word at a backslash and a newline here
+		}
+		return text[:at] + `\`, text[at:]
+	}
+	if len(cuts) == 0 {
+		return text, "", false
+	}
+	best, slash := cuts[0], 0
+	for _, at := range cuts {
+		if head, _ := split(at); ansi.StringWidth(head) > room {
+			break
+		}
+		best = at
+		if text[at-1] == '/' {
+			slash = at
+		}
+	}
+	if slash > 0 {
+		best = slash
+	}
+	head, rest = split(best)
+	return head, rest, true
 }
 
 // under is lines after lead: the first beside it, the rest under the first.
@@ -147,46 +239,74 @@ func spacedWords(text string) []word {
 }
 
 // commandWords splits command into the words a shell reads: at each space
-// outside '…' and $'…' quotes and not after a backslash, as operation's
+// outside quotes and not after a backslash (see quoteStates), as operation's
 // shellWord writes a word.
 func commandWords(command string) []word {
 	var words []word
-	const (
-		bare = iota
-		single
-		ansiC
-	)
+	states := quoteStates(command)
+	start, space := 0, 0 // where the word being read and the spaces before it start
+	for i := 0; i < len(command); i++ {
+		if command[i] != ' ' || states[i].state != bare || states[i].escaped {
+			continue
+		}
+		if i > start {
+			words = append(words, word{space: command[space:start], text: command[start:i]})
+			space = i
+		}
+		start = i + 1
+	}
+	if start < len(command) {
+		words = append(words, word{space: command[space:start], text: command[start:]})
+	}
+	return words
+}
+
+// quoting is the quotes a shell reads a byte of a command in.
+type quoting int
+
+const (
+	bare quoting = iota
+	singleQuoted
+	ansiCQuoted // $'…'
+	doubleQuoted
+)
+
+// quoteState is how a shell reads a byte of a command: in which quotes, and
+// whether a backslash before it escapes it.
+type quoteState struct {
+	state   quoting
+	escaped bool
+}
+
+// quoteStates is how a POSIX shell reads each byte of command, and the end
+// after it: a backslash escapes the next character outside '…', a quote
+// opens or closes its quotes outside the others, and $' opens ANSI-C quotes.
+func quoteStates(command string) []quoteState {
+	states := make([]quoteState, len(command)+1)
 	state, escaped := bare, false
-	var space, text strings.Builder
-	runes := []rune(command)
-	for i, r := range runes {
+	for i := 0; i < len(command); i++ {
+		states[i] = quoteState{state: state, escaped: escaped}
+		c := command[i]
 		switch {
 		case escaped:
 			escaped = false
-		case r == '\\' && state != single:
+		case c == '\\' && state != singleQuoted:
 			escaped = true
-		case r == '\'' && state == bare:
-			state = single
-			if i > 0 && runes[i-1] == '$' {
-				state = ansiC
+		case c == '\'' && state == bare:
+			state = singleQuoted
+			if i > 0 && command[i-1] == '$' && !states[i-1].escaped {
+				state = ansiCQuoted
 			}
-		case r == '\'':
+		case c == '\'' && (state == singleQuoted || state == ansiCQuoted):
 			state = bare
-		case r == ' ' && state == bare:
-			if text.Len() > 0 {
-				words = append(words, word{space: space.String(), text: text.String()})
-				space.Reset()
-				text.Reset()
-			}
-			space.WriteRune(r)
-			continue
+		case c == '"' && state == bare:
+			state = doubleQuoted
+		case c == '"' && state == doubleQuoted:
+			state = bare
 		}
-		text.WriteRune(r)
 	}
-	if text.Len() > 0 {
-		words = append(words, word{space: space.String(), text: text.String()})
-	}
-	return words
+	states[len(command)] = quoteState{state: state, escaped: escaped}
+	return states
 }
 
 // fitWords packs words into lines of at most room cells, breaking only
