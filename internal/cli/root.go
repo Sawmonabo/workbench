@@ -9,6 +9,7 @@ import (
 	"io"
 	"os"
 	"runtime/debug"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -296,9 +297,15 @@ func render(out, diagnostics io.Writer, asJSON, verbose bool, result operation.R
 	}
 	paint, warn := newPainter(out), newPainter(diagnostics)
 	for _, component := range result.Results {
+		details := component.Details
+		plan, isPlan := details.(operation.Plan)
+		if isPlan {
+			plan = unsaid(plan, result.Errors)
+			details = plan
+		}
 		// The machine plan prints as its own branded view, so its component
 		// line would only put "machine-plan  complete" before the brand.
-		if plan, ok := component.Details.(operation.Plan); ok && component.Name == "machine-plan" {
+		if isPlan && component.Name == "machine-plan" {
 			if err := writePlanView(out, plan, verbose, false); err != nil {
 				return err
 			}
@@ -314,7 +321,7 @@ func render(out, diagnostics io.Writer, asJSON, verbose bool, result operation.R
 		if _, err := lipgloss.Fprint(out, wrapped.String()); err != nil {
 			return err
 		}
-		if err := writeDetails(out, component.Details); err != nil {
+		if err := writeDetails(out, details); err != nil {
 			return err
 		}
 	}
@@ -335,6 +342,26 @@ func render(out, diagnostics io.Writer, asJSON, verbose bool, result operation.R
 		}
 	}
 	return nil
+}
+
+// unsaid is plan without the prerequisites an error of the run says as
+// well, headline and body alike, so the text says each once: as the error,
+// the last lines, which the exit status goes with. --json keeps both.
+func unsaid(plan operation.Plan, errors []*operation.Error) operation.Plan {
+	plan.Prerequisites = slices.DeleteFunc(
+		slices.Clone(plan.Prerequisites),
+		func(prerequisite operation.Warning) bool {
+			return slices.ContainsFunc(errors, func(problem *operation.Error) bool {
+				return sameNote(
+					prerequisite.Message,
+					prerequisite.Body,
+					problem.Message,
+					problem.Body,
+				)
+			})
+		},
+	)
+	return plan
 }
 
 // painter colors text only where lipgloss would: the same color-profile test
