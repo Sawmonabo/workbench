@@ -83,6 +83,13 @@ func resolveDependencies(
 		}
 		var refusal error
 		for _, candidate := range candidates {
+			if err := ownToolFolder(c, candidate.Path); err != nil {
+				component.Message, component.Body = operation.Explained(err)
+				if refusal == nil {
+					refusal = err
+				}
+				continue
+			}
 			version, err := probeVersion(ctx, c, name, candidate.Path)
 			if err != nil {
 				component.Message, component.Body = operation.Explained(err)
@@ -133,6 +140,21 @@ func resolveDependencies(
 // context so it never reads the user's configuration. Workbench's refusal to
 // run the program at all ("tool"), or its finding no program there
 // ("dependency"), is returned as it is.
+// ownToolFolder gives the folders from the data folder down to the one that
+// holds path, a program Workbench installed there, the checks of a folder
+// that is only read (see [operation.CheckPrivateDirectory]) before the
+// program is looked at: one its owner may not read or search gets 0700, and
+// one others can write in is refused, since a program another user put there
+// would run as this user. A program elsewhere has only the checks
+// [operation.FindExecutable] gives it.
+func ownToolFolder(c operation.Context, path string) error {
+	name, err := filepath.Rel(c.Paths.Data, filepath.Dir(path))
+	if err != nil || !filepath.IsLocal(name) {
+		return nil
+	}
+	return operation.CheckPrivateDirectory(c.Paths.Data, name)
+}
+
 func probeVersion(ctx context.Context, c operation.Context, name, path string) (string, error) {
 	args := []string{"--version"}
 	environment := []string{"PATH=/usr/bin:/bin", "PYTHONDONTWRITEBYTECODE=1", "HOME=" + c.Home}

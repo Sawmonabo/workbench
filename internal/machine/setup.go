@@ -324,16 +324,20 @@ func StaleSetup(c operation.Context, kept []release.Metadata) ([]operation.Edit,
 }
 
 // privateEntries returns the names in directory, a private runtime directory
-// that may not exist yet.
+// in the data folder that may not exist yet, once it passes
+// [operation.PrivateTree]'s checks, made before it is read.
 func privateEntries(c operation.Context, directory string) ([]string, error) {
+	if _, err := os.Lstat(directory); errors.Is(err, fs.ErrNotExist) {
+		return nil, nil
+	}
+	if err := operation.PrivateTree(c.Paths.Data, directory, false); err != nil {
+		return nil, err
+	}
 	entries, err := os.ReadDir(directory)
 	if errors.Is(err, fs.ErrNotExist) {
 		return nil, nil
 	}
 	if err != nil {
-		return nil, err
-	}
-	if err = operation.PrivateTree(c.Paths.Data, directory, false); err != nil {
 		return nil, err
 	}
 	names := make([]string, 0, len(entries))
