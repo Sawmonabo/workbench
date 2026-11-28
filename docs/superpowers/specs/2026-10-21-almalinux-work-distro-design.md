@@ -921,8 +921,8 @@ Every place that names `~/repos` or `~/dev` today reads the answer instead:
 - The package script's folder creation (section 4.4).
 - The Windows Terminal and PowerShell start folder (section 4.4).
 - The `linux-packages` effect text in `internal/machine/effects.go`.
-- `internal/costs/report.go` `projectRoots` and `internal/cli/costs.go`
-  `scopeNames`, so the default costs view covers the chosen folders. They
+- `internal/agent/costs/report.go` `projectRoots` and
+  `internal/cli/agentcostsreport.go` `scopeNames`, so the default costs view covers the chosen folders. They
   read the saved answers, and fall back to `~/dev` and `~/repos` when none
   are saved.
 - `home/.chezmoi.toml.tmpl`: the question text and its header comment.

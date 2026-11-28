@@ -119,7 +119,7 @@ checked against a large real history of rollout files written by Codex
 
 ## 2. Decision
 
-Add `codex{}` in `internal/costs/codex.go` as the second `Source` and set it on
+Add `codex{}` in `internal/agent/costs/codex.go` as the second `Source` and set it on
 the `codex` entry of `costs.Tools`. Ingest, the ledger, rates and reports stay
 generic; the changes outside the source are the persisted per-file state, the
 rewrite check, parallel parsing and the one-cache-write column, all described
