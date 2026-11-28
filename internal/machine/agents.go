@@ -556,10 +556,7 @@ func fetch(ctx context.Context, location string, timeout time.Duration) ([]byte,
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	body, _, err := download.Get(ctx, location, 8<<20, download.Request{})
-	if err != nil {
-		return nil, fmt.Errorf("%s: %w", location, err)
-	}
-	return body, nil
+	return body, err
 }
 
 // claudeSigningKey is the fingerprint of the key that signs Claude Code's

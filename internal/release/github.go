@@ -102,13 +102,14 @@ func (r Remote) Bundle(ctx context.Context, progress func(done, total int64)) (B
 // githubAPI reads one JSON answer from the repository's GitHub REST API. tag
 // names the release asked for, if any, when GitHub has none.
 func githubAPI(ctx context.Context, token, path, tag string, answer any) error {
-	data, err := getRelease(
+	data, _, err := download.Get(
 		ctx,
 		"https://api.github.com/repos/"+repository+path,
 		4<<20,
 		download.Request{Accept: "application/vnd.github+json", Token: token},
 	)
-	if errors.Is(err, errNotFound) {
+	if status, ok := errors.AsType[*download.StatusError](err); ok &&
+		status.Status == http.StatusNotFound {
 		message := "No published Workbench release found"
 		if tag != "" {
 			message = "No Workbench release " + tag + "; see workbench update --list"
@@ -116,7 +117,7 @@ func githubAPI(ctx context.Context, token, path, tag string, answer any) error {
 		return operation.Fail(operation.ExitBlocked, "release_unavailable", message)
 	}
 	if err != nil {
-		return err
+		return releaseAnswer(err, token != "")
 	}
 	if json.Unmarshal(data, answer) != nil {
 		return operation.Fail(operation.ExitFailed, "release", "Unexpected GitHub release data")
@@ -124,13 +125,9 @@ func githubAPI(ctx context.Context, token, path, tag string, answer any) error {
 	return nil
 }
 
-// errNotFound is a release download's answer for a resource the server says
-// does not exist.
-var errNotFound = operation.Fail(operation.ExitBlocked, "release_unavailable", "Not found")
-
 // getRelease is [download.Get] for a release, from GitHub's API or a bundle's
-// address, returning the body: a missing resource is a release that is not
-// there, and GitHub's refusals say what to do about them.
+// address, returning the body, with its failure named as [releaseAnswer]
+// names it.
 func getRelease(
 	ctx context.Context,
 	location string,
@@ -138,22 +135,34 @@ func getRelease(
 	r download.Request,
 ) ([]byte, error) {
 	data, _, err := download.Get(ctx, location, limit, r)
+	if err != nil {
+		return nil, releaseAnswer(err, r.Token != "")
+	}
+	return data, nil
+}
+
+// releaseAnswer is err, a download's failure from GitHub's API or a bundle's
+// address, as a release's: a missing resource is a release that is not there
+// (release_unavailable, in the download's words), and GitHub's refusals, of
+// an anonymous request past its limit or of the token sent when token is set,
+// say what to do about them.
+func releaseAnswer(err error, token bool) error {
 	status, ok := errors.AsType[*download.StatusError](err)
 	switch {
 	case !ok:
-		return data, err
+		return err
 	case status.Status == http.StatusNotFound:
-		return nil, errNotFound
+		return operation.Fail(operation.ExitBlocked, "release_unavailable", status.Error())
 	case status.Status == http.StatusForbidden &&
 		status.Header.Get("X-RateLimit-Remaining") == "0":
-		return nil, operation.Fail(
+		return operation.Fail(
 			operation.ExitFailed,
 			"download",
 			"GitHub's request limit is used up for now; wait an hour, or log in with gh auth login",
 		)
-	case r.Token != "" && (status.Status == http.StatusUnauthorized ||
+	case token && (status.Status == http.StatusUnauthorized ||
 		status.Status == http.StatusForbidden):
-		return nil, operation.Fail(
+		return operation.Fail(
 			operation.ExitFailed,
 			"download",
 			fmt.Sprintf(
@@ -162,7 +171,7 @@ func getRelease(
 			),
 		)
 	}
-	return nil, err
+	return err
 }
 
 // githubToken returns the GitHub CLI's token for github.com, which raises

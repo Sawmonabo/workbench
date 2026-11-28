@@ -1,5 +1,8 @@
 // Package download fetches bounded HTTPS resources and reports a server's
 // answers neutrally; the caller that knows the server names what they mean.
+// Every failure reads the same way: the address, then the cause in plain
+// words, such as "https://example.com/page: HTTP 404 Not Found" or
+// "https://example.com/page: connection refused".
 package download
 
 import (
@@ -10,21 +13,24 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"syscall"
 	"time"
 
+	"github.com/Sawmonabo/workbench/internal/display"
 	"github.com/Sawmonabo/workbench/internal/operation"
 )
 
 // MaxSize is the most one download may bring.
 const MaxSize int64 = 128 << 20
 
-// ErrNotModified is [Get]'s answer when the server says the resource has not
-// changed since the copy a conditional request names.
-var ErrNotModified = operation.Fail(operation.ExitFailed, "download", "Not modified")
+// ErrNotModified matches [Get]'s answer when the server says the resource has
+// not changed since the copy a conditional request names.
+var ErrNotModified = errors.New("HTTP 304 Not Modified")
 
-// StatusError is [Get]'s answer for a status other than 200 OK and 304 Not
-// Modified: a "download" failure that names the status, with the response's
-// header, so a caller that knows the server can say what the status means.
+// StatusError is [Get]'s answer for a status other than 200 OK: a "download"
+// failure that names the address and the status, with the response's header,
+// so a caller that knows the server can say what the status means. A 304 Not
+// Modified matches [ErrNotModified].
 type StatusError struct {
 	Status int
 	Header http.Header
@@ -35,6 +41,11 @@ func (e *StatusError) Error() string { return e.err.Error() }
 
 // Unwrap is the [operation.Error] that reports the status.
 func (e *StatusError) Unwrap() error { return e.err }
+
+// Is reports whether target is [ErrNotModified] and the status 304.
+func (e *StatusError) Is(target error) bool {
+	return target == ErrNotModified && e.Status == http.StatusNotModified
+}
 
 // Request is what [Get] sends beside the URL: the Accept header when Accept
 // is set, Token as a bearer credential when set, and every field of Header;
@@ -47,11 +58,13 @@ type Request struct {
 
 // Get fetches the HTTPS resource at location, at most limit bytes and never
 // more than [MaxSize], as r says, and returns its body and the response's
-// header. A 304 Not Modified, the answer to a request header makes
-// conditional, is [ErrNotModified], with the response's header; any other
-// status but 200 OK is a [StatusError]. Redirects to another host drop the
-// credential. The caller bounds the time it may take through ctx; a download
-// that receives nothing for a minute stops.
+// header. A status other than 200 OK is a [StatusError], with the response's
+// header; a 304 Not Modified, the answer to a request header makes
+// conditional, matches [ErrNotModified]. Redirects to another host drop the
+// credential. The caller bounds the time it may take through ctx, and a
+// download past that deadline has timed out; one that receives nothing for a
+// minute stops. Only an interruption, ctx's cancellation, is returned as
+// ctx's error, so it keeps its exit.
 func Get(
 	ctx context.Context,
 	location string,
@@ -64,12 +77,13 @@ func Get(
 		return nil, nil, operation.Fail(
 			operation.ExitInvalid,
 			"download",
-			"Downloads require HTTPS, no URL credentials, and a bounded size",
+			shown(u, err)+
+				": refused; a download needs an HTTPS address with no credentials or fragment, and a bounded size",
 		)
 	}
 	outgoing, err := http.NewRequestWithContext(ctx, http.MethodGet, location, nil)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, failure(location, err.Error())
 	}
 	for name, values := range r.Header {
 		outgoing.Header[http.CanonicalHeaderKey(name)] = values
@@ -89,36 +103,22 @@ func Get(
 	defer stall.Stop()
 	response, err := downloadClient.Do(outgoing)
 	if err != nil {
-		if err := cut(ctx, download); err != nil {
+		if err := cut(location, ctx, download); err != nil {
 			return nil, nil, err
 		}
-		return nil, nil, operation.Fail(
-			operation.ExitFailed,
-			"download",
-			"HTTPS download failed: "+err.Error(),
-		)
+		return nil, nil, failure(location, cause(err))
 	}
 	defer func() { _ = response.Body.Close() }()
-	if response.StatusCode == http.StatusNotModified {
-		return nil, response.Header, ErrNotModified
-	}
 	if response.StatusCode != http.StatusOK {
-		return nil, nil, &StatusError{
+		return nil, response.Header, &StatusError{
 			Status: response.StatusCode,
 			Header: response.Header,
-			err: operation.Fail(
-				operation.ExitFailed,
-				"download",
-				fmt.Sprintf("Download unavailable (HTTP %d)", response.StatusCode),
-			),
+			err:    failure(location, statusLine(response.StatusCode)),
 		}
 	}
+	tooLarge := failure(location, "larger than its "+display.Size(limit)+" bound")
 	if response.ContentLength > limit {
-		return nil, nil, operation.Fail(
-			operation.ExitFailed,
-			"download",
-			"Download exceeds its size bound",
-		)
+		return nil, nil, tooLarge
 	}
 	body := counted(
 		&stallReader{body: response.Body, timer: stall},
@@ -126,17 +126,64 @@ func Get(
 		r.Progress,
 	)
 	data, err := io.ReadAll(io.LimitReader(body, limit+1))
-	if err := cut(ctx, download); err != nil {
+	if err := cut(location, ctx, download); err != nil {
 		return nil, nil, err
 	}
-	if err != nil || int64(len(data)) > limit {
-		return nil, nil, operation.Fail(
-			operation.ExitFailed,
-			"download",
-			"Download exceeds its size bound or is incomplete",
-		)
+	switch {
+	case err != nil:
+		return nil, nil, failure(location, "ended early ("+cause(err)+")")
+	case int64(len(data)) > limit:
+		return nil, nil, tooLarge
 	}
 	return data, response.Header, nil
+}
+
+// failure is [Get]'s answer for a download from location that did not
+// succeed: a "download" failure that names the address, then the cause.
+func failure(location, cause string) error {
+	return operation.Fail(operation.ExitFailed, "download", location+": "+cause)
+}
+
+// shown is the address a refusal of u names: u without the credentials it
+// may carry, or "The download address" when it is not a URL.
+func shown(u *url.URL, err error) string {
+	if err != nil {
+		return "The download address"
+	}
+	address := *u
+	address.User = nil
+	return address.String()
+}
+
+// statusLine is the status code as an HTTP status line names it, such as
+// "HTTP 404 Not Found".
+func statusLine(code int) string {
+	if text := http.StatusText(code); text != "" {
+		return fmt.Sprintf("HTTP %d %s", code, text)
+	}
+	return fmt.Sprintf("HTTP %d", code)
+}
+
+// cause is why a request failed, in plain words: "timed out" for a timeout,
+// "host NAME not found", the operating system's reason, such as "connection
+// refused", or the error itself. A [url.Error]'s own address, which may be a
+// redirect's, is left out: [Get] names the address its caller asked for.
+func cause(err error) string {
+	if problem, ok := errors.AsType[*url.Error](err); ok {
+		err = problem.Err
+	}
+	var timeout interface{ Timeout() bool }
+	var host *net.DNSError
+	var errno syscall.Errno
+	switch {
+	case errors.As(err, &timeout) && timeout.Timeout():
+		return "timed out"
+	case errors.As(err, &host) && host.IsNotFound:
+		return "host " + host.Name + " not found"
+	case errors.As(err, &errno):
+		return errno.Error()
+	}
+	return err.Error()
 }
 
 // stallLimit is how long a download may go without receiving a byte.
@@ -146,8 +193,11 @@ const stallLimit = time.Minute
 var downloadClient = &http.Client{
 	Transport: downloadTransport,
 	CheckRedirect: func(req *http.Request, via []*http.Request) error {
-		if len(via) >= 5 || req.URL.Scheme != "https" {
-			return operation.Fail(operation.ExitInvalid, "download", "Unsafe download redirect")
+		switch {
+		case len(via) >= 5:
+			return errors.New("redirected more than five times")
+		case req.URL.Scheme != "https":
+			return errors.New("redirected away from HTTPS")
 		}
 		return nil
 	},
@@ -171,14 +221,6 @@ var downloadTransport = &http.Transport{
 
 var errStalled = errors.New("download stalled")
 
-func stalledDownload() error {
-	return operation.Fail(
-		operation.ExitFailed,
-		"download",
-		"Download stalled for a minute; check the network and rerun",
-	)
-}
-
 // stallReader restarts the stall timer after every successful read.
 type stallReader struct {
 	body  io.Reader
@@ -193,12 +235,15 @@ func (r *stallReader) Read(p []byte) (int, error) {
 	return n, err
 }
 
-// cut is why a download stopped early, nil when it did not: the caller's
-// context ended (an interruption, which keeps its exit), or download was
-// cancelled after stallLimit without data.
-func cut(caller, download context.Context) error {
-	if errors.Is(context.Cause(download), errStalled) {
-		return stalledDownload()
+// cut is why the download from location stopped early, nil when it did not:
+// it received nothing for stallLimit, the caller's deadline passed, or the
+// caller's context was cancelled (an interruption, which keeps its exit).
+func cut(location string, caller, download context.Context) error {
+	switch {
+	case errors.Is(context.Cause(download), errStalled):
+		return failure(location, "received nothing for a minute; check the network and rerun")
+	case errors.Is(caller.Err(), context.DeadlineExceeded):
+		return failure(location, "timed out")
 	}
 	return caller.Err()
 }
