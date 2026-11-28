@@ -436,9 +436,8 @@ func sameAttributes(a, b map[string][]byte) bool {
 	return equal(a, b) && equal(b, a)
 }
 
-// carryLabel gives fd, or the link at path when fd is negative, the label
-// desired, an earlier image's, as sed -i, Vim and Emacs give a file they
-// replace its old label; current is what the system gave the inode. A label
+// carryLabel gives n the label desired, an earlier image's, as sed -i, Vim
+// and Emacs give a file they replace its old label; current is what the system gave the inode. A label
 // it already has is not written, so the common case needs no relabel
 // permission. Where the inode has none and the system refuses one (EPERM,
 // EOPNOTSUPP), SELinux is off: the system labels no file, setting a label
@@ -446,32 +445,23 @@ func sameAttributes(a, b map[string][]byte) bool {
 // system, so the inode stays without one, as every file made meanwhile. Any
 // other refusal fails the write before its rename, so a replacement never
 // takes a label other than the file's it replaces.
-func carryLabel(fd int, path string, current map[string][]byte, desired []byte) error {
+func carryLabel(n inode, current map[string][]byte, desired []byte) error {
 	label, labeled := current[platform.LabelAttribute]
 	if labeled && bytes.Equal(label, desired) {
 		return nil
 	}
-	var err error
-	if fd < 0 {
-		err = unix.Lsetxattr(path, platform.LabelAttribute, desired, 0)
-	} else {
-		err = unix.Fsetxattr(fd, platform.LabelAttribute, desired, 0)
-	}
+	err := n.set(platform.LabelAttribute, desired)
 	if !labeled && (errors.Is(err, unix.EPERM) || errors.Is(err, unix.EOPNOTSUPP)) {
 		return nil
 	}
 	return err
 }
 
-func readImageAttributes(fd int, path string, h holder) (map[string][]byte, error) {
+// readImageAttributes reads the extended attributes of target, the file,
+// folder or link at path, which h is to the caller.
+func readImageAttributes(target inode, path string, h holder) (map[string][]byte, error) {
 	var names [4096]byte
-	var n int
-	var err error
-	if fd < 0 {
-		n, err = unix.Llistxattr(path, names[:])
-	} else {
-		n, err = unix.Flistxattr(fd, names[:])
-	}
+	n, err := target.list(names[:])
 	if errors.Is(err, unix.ERANGE) {
 		limit := display.Limit(int64(len(names)))
 		return nil, Fail(
@@ -494,11 +484,7 @@ func readImageAttributes(fd int, path string, h holder) (map[string][]byte, erro
 			return nil, attributeRefusal(path, name, h)
 		}
 		var data [4096]byte
-		if fd < 0 {
-			n, err = unix.Lgetxattr(path, name, data[:])
-		} else {
-			n, err = unix.Fgetxattr(fd, name, data[:])
-		}
+		n, err = target.get(name, data[:])
 		if errors.Is(err, unix.ERANGE) {
 			limit := display.Limit(int64(len(data)))
 			return nil, Fail(
@@ -518,8 +504,8 @@ func readImageAttributes(fd int, path string, h holder) (map[string][]byte, erro
 	return attributes, nil
 }
 
-// writeImageAttributes gives fd, or the link at link when fd is negative,
-// exactly the attributes of an image, apart from the label, setting only
+// writeImageAttributes gives target exactly the attributes of an image,
+// apart from the label, setting only
 // those whose value differs: carryLabel writes an image's label, and one the
 // image lacks is left as the system gave it, since SELinux lets no one remove
 // a label. The access ACL (platform.AccessACLAttribute) comes last: setting
@@ -527,17 +513,8 @@ func readImageAttributes(fd int, path string, h holder) (map[string][]byte, erro
 // user.* attribute needs (xattr_permission in fs/xattr.c). path is the target
 // they are written for, which is h to the write and which a failure names
 // with the attribute (carryFailure).
-func writeImageAttributes(
-	fd int,
-	link, path string,
-	attributes map[string][]byte,
-	h holder,
-) error {
-	at := path
-	if fd < 0 {
-		at = link
-	}
-	existing, err := readImageAttributes(fd, at, h)
+func writeImageAttributes(target inode, path string, attributes map[string][]byte, h holder) error {
+	existing, err := readImageAttributes(target, path, h)
 	if err != nil {
 		return err
 	}
@@ -545,12 +522,7 @@ func writeImageAttributes(
 		if _, ok := attributes[name]; ok || name == platform.LabelAttribute {
 			continue
 		}
-		if fd < 0 {
-			err = unix.Lremovexattr(at, name)
-		} else {
-			err = unix.Fremovexattr(fd, name)
-		}
-		if err != nil {
+		if err = target.remove(name); err != nil {
 			return carryFailure(path, h, true, "the extended attribute "+shellWord(name), err)
 		}
 	}
@@ -563,12 +535,10 @@ func writeImageAttributes(
 		current, held := existing[name]
 		switch {
 		case name == platform.LabelAttribute:
-			err = carryLabel(fd, at, existing, data)
+			err = carryLabel(target, existing, data)
 		case held && bytes.Equal(current, data):
-		case fd < 0:
-			err = unix.Lsetxattr(at, name, data, 0)
 		default:
-			err = unix.Fsetxattr(fd, name, data, 0)
+			err = target.set(name, data)
 		}
 		if err != nil {
 			return carryFailure(path, h, false, "the extended attribute "+shellWord(name), err)
@@ -577,23 +547,99 @@ func writeImageAttributes(
 	return nil
 }
 
-// writeImageSecurity gives fd, or the link at link when fd is negative, the
-// hidden flag and then the ACL of desired, each only where current, what it
+// writeImageSecurity gives target the hidden flag and then the ACL of
+// desired, each only where current, what it
 // holds, differs. They come after the attributes and the mode, as their
 // writes need neither, and the ACL comes last: an entry in it that denies its
 // owner writing extended attributes would stop that write (xnu's
 // vnode_authorize_callback), and its owner may set a flag and an ACL whatever
 // the mode and the ACL allow. path and h are as for writeImageAttributes.
-func writeImageSecurity(fd int, link, path string, current, desired Image, h holder) error {
+func writeImageSecurity(target inode, path string, current, desired Image, h holder) error {
 	if current.Hidden != desired.Hidden {
-		if err := platform.SetHidden(fd, link, desired.Hidden); err != nil {
+		if err := target.setHidden(desired.Hidden); err != nil {
 			return carryFailure(path, h, !desired.Hidden, "the hidden flag", err)
 		}
 	}
 	if !bytes.Equal(current.ACL, desired.ACL) {
-		if err := platform.SetFileSecurity(fd, link, desired.ACL); err != nil {
+		if err := target.setSecurity(desired.ACL); err != nil {
 			return carryFailure(path, h, desired.ACL == nil, "its ACL", err)
 		}
 	}
 	return nil
+}
+
+// inode is the file, folder or link image metadata is read from and written
+// to: a file or folder through its descriptor fd, or a link opened as itself
+// (platform.Link), through which every write to a link goes. Only a read
+// takes what is at path itself, a link not followed, with fd negative:
+// ReadImage reads a link it does not open, since opening a link as itself
+// takes its owner's read permission on macOS, which reading it by path does
+// not, and a write checks the image again.
+type inode struct {
+	fd   int
+	link *platform.Link
+	path string
+}
+
+// onFD is the file or folder fd holds.
+func onFD(fd int) inode { return inode{fd: fd} }
+
+// atPath is what is at path, a link itself, for a read.
+func atPath(path string) inode { return inode{fd: -1, path: path} }
+
+// onLink is the link l holds.
+func onLink(l *platform.Link) inode { return inode{fd: -1, link: l} }
+
+// list lists n's extended attribute names into data.
+func (n inode) list(data []byte) (int, error) {
+	switch {
+	case n.link != nil:
+		return n.link.Attributes(data)
+	case n.fd < 0:
+		return unix.Llistxattr(n.path, data)
+	}
+	return unix.Flistxattr(n.fd, data)
+}
+
+// get reads n's extended attribute name into data.
+func (n inode) get(name string, data []byte) (int, error) {
+	switch {
+	case n.link != nil:
+		return n.link.Attribute(name, data)
+	case n.fd < 0:
+		return unix.Lgetxattr(n.path, name, data)
+	}
+	return unix.Fgetxattr(n.fd, name, data)
+}
+
+// set gives n the extended attribute name with value.
+func (n inode) set(name string, value []byte) error {
+	if n.link != nil {
+		return n.link.SetAttribute(name, value)
+	}
+	return unix.Fsetxattr(n.fd, name, value, 0)
+}
+
+// remove takes n's extended attribute name off.
+func (n inode) remove(name string) error {
+	if n.link != nil {
+		return n.link.RemoveAttribute(name)
+	}
+	return unix.Fremovexattr(n.fd, name)
+}
+
+// setHidden gives n the hidden flag when hidden, or takes it away.
+func (n inode) setHidden(hidden bool) error {
+	if n.link != nil {
+		return n.link.SetHidden(hidden)
+	}
+	return platform.SetHidden(n.fd, hidden)
+}
+
+// setSecurity gives n the security data of an image.
+func (n inode) setSecurity(data []byte) error {
+	if n.link != nil {
+		return n.link.SetSecurity(data)
+	}
+	return platform.SetFileSecurity(n.fd, data)
 }

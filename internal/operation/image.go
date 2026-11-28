@@ -312,7 +312,7 @@ func ReadImage(c Context, path string) (Image, error) {
 		if held, err = linkMetadata(path); err != nil {
 			return Image{}, err
 		}
-		image.Attributes, err = readImageAttributes(-1, path, replacedLink)
+		image.Attributes, err = readImageAttributes(atPath(path), path, replacedLink)
 		if err != nil {
 			return Image{}, err
 		}
@@ -348,7 +348,7 @@ func ReadImage(c Context, path string) (Image, error) {
 			return Image{}, err
 		}
 		image.Attributes, err = readImageAttributes(
-			fd,
+			onFD(fd),
 			path,
 			holderOf(uint32(stat.Mode&unix.S_IFMT)),
 		)

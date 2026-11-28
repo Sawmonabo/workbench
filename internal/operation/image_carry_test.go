@@ -406,7 +406,7 @@ func readHeld(t *testing.T, path string) held {
 	if err != nil {
 		t.Fatal(err)
 	}
-	attributes, err := readImageAttributes(-1, path, replacedFile)
+	attributes, err := readImageAttributes(atPath(path), path, replacedFile)
 	if err != nil {
 		t.Fatal(err)
 	}

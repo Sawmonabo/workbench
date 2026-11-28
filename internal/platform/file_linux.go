@@ -101,7 +101,7 @@ func aclForMode(data []byte, mode uint32) []byte {
 }
 
 // setFileSecurity has no ACL to write but nil, which is none.
-func setFileSecurity(_ int, _ string, data []byte) error {
+func setFileSecurity(_ int, data []byte) error {
 	if data != nil {
 		return unix.EOPNOTSUPP
 	}
@@ -109,7 +109,7 @@ func setFileSecurity(_ int, _ string, data []byte) error {
 }
 
 // setHidden has no hidden flag to set.
-func setHidden(_ int, _ string, hidden bool) error {
+func setHidden(_ int, hidden bool) error {
 	if hidden {
 		return unix.EOPNOTSUPP
 	}

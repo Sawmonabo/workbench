@@ -74,10 +74,22 @@ run.
   (made again empty, or the file removed), lacks nothing: the warning names it
   (`files ~/dest/.zshrc and 14 more are not there`), and the next apply
   writes what its plan shows and records the apply as finished.
-- Finishing gives each file what it lacks in place, a file or folder through
-  a descriptor and a link by its path, and leaves its content alone, whether
-  chezmoi wrote it or someone edited it afterwards. What it holds of that metadata with another value stays, as
-  someone's. A file whose group its user may not give it is refused at the plan
+- Finishing gives each file or folder what it lacks in place, through a
+  descriptor, and leaves its content alone, whether chezmoi wrote it or
+  someone edited it afterwards. What it holds of that metadata with another
+  value stays, as someone's. A link, and a file that lacks an extended
+  attribute while its owner may not write it (mode 0444), are written anew
+  the way every apply writes them: staged beside the target under the name
+  its apply stages it under, with its content as it is and its attributes
+  written before its mode, then renamed over it once it still holds what the
+  plan found. Writing a `user.*` attribute takes the owner's write
+  permission on Linux (`xattr_permission` in `fs/xattr.c`), and any
+  attribute does on macOS, so a write in place would make the file writable
+  for a moment, and a stop then would leave it so. A link's attributes,
+  hidden flag and ACL are written through the link opened as itself (with
+  `O_SYMLINK` on macOS; on Linux with `O_PATH`, reached as
+  `/proc/self/fd/N`, since the attribute calls refuse that descriptor before
+  Linux 6.13's `setxattrat`). A file whose group its user may not give it is refused at the plan
   with `sudo chgrp`. The temporary files the stopped run staged beside its
   targets, named by the operation and the target's place in its checkpoint, go
   first.
@@ -127,3 +139,8 @@ finished.
 ## Sources
 
 - [SQLite: Atomic Commit, section 4](https://www.sqlite.org/atomiccommit.html)
+- [Linux `fs/xattr.c`, `xattr_permission`](https://github.com/torvalds/linux/blob/master/fs/xattr.c)
+- [Linux open(2), `O_PATH`](https://man7.org/linux/man-pages/man2/open.2.html)
+  and [proc_pid_fd(5)](https://man7.org/linux/man-pages/man5/proc_pid_fd.5.html)
+- macOS open(2), `O_SYMLINK`: "the open() will be for the symbolic link
+  itself, not what it links to"

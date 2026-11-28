@@ -121,17 +121,14 @@ func Allowed(path string, rights uint32) (bool, error) { return allowed(path, ri
 // which keeps ACLs apart from the mode, it is data.
 func ACLForMode(data []byte, mode uint32) []byte { return aclForMode(data, mode) }
 
-// SetFileSecurity gives fd, or path itself, not a link's target, when path
-// is not empty, the ACL data, as FileSecurity read it from a file, or takes
-// its ACL away when data is nil. On macOS fsetattrlist, or setattrlist with
-// FSOPT_NOFOLLOW for a path, writes it as ATTR_CMN_EXTENDED_SECURITY, which
-// a file's owner may write whatever its mode and its ACL deny, and a list of
+// SetFileSecurity gives fd, a file, folder or link (Link), the ACL data, as
+// FileSecurity read it from a file, or takes its ACL away when data is nil.
+// On macOS fsetattrlist writes it as ATTR_CMN_EXTENDED_SECURITY, which a
+// file's owner may write whatever its mode and its ACL deny, and a list of
 // KAUTH_FILESEC_NOACL entries takes it away. On Linux, whose ACLs are
 // extended attributes, it fails with EOPNOTSUPP for data and does nothing for
 // nil. The error is the call's errno.
-func SetFileSecurity(fd int, path string, data []byte) error {
-	return setFileSecurity(fd, path, data)
-}
+func SetFileSecurity(fd int, data []byte) error { return setFileSecurity(fd, data) }
 
 // FileFlags returns the file flags of fd, or of path itself, not a link's
 // target, when path is not empty: on macOS the chflags(2) flags of its
@@ -142,15 +139,12 @@ func SetFileSecurity(fd int, path string, data []byte) error {
 // a path reports 0 without a call. The error is the call's errno.
 func FileFlags(fd int, path string) (uint32, error) { return fileFlags(fd, path) }
 
-// SetHidden gives fd, or path itself, not a link's target, when path is not
-// empty, HiddenFlag when hidden, or takes it away, and keeps every other flag
-// FileFlags reads. On macOS fchflags sets it through fd, and setattrlist with
-// ATTR_CMN_FLAGS and FSOPT_NOFOLLOW on a path, since no call changes a link's
-// flags through a descriptor; a file's owner may set it whatever its mode
-// and its ACL deny. On Linux, which has no such flag, it fails with
-// EOPNOTSUPP to set it and does nothing to take it away. The error is the
-// call's errno.
-func SetHidden(fd int, path string, hidden bool) error { return setHidden(fd, path, hidden) }
+// SetHidden gives fd, a file, folder or link (Link), HiddenFlag when hidden,
+// or takes it away, and keeps every other flag FileFlags reads. On macOS
+// fchflags sets it, which a file's owner may do whatever its mode and its ACL
+// deny. On Linux, which has no such flag, it fails with EOPNOTSUPP to set it
+// and does nothing to take it away. The error is the call's errno.
+func SetHidden(fd int, hidden bool) error { return setHidden(fd, hidden) }
 
 // NewLinkMode is the permissions mode a link this process makes gets under
 // its umask, which a link made by a process it starts gets too, since that

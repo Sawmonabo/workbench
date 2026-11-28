@@ -253,14 +253,14 @@ func allowed(path string, rights uint32) (bool, error) {
 }
 
 // setFileSecurity writes data, or a kauth_filesec of KAUTH_FILESEC_NOACL
-// entries for nil, as ATTR_CMN_EXTENDED_SECURITY with fsetattrlist, or
-// setattrlist with FSOPT_NOFOLLOW for a path. Its buffer is the attribute's
+// entries for nil, as ATTR_CMN_EXTENDED_SECURITY with fsetattrlist. Its
+// buffer is the attribute's
 // attrreference, whose offset counts from the reference itself, then the
 // kauth_filesec, whose size setattrlist checks against the entry count it
 // holds (vfs_attrlist.c). x/sys/unix wraps setattrlist but not fsetattrlist,
 // which goes through libcCall6, its pointers becoming uintptrs inside the
 // call's argument list, as the unsafe rules require.
-func setFileSecurity(fd int, path string, data []byte) error {
+func setFileSecurity(fd int, data []byte) error {
 	if data == nil {
 		data = make([]byte, filesecHeader)
 		binary.LittleEndian.PutUint32(data[:4], filesecMagic)
@@ -270,15 +270,13 @@ func setFileSecurity(fd int, path string, data []byte) error {
 	binary.LittleEndian.PutUint32(buffer[:4], 8)
 	binary.LittleEndian.PutUint32(buffer[4:8], uint32(len(data)))
 	copy(buffer[8:], data)
-	return setAttributes(fd, path, unix.ATTR_CMN_EXTENDED_SECURITY, buffer)
+	return setAttributes(fd, unix.ATTR_CMN_EXTENDED_SECURITY, buffer)
 }
 
-// setHidden sets or clears UF_HIDDEN in the flags fstat, or lstat for a
-// path, reads, with fchflags, or setattrlist's ATTR_CMN_FLAGS and
-// FSOPT_NOFOLLOW for a path, which is how libSystem's lchflags changes a
-// link's own flags.
-func setHidden(fd int, path string, hidden bool) error {
-	flags, err := fileFlags(fd, path)
+// setHidden sets or clears UF_HIDDEN in the flags fstat reads, with
+// fchflags.
+func setHidden(fd int, hidden bool) error {
+	flags, err := fileFlags(fd, "")
 	if err != nil {
 		return err
 	}
@@ -287,22 +285,13 @@ func setHidden(fd int, path string, hidden bool) error {
 	} else {
 		flags &^= hiddenFlag
 	}
-	if path == "" {
-		return unix.Fchflags(fd, int(flags))
-	}
-	buffer := make([]byte, 4)
-	binary.LittleEndian.PutUint32(buffer, flags)
-	return setAttributes(-1, path, unix.ATTR_CMN_FLAGS, buffer)
+	return unix.Fchflags(fd, int(flags))
 }
 
 // setAttributes writes the common attribute common from buffer with
-// fsetattrlist on fd, or setattrlist with FSOPT_NOFOLLOW on path when path is
-// not empty.
-func setAttributes(fd int, path string, common uint32, buffer []byte) error {
+// fsetattrlist on fd.
+func setAttributes(fd int, common uint32, buffer []byte) error {
 	attributes := unix.Attrlist{Bitmapcount: unix.ATTR_BIT_MAP_COUNT, Commonattr: common}
-	if path != "" {
-		return unix.Setattrlist(path, &attributes, buffer, unix.FSOPT_NOFOLLOW)
-	}
 	_, _, errno := libcCall6(
 		fsetattrlist,
 		uintptr(fd),

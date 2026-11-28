@@ -2,8 +2,8 @@ package operation
 
 import (
 	"bytes"
-	"cmp"
 	"errors"
+	"maps"
 	"os"
 	"path/filepath"
 
@@ -18,19 +18,15 @@ import (
 // folder's set-group-ID bit as its mode, read after the group, holds it or
 // not (setImageMode), then the extended attributes it lacks, then
 // the hidden flag and the ACL (writeImageSecurity), each only where it
-// differs. Writing a user.* attribute on Linux (xattr_permission in
-// fs/xattr.c) and any attribute on macOS takes the owner's write permission,
-// which a file of mode 0444 does not give: its owner gets it for those
-// writes, then the file's mode again, which a stop in between leaves as the
-// owner could set it, the file's content and the rest unchanged. A file made
-// where none was gets the label a file made in its own folder gets
-// (giveFolderLabel). A link is given what it lacks by its path (settleLink).
-// It reports whether it changed anything: a new file that lacks nothing but
-// may lack that label holds it already when the two are the same.
+// differs. A new file, which replaces none, gets the label a file made in its
+// own folder gets (giveFolderLabel). A link, and a file that lacks an extended
+// attribute its owner may not write, are written anew (settleAnew). It
+// reports whether it changed anything: a new file that lacks nothing but may
+// lack that label holds it already when the two are the same.
 func (cp *Checkpoint) settleTarget(t UnfinishedTarget) (bool, error) {
 	c := cp.mutation.context
-	if t.Current.Kind == ImageSymlink {
-		return true, settleLink(c, t)
+	if writtenAnew(t) {
+		return len(t.Lacks) > 0 || t.newLabel, cp.settleAnew(c, t)
 	}
 	parent, name, err := imageParent(c, t.Path)
 	if err != nil {
@@ -69,30 +65,10 @@ func (cp *Checkpoint) settleTarget(t UnfinishedTarget) (bool, error) {
 	if err = setImageMode(fd, settled.Mode); err != nil {
 		return false, carryFailure(t.Path, changedFolder, false, "the set-group-ID bit", err)
 	}
-	label := platform.LabelAttribute
-	if !sameAttributes(current.Attributes, settled.Attributes) ||
-		!bytes.Equal(current.Attributes[label], settled.Attributes[label]) {
-		writable := current.Mode&0o200 != 0
-		if !writable {
-			if err = unix.Fchmod(fd, settled.Mode|0o200); err != nil {
-				return false, carryFailure(
-					t.Path,
-					changedFolder,
-					false,
-					"its owner's write permission",
-					err,
-				)
-			}
-		}
-		err = writeImageAttributes(fd, "", t.Path, settled.Attributes, changedFolder)
-		if !writable {
-			err = cmp.Or(err, unix.Fchmod(fd, settled.Mode))
-		}
-		if err != nil {
-			return false, err
-		}
+	if err = writeImageAttributes(onFD(fd), t.Path, settled.Attributes, changedFolder); err != nil {
+		return false, err
 	}
-	if err = writeImageSecurity(fd, "", t.Path, current, settled, changedFolder); err != nil {
+	if err = writeImageSecurity(onFD(fd), t.Path, current, settled, changedFolder); err != nil {
 		return false, err
 	}
 	changed := len(t.Lacks) > 0
@@ -132,28 +108,30 @@ func holdsCurrent(c Context, fd, parent int, name string, t UnfinishedTarget) er
 	return nil
 }
 
-// settleLink gives t, a link of an unfinished apply, the extended attributes,
-// hidden flag and ACL it lacks, each on the link itself by its path, as
-// Workbench gives a link it writes them: Linux opens no descriptor of a link
-// to set them through.
-func settleLink(c Context, t UnfinishedTarget) error {
-	current, err := ReadImage(c, t.Path)
-	if err != nil {
-		return err
+// writtenAnew reports whether t is settled by writing it anew (settleAnew):
+// a link, and a file that lacks an extended attribute while its owner may not
+// write it. Writing a user.* attribute on Linux (xattr_permission in
+// fs/xattr.c) and any attribute on macOS takes the owner's write permission,
+// which a file of mode 0444 does not give; a write in place would have to
+// give it for a moment, and a stop then would leave the file writable.
+func writtenAnew(t UnfinishedTarget) bool {
+	return t.Current.Kind == ImageSymlink || t.Current.Kind == ImageFile &&
+		t.Current.Mode&0o200 == 0 && !sameAttributes(t.Current.Attributes, t.Settled.Attributes)
+}
+
+// settleAnew writes t anew with its settled image, which holds its content
+// and its other metadata as they are, the way every apply writes a file or
+// link (rewriteImage): staged under the name its apply stages it under, its
+// attributes written before its mode, then renamed over it once it still
+// holds what the plan found. A new file, which replaces none, keeps the
+// label the staged file gets in its folder.
+func (cp *Checkpoint) settleAnew(c Context, t UnfinishedTarget) error {
+	desired := t.Settled
+	if t.newLabel {
+		desired.Attributes = maps.Clone(desired.Attributes)
+		delete(desired.Attributes, platform.LabelAttribute)
 	}
-	if !sameImage(current, t.Current) {
-		return settleChanged(c, t.Path)
-	}
-	if err = writeImageAttributes(
-		-1,
-		t.Path,
-		t.Path,
-		t.Settled.Attributes,
-		changedFolder,
-	); err != nil {
-		return err
-	}
-	if err = writeImageSecurity(-1, t.Path, t.Path, current, t.Settled, changedFolder); err != nil {
+	if err := rewriteImage(c, t.Path, t.Current, desired, cp.stagedName(t.index)); err != nil {
 		return err
 	}
 	return settledAs(c, t)
@@ -176,7 +154,7 @@ func giveFolderLabel(fd, folder int, path, temporary string) (bool, error) {
 		return false, labelFailure(path, err)
 	}
 	gets, err := readImageAttributes(
-		made,
+		onFD(made),
 		filepath.Join(filepath.Dir(path), temporary),
 		changedFolder,
 	)
@@ -191,14 +169,14 @@ func giveFolderLabel(fd, folder int, path, temporary string) (bool, error) {
 	if !labeled {
 		return false, nil
 	}
-	attributes, err := readImageAttributes(fd, path, changedFolder)
+	attributes, err := readImageAttributes(onFD(fd), path, changedFolder)
 	if err != nil {
 		return false, err
 	}
 	if bytes.Equal(attributes[platform.LabelAttribute], label) {
 		return false, nil
 	}
-	if err = carryLabel(fd, path, attributes, label); err != nil {
+	if err = carryLabel(onFD(fd), attributes, label); err != nil {
 		return false, carryFailure(path, changedFolder, false, "its SELinux label", err)
 	}
 	return true, nil

@@ -3,7 +3,6 @@ package operation
 import (
 	"io"
 	"os"
-	"path/filepath"
 
 	"github.com/Sawmonabo/workbench/internal/display"
 	"github.com/Sawmonabo/workbench/internal/platform"
@@ -70,7 +69,7 @@ func enforceNativeMetadata(
 	}
 	current.ACL, current.Hidden = held.acl, held.hidden
 	current.Attributes, err = readImageAttributes(
-		fd,
+		onFD(fd),
 		path,
 		folderOrFile(observed.Kind == ImageDirectory),
 	)
@@ -100,7 +99,7 @@ func enforceNativeMetadata(
 		}
 	}
 	if label != nil {
-		if err = carryLabel(fd, path, current.Attributes, label); err != nil {
+		if err = carryLabel(onFD(fd), current.Attributes, label); err != nil {
 			return err
 		}
 	}
@@ -132,8 +131,7 @@ func writeDirectoryImage(fd int, name, path string, current, desired Image) erro
 	}
 	defer func() { _ = unix.Close(directoryFD) }()
 	if err = writeImageAttributes(
-		directoryFD,
-		"",
+		onFD(directoryFD),
 		path,
 		desired.Attributes,
 		changedFolder,
@@ -146,14 +144,17 @@ func writeDirectoryImage(fd int, name, path string, current, desired Image) erro
 	if err = setImageMode(directoryFD, desired.Mode); err != nil {
 		return err
 	}
-	return writeImageSecurity(directoryFD, "", path, current, desired, changedFolder)
+	return writeImageSecurity(onFD(directoryFD), path, current, desired, changedFolder)
 }
 
 // stageLinkImage creates the desired symlink at temporary beside path, with
 // its group, attributes, mode, hidden flag and ACL, ready to replace the
-// target. Each is set on the link itself, never on the file it points to.
-// The mode follows the attributes: on macOS writing a link's attributes needs
-// its owner's write permission, which the desired mode may not give.
+// target. Each is set on the link itself, never on the file it points to:
+// the group and mode by its name in fd, the rest through the link opened as
+// itself (platform.Link), opened before the mode, which may not give its
+// owner the read permission that opening it takes on macOS. The mode follows
+// the attributes: on macOS writing a link's attributes needs its owner's
+// write permission, which the desired mode may not give.
 func stageLinkImage(fd int, temporary, path string, desired Image) error {
 	if err := unix.Symlinkat(desired.Link, fd, temporary); err != nil {
 		return err
@@ -168,16 +169,25 @@ func stageLinkImage(fd int, temporary, path string, desired Image) error {
 			return err
 		}
 	}
-	link := filepath.Join(filepath.Dir(path), temporary)
-	if err := writeImageAttributes(-1, link, path, desired.Attributes, replacedLink); err != nil {
+	link, err := platform.OpenLink(fd, temporary)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = link.Close() }()
+	if err = writeImageAttributes(
+		onLink(link),
+		path,
+		desired.Attributes,
+		replacedLink,
+	); err != nil {
 		return err
 	}
 	if uint32(stat.Mode)&0o777 != desired.Mode {
-		if err := platform.SetLinkMode(fd, temporary, desired.Mode); err != nil {
+		if err = platform.SetLinkMode(fd, temporary, desired.Mode); err != nil {
 			return err
 		}
 	}
-	return writeImageSecurity(-1, link, path, Image{}, desired, replacedLink)
+	return writeImageSecurity(onLink(link), path, Image{}, desired, replacedLink)
 }
 
 // stageFileImage writes the desired bytes, group, attributes, mode, hidden
@@ -202,13 +212,13 @@ func stageFileImage(fd int, temporary, path string, desired Image) error {
 		err = setImageGroup(fileFD, *desired.Group)
 	}
 	if err == nil {
-		err = writeImageAttributes(fileFD, "", path, desired.Attributes, replacedFile)
+		err = writeImageAttributes(onFD(fileFD), path, desired.Attributes, replacedFile)
 	}
 	if err == nil {
 		err = file.Chmod(os.FileMode(desired.Mode))
 	}
 	if err == nil {
-		err = writeImageSecurity(fileFD, "", path, Image{}, desired, replacedFile)
+		err = writeImageSecurity(onFD(fileFD), path, Image{}, desired, replacedFile)
 	}
 	if err == nil {
 		err = file.Sync()
