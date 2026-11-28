@@ -11,7 +11,6 @@ import (
 	"os"
 	"path"
 	"path/filepath"
-	"regexp"
 	"slices"
 	"strings"
 
@@ -126,14 +125,6 @@ func SourceRequirements(files map[string][]byte) (Requirements, error) {
 	}
 	return requirements, nil
 }
-
-// plainVersion is three dotted numbers; see [ValidVersion].
-var plainVersion = regexp.MustCompile(`^[0-9]+\.[0-9]+\.[0-9]+$`)
-
-// ValidVersion reports whether version is three dotted numbers, such as
-// 1.2.3: the only shape a management or project CI pin may take, and a Node
-// version newerVersion can compare.
-func ValidVersion(version string) bool { return plainVersion.MatchString(version) }
 
 // tomlkitHost serves the pinned TOML Kit wheel, under /packages/.
 const tomlkitHost = "files.pythonhosted.org"

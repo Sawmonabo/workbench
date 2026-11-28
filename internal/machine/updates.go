@@ -7,7 +7,6 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
-	"strconv"
 	"strings"
 	"time"
 
@@ -503,27 +502,6 @@ func RefreshHomebrew(ctx context.Context, c operation.Context) (refreshed bool, 
 		return false, ctx.Err()
 	}
 	return err == nil, err
-}
-
-// newerVersion reports whether dotted numeric version a is newer than b.
-// Versions with a different number of parts are not compared, as in Homebrew,
-// and parts that are not plain numbers keep Homebrew's record.
-func newerVersion(a, b string) bool {
-	left, right := strings.Split(a, "."), strings.Split(b, ".")
-	if len(left) != len(right) {
-		return false
-	}
-	for i := range left {
-		x, errX := strconv.ParseUint(left[i], 10, 64)
-		y, errY := strconv.ParseUint(right[i], 10, 64)
-		if errX != nil || errY != nil {
-			return false
-		}
-		if x != y {
-			return x > y
-		}
-	}
-	return false
 }
 
 // versionOf drops the build suffix Homebrew appends after a comma, as in

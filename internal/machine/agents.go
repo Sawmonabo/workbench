@@ -326,23 +326,6 @@ func (p *preparation) planAgentUpdate(
 	p.Plan.Effects = append(p.Plan.Effects, effect)
 }
 
-// agentNewer reports whether version a is newer than b, and whether the two
-// could be compared at all: both must be versions [release.ParseVersion]
-// reads. A prerelease ranks below its own release, as in Semantic Versioning,
-// so 0.163.0 is newer than 0.163.0-alpha.3; two prereleases of the same
-// release are not ranked, so neither is newer.
-func agentNewer(a, b string) (newer, comparable bool) {
-	left, okA := release.ParseVersion(a)
-	right, okB := release.ParseVersion(b)
-	if !okA || !okB {
-		return false, false
-	}
-	if left.Core != right.Core {
-		return slices.Compare(left.Core[:], right.Core[:]) > 0, true
-	}
-	return left.Pre == "" && right.Pre != "", true
-}
-
 // findAgent returns the agent's copy the shell runs: the first one in the
 // order the managed shell startup files put their folders on PATH (on Linux
 // ~/bin, then bun's globals, nvm's default Node, Cargo's bin folder,
