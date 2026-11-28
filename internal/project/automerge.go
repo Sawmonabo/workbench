@@ -142,15 +142,12 @@ func (p *Proposal) addAutoMerge(c operation.Context, ids []string) error {
 			"Dependabot auto-merge works on GitHub only",
 			operation.Line{
 				Label: "best with",
-				Text: "\"Allow auto-merge\" on in the repository settings and a branch rule " +
-					"on the default branch that requires the CI check, so GitHub refuses a " +
-					"merge before that check passed",
+				Text:  "\"Allow auto-merge\" on and a default-branch rule requiring the CI check",
 			},
 			operation.Line{Label: "not set", Text: "Workbench sets neither"},
 			operation.Line{
 				Label: "no required check",
-				Text: "the workflow waits up to 40 minutes for the pull request's other " +
-					"checks and merges only when at least one ran and none failed",
+				Text:  "it waits up to 40 minutes for the other checks, then merges if one ran and none failed",
 			},
 			operation.Line{Label: "no CI check", Text: "Dependabot pull requests stay open"},
 			operation.FixText("after a failed or slow check, run the workflow's job again"),

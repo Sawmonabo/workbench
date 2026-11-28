@@ -260,7 +260,7 @@ func (p *Proposal) goCI(c operation.Context, module Project) (string, ownedJob, 
 		desired:       desired,
 		refsMayDiffer: true,
 		fail:          goCI.refuse,
-		effect:        "The workflow that runs go test will gain Go check steps. A future CI run downloads the module's dependencies and the pinned golangci-lint, govulncheck and gitleaks, and builds and checks project code",
+		effect:        "Go checks that download dependencies and pinned tools and build project code",
 	}, nil
 }
 

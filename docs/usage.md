@@ -1042,7 +1042,8 @@ of other languages are listed but never read.
 
 Default configuration needs an existing lockfile and compatible Ruff/basedpyright
 development dependencies. `--resolve-dependencies` selects uv dependency/lock
-resolution as an external effect; preview still runs none. `--allow-build-hooks`
+resolution as an external effect; preview still runs none. It runs uv with
+`--no-sync`, so no environment is synchronized. `--allow-build-hooks`
 additionally selects possible native build-code execution and requires resolution.
 uv's `--no-build` is not a sandbox. Dynamic/local/direct dependencies and custom
 resolver arrangements may remain blocked rather than execute unexpectedly.
@@ -1065,7 +1066,8 @@ the manifest's edition), `deny.toml` and `.mbx.toml` are written only when the
 project has none, and an existing one is kept byte for byte and named. The plan
 warns when no `rust-toolchain.toml` installs rustfmt and clippy, and never
 writes one. Members come from the manifests' text, as Cargo counts them;
-selecting a member is blocked with "select the workspace root". Rust planning
+selecting a member is blocked with "select the workspace root", and a
+member listed only through a symbolic link is not followed. Rust planning
 runs no Cargo or rustup command but, like Python, needs the management Python
 and TOML Kit. For both, a table added among dotted keys gets a `[header]` of
 its own, and a manifest that would need a key added to an inline table, or

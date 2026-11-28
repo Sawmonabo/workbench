@@ -165,12 +165,12 @@ func (p *Proposal) rustManifests(root Project, members []Project) ([]rustManifes
 	if optInto[root.Root] {
 		policy += "\n" + optIn
 	}
-	description := "Merge missing Rust lints, the dev profile's line-tables debug info and the Workbench record; keep every existing value and comment"
+	description := "Merge Rust lints, the dev profile's debug info and the Workbench record where missing, keeping comments"
 	if hasLints {
-		description = "Merge the dev profile's line-tables debug info, where missing, and the Workbench record; keep every existing value and comment"
+		description = "Merge the dev profile's debug info and the Workbench record where missing, keeping comments"
 	}
 	if optInto[root.Root] {
-		description = "Merge missing Rust lints, the dev profile's line-tables debug info, the root package's opt-in to the workspace lints and the Workbench record; keep every existing value and comment"
+		description = "Merge lints, debug info, the workspace lints opt-in and the Workbench record where missing, keeping comments"
 	}
 	result := []rustManifest{{
 		path:        manifest,
@@ -574,7 +574,7 @@ func (p *Proposal) rustCI(c operation.Context, root Project) (string, ownedJob, 
 		desired:       desired,
 		refsMayDiffer: true,
 		fail:          rustCI.refuse,
-		effect:        "The workflow that runs cargo test will gain Rust check steps. A future CI run installs the toolchain rust-toolchain.toml names, downloads the crates' dependencies, the RustSec advisory database and the pinned cargo-deny and gitleaks, and compiles project code, which runs its build scripts and procedural macros",
+		effect:        "Rust checks that download crates and pinned tools and run build scripts and macros",
 	}, nil
 }
 

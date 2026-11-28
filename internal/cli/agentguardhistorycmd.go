@@ -8,6 +8,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"regexp"
 	"strconv"
@@ -212,18 +213,23 @@ func setGuardHistoryKeep(
 			operation.Changed("finished commands are kept "+guard.KeepText(keep)))
 	}
 	line := "Finished commands are kept " + guard.KeepText(keep)
-	switch {
-	case keep < was:
-		line += " (was " + guard.KeepText(was) + "); " + deletedText(deleted) + "."
-	case keep > was && deleted > 0:
-		line += " (was " + guard.KeepText(was) + "); those already deleted do not come back, and " +
-			deletedText(deleted) + "."
-	case keep > was:
-		line += " (was " + guard.KeepText(was) + "); those already deleted do not come back."
-	case deleted > 0:
-		line += ", as before; " + deletedText(deleted) + "."
-	default:
-		line += ", as before."
+	var said operation.Body
+	if keep == was {
+		line += ", as before"
+	} else {
+		said.Lines = append(said.Lines, operation.Line{Label: "was", Text: guard.KeepText(was)})
+	}
+	if keep > was {
+		said.Lines = append(
+			said.Lines,
+			operation.Line{Label: "note", Text: "those already deleted do not come back"},
+		)
+	}
+	if keep < was || deleted > 0 {
+		said.Lines = append(
+			said.Lines,
+			operation.Line{Label: "history", Text: deletedText(deleted)},
+		)
 	}
 	since := time.Now().Add(-keep)
 	root, _, err = inHistoryFolder(root, guard.HistoryRoot, func(root string) error {
@@ -234,7 +240,7 @@ func setGuardHistoryKeep(
 		return operation.Fail(operation.ExitFailed, "guard-history",
 			"The guard log's older records cannot be deleted",
 			operation.Cause(guard.ShowPaths(err.Error(), root)),
-			operation.Changed(strings.ToLower(line[:1])+strings.TrimSuffix(line[1:], ".")))
+			operation.Changed(strings.ToLower(line[:1])+line[1:]))
 	}
 	if o.json {
 		result.Results = append(result.Results, operation.Component{
@@ -248,7 +254,10 @@ func setGuardHistoryKeep(
 		})
 		return nil
 	}
-	_, err = fmt.Fprintln(cmd.OutOrStdout(), line)
+	var b strings.Builder
+	out := cmd.OutOrStdout()
+	writeHeadline(&b, lineWidth(out), newPainter(out), "", line, said)
+	_, err = io.WriteString(out, b.String())
 	return err
 }
 

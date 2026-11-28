@@ -32,8 +32,7 @@ var WorkTokens = Migration{
 		"already holds the same tokens it only deletes them. A work.env that does not hold " +
 		"those same tokens, or a token that isn't one line of text, leaves both files as " +
 		"they are. Without the work role it changes nothing.",
-	Recovery: "nothing is lost: work.env holds the tokens, so copying them back into " +
-		"machine.toml by hand restores the old answers",
+	Recovery: "copying the tokens back into machine.toml by hand restores the old answers",
 	Check: func(l Locations) Found {
 		found := findWorkTokens(l)
 		if found.status == Pending && found.err != nil {

@@ -20,8 +20,7 @@ var costsFolders = Migration{
 		"removes each emptied claude-costs folder. A ledger whose old and new paths both " +
 		"hold different data stays where it is, and every other file still moves. A file " +
 		"it doesn't know stays, with its folder.",
-	Recovery: "moves keep every ledger row and every other file's bytes, so moving the " +
-		"files back by hand restores the old layout",
+	Recovery: "moving the files back by hand restores the old layout",
 	Check: func(l Locations) Found {
 		check := costs.CheckFolders(l.OldCosts, l.Costs)
 		if check.State != costs.FoldersDone {

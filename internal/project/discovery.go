@@ -702,8 +702,7 @@ func (r *Inventory) cargoMembers(root string, doc map[string]any) (map[string]bo
 			// Cargo refuses the whole workspace when a member is a workspace
 			// root too ("multiple workspace roots found in the same workspace").
 			if _, nested := manifest["workspace"]; nested {
-				return nil, "Workspace member " + dir +
-					" declares a [workspace] of its own, which Cargo refuses; exclude it or remove one [workspace]", nil
+				return nil, "Workspace member " + dir + " has a [workspace] of its own: exclude it or remove one", nil
 			}
 		}
 		for _, dependency := range cargoPathDependencies(manifest, dir, shared, root) {
@@ -800,8 +799,7 @@ func (r *Inventory) settleCargoMembers() {
 			project.Reason = "The Cargo workspace root needs review first: " + r.Directory
 		case !r.cargo[project.Root]:
 			project.Owner = project.Root
-			project.Reason = "Not listed as a member of the Cargo workspace at " + r.Directory +
-				" and left untouched (a member listed only through a symbolic link is not followed)"
+			project.Reason = "Not a member of the Cargo workspace at " + r.Directory + ", so left untouched"
 		default:
 			project.Supported, project.Reason = true, ""
 		}

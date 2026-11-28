@@ -81,8 +81,8 @@ func (p *Proposal) addCI(c operation.Context, selected []Project) error {
 			p.Plan.Effects,
 			operation.Effect{
 				Name:        "ci-workflow-checks",
-				Description: strings.Join(effects, ". ") + "; project apply does not run CI",
-				Privilege:   "CI runner",
+				Description: "Future CI runs gain " + strings.Join(effects, ", and "),
+				Privilege:   "CI runner, never this apply",
 				Recovery:    "Restoring the workflow file does not undo completed CI runs or their external effects",
 			},
 		)
@@ -133,7 +133,7 @@ func (p *Proposal) pythonCI(c operation.Context, owners []string) (string, owned
 		name:     "workbench-python",
 		addition: addition,
 		desired:  desired,
-		effect:   "The existing workflow will gain locked Python check steps. A future CI run may download dependencies and execute project build code",
+		effect:   "Python checks that may download dependencies and run project build code",
 		fail:     pythonCI.refuse,
 	}, nil
 }
@@ -188,14 +188,14 @@ func (p *Proposal) addJobs(c operation.Context, path string, jobs []ownedJob) ([
 	var description string
 	switch {
 	case slices.Equal(added, []string{"workbench-python"}):
-		description = "Add one owned Python check job to the existing workflow; preserve existing test jobs, triggers and comments"
+		description = "Add the workbench-python job to the existing workflow, keeping its jobs, triggers and comments"
 	case slices.Equal(added, []string{"workbench-go"}):
-		description = "Add one owned Go check job to the workflow that runs go test; preserve existing jobs, triggers and comments"
+		description = "Add the workbench-go job to the go test workflow, keeping its jobs, triggers and comments"
 	case slices.Equal(added, []string{"workbench-rust"}):
-		description = "Add one owned Rust check job to the workflow that runs cargo test; preserve existing jobs, triggers and comments"
+		description = "Add the workbench-rust job to the cargo test workflow, keeping its jobs, triggers and comments"
 	default:
-		description = "Add the owned check jobs " + strings.Join(added, " and ") +
-			" to the existing workflow; preserve existing jobs, triggers and comments"
+		description = "Add the jobs " + strings.Join(added, " and ") +
+			" to the existing workflow, keeping its jobs, triggers and comments"
 	}
 	return effects, p.add(c, path, []byte(file.String()), description)
 }

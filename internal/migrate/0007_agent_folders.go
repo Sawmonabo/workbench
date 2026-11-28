@@ -42,9 +42,7 @@ var AgentFolders = Migration{
 		"folder beside one already in use it deletes the logs, output files, locks, sockets, " +
 		"downloaded price lists and empty folders, then the folder once it is empty; anything " +
 		"else, such as a ledger or a note, stays, and is named.",
-	Recovery: "nothing is lost: each folder moves whole with every file in it, and the " +
-		"logs, locks, sockets and price lists deleted from an old folder beside one in use " +
-		"are made again",
+	Recovery: "each folder moves whole, and what it deletes beside one in use is made again",
 	Check: func(l Locations) Found {
 		found := Found{Status: Done}
 		var actions []string

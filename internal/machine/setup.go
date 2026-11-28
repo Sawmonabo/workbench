@@ -90,7 +90,7 @@ func setupPlan(
 		plan.Effects,
 		operation.Effect{
 			Name:        "native-initialization",
-			Description: "Copy verified source into a private application context and run the canonical native questionnaire; save private answers only",
+			Description: "Ask the machine questions from a private copy of the verified source and save the answers privately",
 			Privilege:   "user",
 			Recovery:    "Previously saved answers are retained until successful validation",
 		},

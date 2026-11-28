@@ -225,7 +225,7 @@ func (p *Proposal) addHooks(c operation.Context, selected []Project, languages [
 	p.hooks = path
 	p.Plan.Effects = append(p.Plan.Effects, operation.Effect{
 		Name:        "git-hook-checks",
-		Description: "After lefthook install in a clone, each commit and push runs lefthook.yml, which builds and runs project code and tests; apply never runs lefthook install",
+		Description: "After you run lefthook install in a clone, each commit and push runs project code and tests",
 		Privilege:   "user",
 		Recovery:    "Restoring lefthook.yml does not remove the Git hooks lefthook install wrote; run lefthook uninstall for that",
 	})

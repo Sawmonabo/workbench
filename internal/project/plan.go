@@ -484,8 +484,7 @@ func (p *Proposal) addResolution(
 			operation.Warn(
 				"Resolving "+owner+" needs --allow-build-hooks and review",
 				operation.Cause(
-					"it uses dynamic metadata, local sources or nonstandard uv resolution, "+
-						"which metadata-only staging may not support",
+					"it uses dynamic metadata, local sources or nonstandard uv resolution",
 				),
 			),
 		)
@@ -506,17 +505,17 @@ func (p *Proposal) addResolution(
 			},
 		)
 	}
-	build := "not selected; only static registry/workspace metadata is supported"
+	privilege := "user; no build code runs"
 	if options.AllowBuildHooks {
-		build = "explicitly selected"
+		privilege = "user; project and third-party build code may run"
 	}
 	p.Plan.Effects = append(
 		p.Plan.Effects,
 		operation.Effect{
 			Name:        "uv-dependency-resolution",
-			Description: "Resolve missing development tools with native uv in private metadata staging; may access indexes and download metadata. --no-sync avoids environment synchronization; --no-build is not a sandbox. Project/third-party build execution is " + build,
-			Privilege:   "user",
-			Recovery:    "Project manifests and lockfiles have exact file recovery; network, package caches and any approved code execution do not",
+			Description: "Resolve missing development tools with native uv in private staging, downloading package metadata",
+			Privilege:   privilege,
+			Recovery:    "Revert restores pyproject.toml and uv.lock, not caches, downloads or code that ran",
 		},
 	)
 	return nil

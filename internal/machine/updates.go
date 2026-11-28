@@ -94,14 +94,16 @@ func (p *preparation) planUpdates(
 		}
 		switch {
 		case update.cask && slices.Contains(p.agentCasks, update.name):
-			effect.What += " Homebrew installs only its current version, whatever versions.toml pins."
+			effect.What = "Updates " + update.name + " from " + update.installed + " to " + update.latest +
+				" through Homebrew, which ignores the versions.toml pin."
 			p.appUpdates = append(p.appUpdates, update.name)
 			p.Plan.Effects = append(p.Plan.Effects, effect)
 			continue
 		case update.cask:
 			effect.Description += "; a running app may be quit"
 			effect.Privilege += "; some apps prompt for sudo"
-			effect.What += " A running copy of the app may be quit."
+			effect.What = "Updates " + update.name + " from " + update.installed + " to " + update.latest +
+				" through Homebrew, which may quit the running app."
 			effect.RunsAs += "; some apps need administrator rights while they update"
 			p.appUpdates = append(p.appUpdates, update.name)
 			p.Plan.Effects = append(p.Plan.Effects, effect)
@@ -132,11 +134,11 @@ func (p *preparation) planUpdates(
 		}
 		if len(installs) > 0 {
 			effect.Description += "; also installs " + strings.Join(installs, ", ")
-			effect.What += " Also installs " + strings.Join(installs, ", ") + "."
+			effect.Touches += ", and new " + strings.Join(installs, ", ")
 		}
 		if len(changes) > 0 {
 			effect.Description += "; also updates " + strings.Join(changes, ", ")
-			effect.What += " Also updates " + strings.Join(changes, ", ") + "."
+			effect.Touches += ", and " + strings.Join(changes, ", ")
 		}
 		p.toolUpdates = append(p.toolUpdates, update.name)
 		p.Plan.Effects = append(p.Plan.Effects, effect)
