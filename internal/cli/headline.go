@@ -66,12 +66,27 @@ func headlineLines(
 // fixCommandLines is command after lead, wrapped to width only between the words
 // a shell reads, each line after the first under the first's text: a word
 // wider than the room stays whole, past width, as a terminal shows a long
-// line, so a copied command keeps every word as it is.
+// line, so a copied command keeps every word as it is. The words are packed
+// here, not by ansi.Wordwrap, which also breaks a word after each hyphen and
+// so would split --destination after its --.
 func fixCommandLines(lead, command string, width int) []string {
 	room := max(width-ansi.StringWidth(lead), 10)
-	wrapped := ansi.Wordwrap(glyphs.text.Replace(keepQuoted(command)), room, "")
-	lines := strings.Split(strings.ReplaceAll(wrapped, nbsp, " "), "\n")
+	var lines []string
+	line := ""
+	for word := range strings.SplitSeq(glyphs.text.Replace(keepQuoted(command)), " ") {
+		switch {
+		case line == "":
+			line = word
+		case ansi.StringWidth(line)+1+ansi.StringWidth(word) <= room:
+			line += " " + word
+		default:
+			lines = append(lines, line)
+			line = word
+		}
+	}
+	lines = append(lines, line)
 	for i, line := range lines {
+		line = strings.ReplaceAll(line, nbsp, " ")
 		if i == 0 {
 			lines[i] = lead + line
 		} else {
