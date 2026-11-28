@@ -72,7 +72,7 @@ func doctorCommand(o *options) *cobra.Command {
 }
 
 // doctorSummary is "Every check passed", or, when lines that block nothing
-// still need a look, that nothing blocks Workbench, with a next line that
+// still need a look, that nothing blocks Workbench, with a line that
 // names them.
 func doctorSummary(components []operation.Component) (string, operation.Body) {
 	var look []string
@@ -87,7 +87,7 @@ func doctorSummary(components []operation.Component) (string, operation.Body) {
 		return brandTag + " Every check passed", operation.Body{}
 	}
 	return brandTag + " Nothing blocks Workbench",
-		operation.Explain(operation.NextText("look at " + strings.Join(look, ", ")))
+		operation.Explain(operation.Line{Label: "look at", Text: strings.Join(look, ", ")})
 }
 
 // agentHooks is one doctor line per agent: whether Claude Code and Codex run
