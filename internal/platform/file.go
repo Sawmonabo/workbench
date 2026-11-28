@@ -18,23 +18,6 @@ type ACE struct{ Flags, Rights uint32 }
 // it does not recognize, which no caller may read as "no ACL".
 var ErrUnsupportedACL = errors.New("unsupported ACL layout")
 
-// IsTerminal reports whether fd is a terminal: whether its terminal settings
-// can be read.
-func IsTerminal(fd uintptr) bool {
-	_, err := unix.IoctlGetTermios(int(fd), termiosRequest)
-	return err == nil
-}
-
-// TerminalSize is the width and height, in cells, the terminal at fd
-// reports. A pseudo-terminal opened with no size reports 0 for both.
-func TerminalSize(fd uintptr) (width, height int, err error) {
-	size, err := unix.IoctlGetWinsize(int(fd), unix.TIOCGWINSZ)
-	if err != nil {
-		return 0, 0, err
-	}
-	return int(size.Col), int(size.Row), nil
-}
-
 // NativeFilesystem reports whether path, or its first existing ancestor, is
 // on a file system native to this system: APFS or HFS on macOS; on Linux
 // ext, XFS, Btrfs, tmpfs or overlay, including under WSL, and not Windows,

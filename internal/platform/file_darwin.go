@@ -7,9 +7,6 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-// termiosRequest is the ioctl request that reads a terminal's settings.
-const termiosRequest = unix.TIOCGETA
-
 // nativeFilesystem reports whether path, or its first existing ancestor, is
 // on APFS or HFS, by the file system type name statfs gives.
 func nativeFilesystem(path string) (bool, error) {

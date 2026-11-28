@@ -34,7 +34,7 @@ var (
 
 // readSecret reads what a person types at terminal, without echo. It is a
 // variable only so the safeguard test can type without a terminal.
-var readSecret = readPassword
+var readSecret = platform.ReadPassword
 
 const (
 	adminPrompt = "Mac password: "
@@ -114,7 +114,7 @@ func WithAdmin(
 	admin Admin,
 	run func(askpass string) error,
 ) error {
-	if admin.Terminal == nil || !askpassSupported {
+	if admin.Terminal == nil || !platform.ReadsPasswords {
 		if admin.Why != "" {
 			if err := admin.requireTicket(ctx, c, m); err != nil {
 				return err

@@ -1,10 +1,15 @@
-package operation
+package platform
 
 import (
 	"context"
 	"errors"
 	"os"
+
+	"golang.org/x/sys/unix"
 )
+
+// termiosRequest is the ioctl request that reads a terminal's settings.
+const termiosRequest = unix.TCGETS
 
 // askpassSupported is false off macOS: Linux and WSL ask nothing and make no
 // password helper.

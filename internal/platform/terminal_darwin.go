@@ -1,4 +1,4 @@
-package operation
+package platform
 
 import (
 	"context"
@@ -8,6 +8,9 @@ import (
 
 	"golang.org/x/sys/unix"
 )
+
+// termiosRequest is the ioctl request that reads a terminal's settings.
+const termiosRequest = unix.TIOCGETA
 
 // askpassSupported says the apply asks for the Mac password here and makes the
 // password helper, kept to the apply's own processes by the ancestry of

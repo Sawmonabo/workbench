@@ -2,9 +2,6 @@ package platform
 
 import "golang.org/x/sys/unix"
 
-// termiosRequest is the ioctl request that reads a terminal's settings.
-const termiosRequest = unix.TCGETS
-
 // nativeFilesystem reports whether path, or its first existing ancestor, is
 // on a native Linux filesystem, by the magic number statfs gives: ext, XFS,
 // Btrfs, tmpfs or overlay, including under WSL. Windows, 9P, FUSE and network
