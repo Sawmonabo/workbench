@@ -15,7 +15,8 @@ import (
 // settleTarget gives t, a file or folder of cp's unfinished apply, what it
 // lacks, as its settled image says, on the file itself through a descriptor,
 // and leaves its content and its other metadata alone: its group, then a
-// folder's set-group-ID bit, then the extended attributes it lacks, then
+// folder's set-group-ID bit as its mode, read after the group, holds it or
+// not (setImageMode), then the extended attributes it lacks, then
 // the hidden flag and the ACL (writeImageSecurity), each only where it
 // differs. Writing a user.* attribute on Linux (xattr_permission in
 // fs/xattr.c) and any attribute on macOS takes the owner's write permission,
@@ -63,10 +64,8 @@ func (cp *Checkpoint) settleTarget(t UnfinishedTarget) error {
 			)
 		}
 	}
-	if current.Mode != settled.Mode {
-		if err = unix.Fchmod(fd, settled.Mode); err != nil {
-			return carryFailure(t.Path, changedFolder, false, "the set-group-ID bit", err)
-		}
+	if err = setImageMode(fd, settled.Mode); err != nil {
+		return carryFailure(t.Path, changedFolder, false, "the set-group-ID bit", err)
 	}
 	label := platform.LabelAttribute
 	if !sameAttributes(current.Attributes, settled.Attributes) ||

@@ -264,6 +264,27 @@ func setImageGroup(fd int, group uint32) error {
 	return unix.Fchown(fd, -1, int(group))
 }
 
+// setImageMode gives fd the mode of an image (imageMode), read from fd itself
+// and changed only where it differs. Its callers give the group first, then
+// the mode: macOS clears a folder's set-group-ID bit at every group change
+// ("chown always clears setuid/gid bits", vnode_authattr in xnu's
+// vfs_subr.c), so a mode read before the group would keep a bit the folder
+// no longer holds. And it changes nothing where the mode is right: a chmod
+// by a user who is not a member of the folder's group takes the bit off on
+// Linux (setattr_copy in fs/attr.c, in_group_or_capable in fs/inode.c) and
+// fails with EPERM on macOS for a mode that holds it (vnode_authattr), while
+// a folder made in a set-group-ID folder holds it already (inode_init_owner).
+func setImageMode(fd int, mode uint32) error {
+	var stat unix.Stat_t
+	if err := unix.Fstat(fd, &stat); err != nil {
+		return err
+	}
+	if imageMode(uint32(stat.Mode)) == mode {
+		return nil
+	}
+	return unix.Fchmod(fd, mode)
+}
+
 // groupID converts a group ID from the os package, which uses int. Group IDs
 // are 32-bit on macOS and Linux, so the conversion is exact.
 func groupID(id int) uint32 { return uint32(id) }

@@ -10,8 +10,9 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-// enforceNativeMetadata gives a target native wrote the approved group, a
-// folder the approved mode (its set-group-ID bit, see nativeImage), and,
+// enforceNativeMetadata gives a target native wrote the approved group, then
+// a folder the approved mode (its set-group-ID bit, see nativeImage), as its
+// mode reads after the group (setImageMode), and,
 // unless label is nil, that label (carryLabel). It uses the opened inode for
 // both the exact-image proof and the change, so replacing a path cannot
 // redirect the approved metadata write.
@@ -93,8 +94,8 @@ func enforceNativeMetadata(
 	if err = setImageGroup(fd, group); err != nil {
 		return err
 	}
-	if observed.Kind == ImageDirectory && current.Mode != mode {
-		if err = unix.Fchmod(fd, mode); err != nil {
+	if observed.Kind == ImageDirectory {
+		if err = setImageMode(fd, mode); err != nil {
 			return err
 		}
 	}
