@@ -64,6 +64,12 @@ const ClaudeManagedFolder = claudeManagedFolder
 // set-group-ID, as on Linux.
 const GroupFromFolder = groupFromFolder
 
+// ACLsAreAttributes reports whether a file's ACL is kept among its extended
+// attributes, where FileSecurity does not read it: true on Linux, whose POSIX
+// ACLs are the system.posix_acl_access and system.posix_acl_default
+// attributes, and false on macOS, whose ACLs FileSecurity reads.
+const ACLsAreAttributes = aclsAreAttributes
+
 // TouchIDPossible reports whether sudo can be set up to ask for Touch ID
 // here: true on macOS, false on Linux.
 const TouchIDPossible = touchIDPossible

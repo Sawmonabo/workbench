@@ -39,10 +39,21 @@ func RenameAt(fd int, from, to string, exclusive bool) error {
 // all. An error is the call's errno, or ErrUnsupportedACL for security data
 // whose layout it does not recognize, so a caller fails closed. On Linux it
 // always reports no ACL and no error: POSIX ACLs there are extended
-// attributes, which ExtendedAttributeCount counts.
+// attributes (ACLsAreAttributes), which ExtendedAttributeCount counts.
 func FileSecurity(fd int, path string) (entries []ACE, present bool, err error) {
 	return fileSecurity(fd, path)
 }
+
+// FileFlags returns the file flags (chflags(2)) of fd, or of path itself,
+// not a link's target, when path is not empty. The error is the stat call's
+// errno. A Linux file's status holds no such flags (its chattr attributes are
+// another thing, which this does not read), so on Linux it reports 0 and no
+// error without a call.
+func FileFlags(fd int, path string) (uint32, error) { return fileFlags(fd, path) }
+
+// HiddenFlag is the file flag that only hides a file in Finder: UF_HIDDEN on
+// macOS, and 0 on Linux, which has no file flags (see FileFlags).
+const HiddenFlag = hiddenFlag
 
 // existingStatfs is statfs of path or, while path does not exist yet, of its
 // first existing ancestor, the filesystem a new file at path would be on.

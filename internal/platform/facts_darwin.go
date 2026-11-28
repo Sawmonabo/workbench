@@ -71,6 +71,10 @@ const claudeManagedFolder = "/Library/Application Support/ClaudeCode"
 // group.
 const groupFromFolder = true
 
+// aclsAreAttributes is false: macOS keeps a file's ACL apart from its
+// extended attributes, and FileSecurity reads it.
+const aclsAreAttributes = false
+
 // touchIDPossible is true: sudo can be set up to ask for Touch ID here.
 const touchIDPossible = true
 

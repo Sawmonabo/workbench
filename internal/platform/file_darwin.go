@@ -32,6 +32,21 @@ func renameAt(fd int, from, to string, exclusive bool) error {
 	return unix.RenameatxNp(fd, from, fd, to, flags)
 }
 
+// fileFlags is the st_flags of fstat, or of lstat when path is not empty.
+func fileFlags(fd int, path string) (uint32, error) {
+	var stat unix.Stat_t
+	var err error
+	if path == "" {
+		err = unix.Fstat(fd, &stat)
+	} else {
+		err = unix.Lstat(path, &stat)
+	}
+	return stat.Flags, err
+}
+
+// hiddenFlag is UF_HIDDEN, the flag by which Finder hides a file.
+const hiddenFlag = unix.UF_HIDDEN
+
 // fileSecurity reads the ACL with getattrlist, or fgetattrlist for fd alone:
 // Darwin does not expose ACLs through listxattr. getattrlist's
 // extended-security attribute contains kauth_filesec (sys/kauth.h): magic,

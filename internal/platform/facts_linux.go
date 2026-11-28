@@ -85,6 +85,10 @@ const claudeManagedFolder = "/etc/claude-code"
 // group unless the folder is set-group-ID.
 const groupFromFolder = false
 
+// aclsAreAttributes is true: Linux keeps POSIX ACLs as the extended
+// attributes system.posix_acl_access and system.posix_acl_default.
+const aclsAreAttributes = true
+
 // touchIDPossible is false: sudo cannot be set up to ask for Touch ID here.
 const touchIDPossible = false
 

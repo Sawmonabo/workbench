@@ -39,3 +39,10 @@ func renameAt(fd int, from, to string, exclusive bool) error {
 func fileSecurity(_ int, _ string) (entries []ACE, present bool, err error) {
 	return nil, false, nil
 }
+
+// fileFlags reports 0 without a call: a Linux file's status holds no file
+// flags.
+func fileFlags(_ int, _ string) (uint32, error) { return 0, nil }
+
+// hiddenFlag is 0: Linux has no file flags.
+const hiddenFlag = 0

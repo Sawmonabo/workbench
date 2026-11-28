@@ -18,6 +18,9 @@ import (
 // neither. If a restore ever replaced the folder, revert would drop the ACL that
 // keeps the folder holding every app's data from being deleted.
 func TestFolderModeRestoreKeepsACLAndFlags(t *testing.T) {
+	if platform.ACLsAreAttributes || platform.HiddenFlag == 0 {
+		t.Skip("no ACL that FileSecurity reads, or no hidden flag, here")
+	}
 	root, err := filepath.EvalSymlinks(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
@@ -34,8 +37,9 @@ func TestFolderModeRestoreKeepsACLAndFlags(t *testing.T) {
 		CombinedOutput(); aclErr != nil {
 		t.Fatalf("chmod +a: %v: %s", aclErr, out)
 	}
-	if err = unix.Chflags(library, unix.UF_HIDDEN); err != nil {
-		t.Fatal(err)
+	if out, flagErr := exec.Command("/usr/bin/chflags", "hidden", library).
+		CombinedOutput(); flagErr != nil {
+		t.Fatalf("chflags hidden: %v: %s", flagErr, out)
 	}
 	// The ACL stops the folder from being deleted, so lift it for TempDir's cleanup.
 	t.Cleanup(func() { _ = exec.Command("/bin/chmod", "-N", folder).Run() })
@@ -75,9 +79,8 @@ func TestFolderModeRestoreKeepsACLAndFlags(t *testing.T) {
 		if err = writeImage(c, folder, step[0], step[1]); err != nil {
 			t.Fatal(err)
 		}
-		var stat unix.Stat_t
-		if !slices.Equal(acl(), want) ||
-			unix.Stat(library, &stat) != nil || stat.Flags&unix.UF_HIDDEN == 0 {
+		flags, flagErr := platform.FileFlags(-1, library)
+		if !slices.Equal(acl(), want) || flagErr != nil || flags&platform.HiddenFlag == 0 {
 			t.Fatal("restoring the folder's mode changed its ACL or its parent's flags")
 		}
 	}
