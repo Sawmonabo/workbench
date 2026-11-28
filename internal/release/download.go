@@ -7,8 +7,9 @@ import (
 )
 
 // Download fetches the HTTPS resource at location, at most limit bytes, as
-// an octet stream, and names the server's answers as a release's (see
-// [getRelease]); callers verify its content. progress, when set, is told the
+// an octet stream and with no token, so logging in to gh changes nothing it
+// sends, and names the server's answers as a release's (see [getRelease]);
+// callers verify its content. progress, when set, is told the
 // bytes received and the size the server sent (-1 when it sent none).
 func Download(
 	ctx context.Context,
@@ -21,5 +22,6 @@ func Download(
 		location,
 		limit,
 		download.Request{Accept: "application/octet-stream", Progress: progress},
+		nil,
 	)
 }

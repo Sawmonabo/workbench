@@ -9,11 +9,14 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
+	"github.com/Sawmonabo/workbench/internal/display"
 	"github.com/Sawmonabo/workbench/internal/download"
 	"github.com/Sawmonabo/workbench/internal/operation"
+	"github.com/Sawmonabo/workbench/internal/platform"
 )
 
 // repository publishes Workbench releases; install.sh names the same one.
@@ -27,8 +30,9 @@ type Published struct {
 
 // Remote is a published release and this machine's bundle in it.
 type Remote struct {
-	Tag          string
-	asset, token string
+	Tag   string
+	asset string
+	auth  githubAuth
 }
 
 type githubRelease struct {
@@ -46,8 +50,8 @@ type githubRelease struct {
 // prereleases, from the first hundred GitHub returns.
 func Releases(ctx context.Context, c operation.Context) ([]Published, error) {
 	var releases []githubRelease
-	token := githubToken(ctx, c)
-	if err := githubAPI(ctx, token, "/releases?per_page=100", "", &releases); err != nil {
+	auth := githubToken(ctx, c)
+	if err := githubAPI(ctx, auth, "/releases?per_page=100", "", &releases); err != nil {
 		return nil, err
 	}
 	published := []Published{}
@@ -66,15 +70,15 @@ func Find(ctx context.Context, c operation.Context, tag string) (Remote, error) 
 	if tag != "" {
 		path = "/releases/tags/" + url.PathEscape(tag)
 	}
-	token := githubToken(ctx, c)
+	auth := githubToken(ctx, c)
 	var r githubRelease
-	if err := githubAPI(ctx, token, path, tag, &r); err != nil {
+	if err := githubAPI(ctx, auth, path, tag, &r); err != nil {
 		return Remote{}, err
 	}
 	name := "workbench-" + r.Tag + "-" + Target() + ".tar.gz"
 	for _, asset := range r.Assets {
 		if asset.Name == name {
-			return Remote{Tag: r.Tag, asset: asset.URL, token: token}, nil
+			return Remote{Tag: r.Tag, asset: asset.URL, auth: auth}, nil
 		}
 	}
 	return Remote{}, operation.Fail(
@@ -91,7 +95,12 @@ func (r Remote) Bundle(ctx context.Context, progress func(done, total int64)) (B
 		ctx,
 		r.asset,
 		MaxDownload,
-		download.Request{Accept: "application/octet-stream", Token: r.token, Progress: progress},
+		download.Request{
+			Accept:   "application/octet-stream",
+			Token:    r.auth.token,
+			Progress: progress,
+		},
+		r.auth.login(),
 	)
 	if err != nil {
 		return Bundle{}, err
@@ -99,15 +108,15 @@ func (r Remote) Bundle(ctx context.Context, progress func(done, total int64)) (B
 	return verify(bytes.NewReader(data), r.Tag, Target())
 }
 
-// githubAPI reads one JSON answer from the repository's GitHub REST API. tag
-// names the release asked for, if any, when GitHub has none.
-func githubAPI(ctx context.Context, token, path, tag string, answer any) error {
+// githubAPI reads one JSON answer from the repository's GitHub REST API, sent
+// as auth says. tag names the release asked for, if any, when GitHub has none.
+func githubAPI(ctx context.Context, auth githubAuth, path, tag string, answer any) error {
 	location := "https://api.github.com/repos/" + repository + path
 	data, _, err := download.Get(
 		ctx,
 		location,
 		4<<20,
-		download.Request{Accept: "application/vnd.github+json", Token: token},
+		download.Request{Accept: "application/vnd.github+json", Token: auth.token},
 	)
 	if status, ok := errors.AsType[*download.StatusError](err); ok &&
 		status.Status == http.StatusNotFound {
@@ -126,7 +135,7 @@ func githubAPI(ctx context.Context, token, path, tag string, answer any) error {
 		)
 	}
 	if err != nil {
-		return releaseAnswer(err, location, token != "")
+		return releaseAnswer(err, location, auth.token != "", auth.login())
 	}
 	if json.Unmarshal(data, answer) != nil {
 		return operation.Fail(operation.ExitFailed, "release", "Unexpected GitHub release data")
@@ -136,16 +145,17 @@ func githubAPI(ctx context.Context, token, path, tag string, answer any) error {
 
 // getRelease is [download.Get] for a release, from GitHub's API or a bundle's
 // address, returning the body, with its failure named as [releaseAnswer]
-// names it.
+// names it, login the fix lines that raise GitHub's limit for it.
 func getRelease(
 	ctx context.Context,
 	location string,
 	limit int64,
 	r download.Request,
+	login []operation.Part,
 ) ([]byte, error) {
 	data, _, err := download.Get(ctx, location, limit, r)
 	if err != nil {
-		return nil, releaseAnswer(err, location, r.Token != "")
+		return nil, releaseAnswer(err, location, r.Token != "", login)
 	}
 	return data, nil
 }
@@ -153,10 +163,12 @@ func getRelease(
 // releaseAnswer is err, a download's failure from the release address
 // location, as a release's: a missing resource is a release that is not there
 // (release_unavailable, in the download's words). From GitHub (see
-// [fromGitHub]) its refusals, of an anonymous request past its limit or of
-// the token sent when token is set, say what to do about them; any other
-// host's refusal keeps the download's words.
-func releaseAnswer(err error, location string, token bool) error {
+// [fromGitHub]) a request past its limit says when to ask again (see
+// [retryLine]) and then login, the fix lines that raise the limit for that
+// request, none when a token would not; a refusal of the token sent, when
+// token is set, says to check it; any other refusal, and any other host's,
+// keeps the download's words.
+func releaseAnswer(err error, location string, token bool, login []operation.Part) error {
 	status, ok := errors.AsType[*download.StatusError](err)
 	switch {
 	case !ok:
@@ -165,14 +177,14 @@ func releaseAnswer(err error, location string, token bool) error {
 		return operation.FailAs(operation.ExitBlocked, "release_unavailable", status)
 	case !fromGitHub(location):
 		return err
-	case status.Status == http.StatusForbidden &&
-		status.Header.Get("X-RateLimit-Remaining") == "0":
+	case limited(status):
 		return operation.Fail(
 			operation.ExitFailed,
 			"download",
 			"GitHub's request limit is used up for now",
-			operation.FixText("wait an hour"),
-			operation.FixText("or gh auth login"),
+			append([]operation.Part{
+				operation.FixText(retryLine(status.Header, time.Now())),
+			}, login...)...,
 		)
 	case token && (status.Status == http.StatusUnauthorized ||
 		status.Status == http.StatusForbidden):
@@ -187,6 +199,39 @@ func releaseAnswer(err error, location string, token bool) error {
 	return err
 }
 
+// limited reports whether status is GitHub's answer to a request past one of
+// its limits: a 429, or a 403 with no requests remaining or with a
+// Retry-After header, as GitHub's REST API documentation describes them.
+func limited(status *download.StatusError) bool {
+	return status.Status == http.StatusTooManyRequests ||
+		status.Status == http.StatusForbidden &&
+			(status.Header.Get("X-RateLimit-Remaining") == "0" ||
+				status.Header.Get("Retry-After") != "")
+}
+
+// retryLine is when GitHub, past a limit, accepts the next request, as header
+// says at now: Retry-After seconds from now, else, with no requests remaining,
+// the X-RateLimit-Reset time, rounded up to its minute on the machine's clock
+// ("wait until 7:42 AM"), and "wait a minute" when that is a minute or less
+// away or neither header says.
+func retryLine(header http.Header, now time.Time) string {
+	var until time.Time
+	if seconds, err := strconv.ParseInt(header.Get("Retry-After"), 10, 64); err == nil {
+		until = now.Add(time.Duration(seconds) * time.Second)
+	} else if header.Get("X-RateLimit-Remaining") == "0" {
+		if reset, err := strconv.ParseInt(header.Get("X-RateLimit-Reset"), 10, 64); err == nil {
+			until = time.Unix(reset, 0)
+		}
+	}
+	if until.Sub(now) <= time.Minute {
+		return "wait a minute"
+	}
+	if minute := until.Truncate(time.Minute); minute.Before(until) {
+		until = minute.Add(time.Minute)
+	}
+	return "wait until " + display.Clock(until, now)
+}
+
 // fromGitHub reports whether location is on a GitHub host Workbench
 // downloads releases from: github.com, whose release pages serve the chezmoi
 // and uv archives and may be a --bundle address, or api.github.com, whose
@@ -196,12 +241,49 @@ func fromGitHub(location string) bool {
 	return err == nil && (u.Hostname() == "github.com" || u.Hostname() == "api.github.com")
 }
 
-// githubToken returns the GitHub CLI's token for github.com, which raises
-// GitHub's rate limit, or "" to ask GitHub anonymously.
-func githubToken(ctx context.Context, c operation.Context) string {
+// githubAuth is how Workbench asks GitHub's API: with token, the GitHub CLI's
+// token for github.com, which raises GitHub's limit, or anonymously when it
+// is empty; gh says whether the GitHub CLI is on PATH.
+type githubAuth struct {
+	token string
+	gh    bool
+}
+
+// login is the fix lines that raise GitHub's limit for a request sent as auth
+// says: none once a token was sent, gh auth login when gh is on PATH, else
+// how to install gh with the package manager Workbench uses here, apt, dnf
+// (from EPEL, as the epel step turns on) or Homebrew, or from its site when
+// none is found, then gh auth login.
+func (auth githubAuth) login() []operation.Part {
+	switch {
+	case auth.token != "":
+		return nil
+	case auth.gh:
+		return []operation.Part{operation.FixText("or gh auth login")}
+	}
+	install := []operation.Part{operation.FixText("or install gh from https://cli.github.com")}
+	switch platform.PackageManager() {
+	case "apt":
+		install = []operation.Part{operation.FixText("or sudo apt-get install gh")}
+	case "dnf":
+		install = []operation.Part{
+			operation.FixText("or sudo dnf install epel-release"),
+			operation.FixText("then sudo dnf install gh"),
+		}
+	default:
+		if _, err := operation.FindExecutable("brew", os.Getenv("PATH"), nil); err == nil {
+			install = []operation.Part{operation.FixText("or brew install gh")}
+		}
+	}
+	return append(install, operation.FixText("then gh auth login"))
+}
+
+// githubToken is how Workbench asks GitHub's API: with the GitHub CLI's
+// token for github.com when gh is on PATH and gives one, else anonymously.
+func githubToken(ctx context.Context, c operation.Context) githubAuth {
 	gh, err := operation.FindExecutable("gh", os.Getenv("PATH"), nil)
 	if err != nil {
-		return ""
+		return githubAuth{}
 	}
 	environment := []string{"HOME=" + c.Home, "PATH=/usr/bin:/bin"}
 	for _, name := range []string{"GH_TOKEN", "GITHUB_TOKEN", "GH_CONFIG_DIR"} {
@@ -218,7 +300,7 @@ func githubToken(ctx context.Context, c operation.Context) string {
 		OutputLimit:   4096,
 	})
 	if err != nil {
-		return ""
+		return githubAuth{gh: true}
 	}
-	return strings.TrimSpace(output.Stdout)
+	return githubAuth{token: strings.TrimSpace(output.Stdout), gh: true}
 }

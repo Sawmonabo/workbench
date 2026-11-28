@@ -82,7 +82,11 @@ login; with a logged-in `gh`, Workbench asks `gh auth token` for its token, whic
 raises GitHub's rate limit. A download fails when no data has arrived for a
 minute, not after a fixed total time, so a slow link works. A token GitHub
 refuses (HTTP 401 or 403) is reported as such and names `gh auth status`,
-`GH_TOKEN` and `GITHUB_TOKEN`; a used-up rate limit says so. VERSION must be a
+`GH_TOKEN` and `GITHUB_TOKEN`. A used-up rate limit (HTTP 403 or 429) says when
+GitHub takes requests again, from its `Retry-After` or `X-RateLimit-Reset`
+header, and, when Workbench sent no token, how to raise the limit: `gh auth
+login`, or without `gh` how to install it first (`sudo apt-get install gh`, `sudo
+dnf install gh` from EPEL, or `brew install gh`). VERSION must be a
 release tag such as `v0.2.0` (`0.2.0` is accepted); an empty or malformed value
 exits 2. At a terminal, `update` draws one live view: `[WorkBench] Update`
 and the release it starts from, then one line with a spinner that reads
