@@ -93,6 +93,11 @@ type Checkpoint struct {
 	// regroup holds the targets preflight confirmed as what native wrote
 	// before the pass after it, with what it observed (see confirm).
 	regroup map[int]Image
+	// restoring is set for a revert, whose preflight takes a target that is
+	// not there, moved aside or removed, as moved: the revert writes it over
+	// nothing, and nothing is lost.
+	restoring bool
+	moved     map[int]bool
 }
 
 // CheckpointSummary is the public view of one selectable checkpoint or its
