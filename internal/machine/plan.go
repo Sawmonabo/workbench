@@ -277,12 +277,21 @@ func (p *preparation) checkPrerequisites(
 	if state != nil {
 		recorded = state.Dependencies
 	}
-	dependencies, results := ResolveDependencies(ctx, c, requirements, recorded, os.Getenv("PATH"))
+	dependencies, results, refusal := resolveDependencies(
+		ctx,
+		c,
+		requirements,
+		recorded,
+		os.Getenv("PATH"),
+	)
 	plan.Dependencies = dependencies
 	for _, result := range results {
 		if result.Status != operation.StatusComplete {
 			plan.Prerequisites = append(plan.Prerequisites, result.Name+": "+result.Message)
 		}
+	}
+	if refusal != nil {
+		return nil, operation.Fail(operation.ExitBlocked, "prerequisites", refusal.Error())
 	}
 	if len(plan.Prerequisites) > 0 {
 		missing := "Workbench's tools are missing; "

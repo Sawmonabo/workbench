@@ -806,7 +806,13 @@ did not read the plan, and a coding agent is refused it. When Workbench's own to
 are missing, `apply --dry-run` exits 3 and says to run `workbench update`, or
 `workbench apply` at a terminal; from a checkout it says to run
 `workbench update --local-build`, which installs the tools it pins and which an
-agent may run, for example after a pin changes.
+agent may run, for example after a pin changes. A tool that is there but that
+other users can change is not missing: Workbench does not run it, and
+installing it again keeps a file that already holds its bytes as it is, so
+`apply --dry-run`, `doctor` and `update` exit 3 naming the tool, its mode and
+the command that fixes it: `~/.local/share/workbench/tools/chezmoi/2.70.3/chezmoi
+can be changed by other users (mode 0720), so Workbench does not run it; run
+chmod go-w ~/.local/share/workbench/tools/chezmoi/2.70.3/chezmoi and retry`.
 
 `apply` and `update` ask nothing about installing Workbench and its pinned
 tools: running the command is the go-ahead, they change only Workbench's own

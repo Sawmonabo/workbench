@@ -25,8 +25,25 @@ func ResolveDependencies(
 	recorded []operation.Dependency,
 	searchPath string,
 ) ([]operation.Dependency, []operation.Component) {
+	dependencies, results, _ := resolveDependencies(ctx, c, requirements, recorded, searchPath)
+	return dependencies, results
+}
+
+// resolveDependencies is ResolveDependencies, which also returns the first
+// refusal to run a tool that is there, such as one other users can change,
+// of a tool no candidate qualified for. That tool's line gives the refusal
+// too: it is why the tool is not used, and installing it again leaves a file
+// already holding its bytes as it is.
+func resolveDependencies(
+	ctx context.Context,
+	c operation.Context,
+	requirements Requirements,
+	recorded []operation.Dependency,
+	searchPath string,
+) ([]operation.Dependency, []operation.Component, error) {
 	var dependencies []operation.Dependency
 	var results []operation.Component
+	var firstRefusal error
 	for _, name := range []string{"chezmoi", "python3", "uv"} {
 		var candidates []operation.Dependency
 		for _, prior := range recorded {
@@ -61,10 +78,14 @@ func ResolveDependencies(
 					requirements,
 				),
 		}
+		var refusal error
 		for _, candidate := range candidates {
 			version, err := probeVersion(ctx, c, name, candidate.Path)
 			if err != nil {
 				component.Message = err.Error()
+				if refusal == nil && operation.Category(err) == "tool" {
+					refusal = err
+				}
 				continue
 			}
 			qualified, capabilities := qualify(name, version, requirements)
@@ -86,14 +107,22 @@ func ResolveDependencies(
 			component.Message = version + " (" + candidate.Owner + ") at " + candidate.Path
 			break
 		}
+		if component.Status != operation.StatusComplete && refusal != nil {
+			component.Message = refusal.Error()
+			if firstRefusal == nil {
+				firstRefusal = refusal
+			}
+		}
 		results = append(results, component)
 	}
-	return dependencies, results
+	return dependencies, results, firstRefusal
 }
 
 // probeVersion runs a bounded version probe of the tool at path and returns
 // the version it reports. chezmoi runs against an empty private scratch
-// context so it never reads the user's configuration.
+// context so it never reads the user's configuration. Workbench's refusal to
+// run the program at all ("tool"), or its finding no program there
+// ("dependency"), is returned as it is.
 func probeVersion(ctx context.Context, c operation.Context, name, path string) (string, error) {
 	args := []string{"--version"}
 	environment := []string{"PATH=/usr/bin:/bin", "PYTHONDONTWRITEBYTECODE=1", "HOME=" + c.Home}
@@ -135,6 +164,9 @@ func probeVersion(ctx context.Context, c operation.Context, name, path string) (
 		Timeout:     10 * time.Second,
 		OutputLimit: 4096,
 	})
+	if category := operation.Category(err); category == "tool" || category == "dependency" {
+		return "", err
+	}
 	if err != nil {
 		return "", operation.Fail(
 			operation.ExitFailed,

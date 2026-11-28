@@ -491,6 +491,17 @@ synthetic answers.
   `~/.local/bin` because the folder did not exist; a second apply installed
   it. The step creates `~/.local/bin` before it runs that installer (not
   observed in a container).
+- On November 28, 2026, on macOS 27.2 arm64 in a disposable home with a local
+  build (after `update --local-build`), and in Ubuntu 24.04.5 and AlmaLinux
+  10.3 containers (arm64) whose homes held the tools, with `chmod g+w` on
+  Workbench's pinned chezmoi (mode 0720), on Go 1.27.4 and 1.26.8 builds alike:
+  `apply --dry-run` exited 3 (category `prerequisites`) naming the file,
+  its mode and `chmod go-w` with its path; `doctor --local-build` gave the same
+  cause on its `tool-chezmoi` line, and `update --local-build` on the Mac
+  exited 3 with it after its `downloading chezmoi` step. Running the `chmod
+  go-w` it gave made the next plan exit 0. With the file removed instead, the
+  plan said the pinned tools are not installed, the chezmoi line naming the
+  missing file.
 
 ### On a WSL2 host
 
