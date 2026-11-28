@@ -127,9 +127,9 @@ func projectApplyCommand(o *options) *cobra.Command {
 	command.Flags().
 		Bool("ci", false, "Add Workbench's check job to the existing workflow that runs the tests; other layouts get a manual proposal")
 	command.Flags().
-		Bool("hooks", false, "Write lefthook.yml with format, lint, dependency-file and secret checks before commit and tests before push, when the repository has no lefthook configuration")
+		Bool("hooks", false, "Write lefthook.yml, with checks before commit and tests before push, when the repository has none")
 	command.Flags().
-		Bool("dependabot", false, "GitHub only: write .github/dependabot.yml with weekly updates for the selected languages and GitHub Actions, minor and patch grouped, and a workflow that auto-merges Dependabot's patch and minor pull requests, each when the repository has none")
+		Bool("dependabot", false, "GitHub only: write weekly Dependabot updates and a workflow that auto-merges their patch and minor pull requests")
 	o.localBuildFlag(command)
 	o.approveFlag(command)
 	command.RunE = o.action(
