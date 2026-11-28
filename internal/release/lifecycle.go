@@ -362,14 +362,8 @@ func ValidateSelection(c operation.Context) error {
 	if err != nil || state == nil || state.ActiveRelease == nil {
 		return err
 	}
-	entry, err := os.Readlink(c.Paths.Entrypoint())
-	if err != nil || entry != state.ActiveRelease.Executable {
-		return operation.Fail(
-			operation.ExitConflict,
-			"activation_incomplete",
-			"The workbench command does not point at the active release",
-			operation.Fix("workbench", "update", state.ActiveRelease.Identity.Release),
-		)
+	if err = checkPointer(c, state.ActiveRelease.Executable); err != nil {
+		return err
 	}
 	if state.ActiveRelease.Executable != filepath.Join(
 		state.ActiveRelease.Source,
@@ -383,6 +377,35 @@ func ValidateSelection(c operation.Context) error {
 		)
 	}
 	return nil
+}
+
+// checkPointer refuses an entry point that is not the link to executable, the
+// active release's, once no update is switching releases. An update would
+// refuse to replace it (see [checkEntryPoint]), so the fix is the link itself:
+// a link or a missing command is pointed back, and any other file is kept and
+// moved aside first.
+func checkPointer(c operation.Context, executable string) error {
+	entry := c.Paths.Entrypoint()
+	if link, err := os.Readlink(entry); err == nil && link == executable {
+		return nil
+	}
+	point := operation.FixText("ln -sfn " + c.ShellPath(executable) + " " + c.ShellPath(entry))
+	if info, err := os.Lstat(entry); err == nil && info.Mode()&os.ModeSymlink == 0 {
+		return operation.Fail(
+			operation.ExitConflict,
+			"activation_incomplete",
+			"An unrelated workbench command is at "+c.ShowPath(entry),
+			operation.Kept("the command as it is"),
+			operation.FixText("move it aside"),
+			point,
+		)
+	}
+	return operation.Fail(
+		operation.ExitConflict,
+		"activation_incomplete",
+		"The workbench command does not point at the active release",
+		point,
+	)
 }
 
 // Activate only records a verified matched runtime. It never changes the last
