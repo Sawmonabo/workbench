@@ -330,13 +330,24 @@ moves it. Wherever the guard folder is, the hooks, the watcher, `agent guard`,
 `notes/`, `killed/` and `agents/` folders and the state folder above are
 real folders (not links), yours, that neither your group nor other users can
 write in, on the machine's own file system, and refuse it otherwise in the
-same words, such as `…/notes has mode 0775, so other users can write in it
-and what it holds may not be Workbench's; move aside what find …/notes -not
--user NAME lists, then run chmod 700 …/notes and retry`. An entry that
+same words: a folder that others can write in, by its mode or, on a Mac, by
+an ACL entry, is refused with two fix lines, the first to move aside what is
+not yours, the second the `chmod` that ends it:
+
+```text
+✗ …/notes has mode 0775
+    cause  other users can write in it, so what it holds may not be Workbench's
+    fix    move aside what find …/notes -not -user NAME lists
+           chmod 700 …/notes
+```
+
+An ACL entry gets `chmod -N …/notes` as its second line. An entry that
 writes there (the hooks, the watcher, `agent guard history --keep`) sets
-such a folder to 0700 when it is not; the view, `agent guard history` and
-`agent guard logs`, which only read, and every entry at the old path leave
-its mode as it is. An entry asks whether a watcher or an import works in a folder with a
+such a folder to 0700 when it is not, also one you cannot read or search;
+the view, `agent guard history` and `agent guard logs`, which only read,
+and every entry at the old path leave its mode as it is, and refuse one you
+cannot read or search with `chmod 700` as the fix. An old folder that others
+can write in is neither moved nor locked. An entry asks whether a watcher or an import works in a folder with a
 shared lock on that folder's lock file, which only an exclusive lock
 refuses: the watcher's or the import's own, or, for an instant, that of an
 entry moving the folder, which takes it only when the folder can move. So
@@ -804,7 +815,8 @@ The digest covers the files, the effects and which are checked, so a plan
 approved from a dry run cannot apply a different selection. If the machine, the
 release or the saved selection changed since, `--approve-plan` exits 4 with
 `The approved digest does not match the current plan` and the fix `review a
-new plan`, and changes nothing. `--approve-plan` is listed in `--help`. From a checkout, add
+new plan`, and changes nothing: it downloads and installs nothing, rewrites no
+file and changes no folder's mode. `--approve-plan` is listed in `--help`. From a checkout, add
 `--local-build` to both `apply` calls. Keep it and `--destination` identical between
 them. `--yes` is for a person who trusts your saved choices, not for a caller that
 did not read the plan, and a coding agent is refused it. When Workbench's own tools
@@ -1282,7 +1294,10 @@ what the folder holds with the command that removes it, and the `chmod` that
 gives the folder the configuration's mode instead.
 A parent that other users can write to stops Workbench, naming the folder and
 giving the command to paste, quoted for the shell where the name needs it:
-`run chmod go-w ~/.local and retry`.
+`chmod go-w ~/.local`. On a Mac, a parent whose ACL lets another user or
+group add or delete in it stops Workbench too, with `ls -led` to list its
+entries and the one to remove; deny entries, such as the `deny delete` macOS
+puts on your home folder, never do.
 
 Activation is journaled, not a multi-file atomic transaction. An interrupted
 entry-point/state switch fails closed while retaining the prior runtime. Rerun

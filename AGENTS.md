@@ -66,11 +66,14 @@ Distinguish implemented code, observed checks and unqualified release targets.
   after a damage, is deleted for the new one, so the history always starts
   again (ADR 0020). A second exception: Workbench gives its own files the
   mode it makes them with. A folder of its own files that is this user's and
-  that neither its group nor other users can write in gets mode 0700 from a
-  command that writes there (a command that only reads or previews uses it
-  as it is), and `update` gives a tool file that holds exactly its pinned
-  bytes the mode it is installed with. A folder others can write in, and a
-  tool file with other bytes, stay refused and untouched. A file or link
+  that neither its group nor other users can write in, by its mode or its
+  ACL, gets mode 0700 from a command that writes there, also one its owner
+  cannot read or search (a command that only reads or previews uses it as it
+  is, and refuses one its owner cannot read or search, naming the `chmod
+  700`), and `update` gives a tool file that holds exactly its pinned bytes
+  the mode it is installed with. A folder others can write in, and a tool
+  file with other bytes, stay refused and untouched; at an earlier path such
+  a folder is neither moved nor locked. A file or link
   Workbench or chezmoi replaces with one of its kind keeps its ACL, extended
   attributes and hidden flag; a deny ACL entry stops a plan only when the system says it binds this
   user; where a link at a target points is not checked, but a link into
@@ -151,7 +154,8 @@ Distinguish implemented code, observed checks and unqualified release targets.
 - Unattended runs (agents, scripts): `workbench apply --dry-run --json` prints
   the plan with `plan_digest`; `workbench apply --approve-plan DIGEST`
   applies exactly that plan and exits 4 if the machine, release or saved
-  selection changed since. `workbench answers import FILE --dry-run --json`
+  selection changed since, having written nothing: no download, no tool
+  installed, no file rewritten and no mode changed. `workbench answers import FILE --dry-run --json`
   and `--approve-plan` work the same way. `--yes` is for a person who trusts
   the saved selection, not for a caller that did not read the plan; it never
   asks, so use it only when new effects may take their defaults. A coding agent

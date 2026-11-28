@@ -512,6 +512,36 @@ synthetic answers.
   0. With one byte added to it and mode 0720, `update` exited 4 (`Existing
   private tool differs; it was retained`) and the file kept its bytes and its
   mode.
+- On macOS 27.2 arm64, on November 28, 2026, in a disposable home with a
+  scratch `--destination` and a local build: `apply --local-build
+  --approve-plan` with a digest that did not match exited 4, and a listing of
+  Workbench's folders, the bin folder and the destination (1906 entries, with
+  modes and modification times) was the same before and after: no lock file
+  made, `state.json` not rewritten, no mode changed. The matching digest then
+  applied as before, and an approved apply with nothing to do left
+  `state.json` as it was. A stale `migrate --approve-plan` and `answers import
+  --approve-plan` each exited 4 with the same listing before and after.
+- On macOS 27.2 arm64, on November 28, 2026, in disposable homes, Workbench's
+  own folders followed one rule. The costs state folder and `state/locks` at
+  0775 were refused (exit 2, `permissions`) with the mode, the `find` that
+  lists what is not the user's and `chmod 700`, each a fix line, and nothing
+  was made in them; for the costs folder, typed as printed, the two lines
+  made the next import exit 0. At 0755 the first lock or import gave them 0700. At 0300 and 0600 the
+  import worker gave the costs folders 0700, while `agent costs status`
+  refused the state folder with `chmod 700` as the fix and changed nothing;
+  at 0200 both refused, since macOS opens no descriptor for such a folder. An
+  ACL entry `everyone allow add_file` on the costs state folder made the
+  import exit 2, naming the ACL, with the `find` and `chmod -N`; typed as
+  printed, they made the next import exit 0. Entries that only let another
+  user read, and deny entries, were accepted.
+- On macOS 27.2 arm64, on November 28, 2026, in disposable homes, with
+  `state/guard` and `state/costs` at their earlier paths at 0755, migration
+  0007 moved both, which kept 0755 under `agent/` until the first write in
+  each (the SessionStart hook, the import worker) gave it 0700. At 0775,
+  `migrate --dry-run` listed 0007 blocked with the refusal of
+  `state/costs`, `migrate --approve-plan` exited 3, and neither folder moved
+  or got a lock file; the build before moved both and made `watch.lock` and
+  `ingest.lock` in them.
 
 ### On a WSL2 host
 
@@ -731,6 +761,16 @@ synthetic answers.
 
 ### Linux
 
+- Observed on November 28, 2026 in unprivileged Docker containers (Docker on
+  kernel 7.0.14-linuxkit, arm64, Ubuntu 24.04.5 and AlmaLinux 10.3, a
+  linux-arm64 local build), with Workbench run as a user of the container in
+  its own disposable home. An ACL entry `setfacl -m u:nobody:rwx` on the
+  costs state folder showed in its mode as 0770, and the import worker
+  refused it (exit 2) with the `find` and `chmod 700` fix lines. With the
+  mask taken down (`setfacl -m m::r-x`, mode 0750) the import accepted it and
+  gave it 0700, leaving that entry no effective rights. At 0300, 0600, 0200
+  and 0000 the import gave the folder 0700, and `agent costs status`, which
+  only reads it, refused it with `chmod 700` as the fix and left its mode.
 - Observed in privileged Docker containers on November 27, 2026 (Docker
   29.8.2, kernel 7.0.14-linuxkit, arm64, Ubuntu 24.04.5 and AlmaLinux 10.3,
   disposable homes with synthetic answers, a linux-arm64 local build), as the
