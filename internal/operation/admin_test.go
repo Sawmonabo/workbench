@@ -126,7 +126,7 @@ func TestWithAdminKeepsThePasswordToTheApply(t *testing.T) {
 	if got, _ := os.ReadFile(stdin); string(got) != wrong+"\n"+right+"\n" {
 		t.Errorf("sudo was not given the passwords on standard input: %q", got)
 	}
-	if strings.Contains(redact("sudo said "+right, m.redactions(nil)), right) {
+	if strings.Contains(Redact("sudo said "+right, m.redactions(nil)), right) {
 		t.Error("the password is not among the secrets the apply redacts")
 	}
 	if _, statErr := os.Stat(folder); !errors.Is(statErr, fs.ErrNotExist) {

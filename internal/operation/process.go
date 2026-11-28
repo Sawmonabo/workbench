@@ -135,11 +135,11 @@ func Run(
 		return output, failure(
 			filepath.Base(executable),
 			err,
-			redact(stderr.String(), secrets),
+			Redact(stderr.String(), secrets),
 		)
 	}
-	output.Stdout = redact(stdout.String(), secrets)
-	output.Stderr = redact(stderr.String(), secrets)
+	output.Stdout = Redact(stdout.String(), secrets)
+	output.Stderr = Redact(stderr.String(), secrets)
 	if request.PrivateOutput {
 		output.Stdout = stdout.String()
 	}

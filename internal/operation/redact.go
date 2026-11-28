@@ -19,7 +19,7 @@ type redactingWriter struct {
 func (w *redactingWriter) Write(data []byte) (int, error) {
 	w.pending = append(w.pending, data...)
 	if end := bytes.LastIndexAny(w.pending, "\r\n"); end >= 0 {
-		_, _ = io.WriteString(w.out, redact(string(w.pending[:end+1]), w.secrets))
+		_, _ = io.WriteString(w.out, Redact(string(w.pending[:end+1]), w.secrets))
 		w.pending = append(w.pending[:0], w.pending[end+1:]...)
 	}
 	return len(data), nil
@@ -27,7 +27,7 @@ func (w *redactingWriter) Write(data []byte) (int, error) {
 
 func (w *redactingWriter) flush() {
 	if len(w.pending) > 0 {
-		_, _ = io.WriteString(w.out, redact(string(w.pending), w.secrets)+"\n")
+		_, _ = io.WriteString(w.out, Redact(string(w.pending), w.secrets)+"\n")
 		w.pending = nil
 	}
 }
@@ -38,9 +38,7 @@ func (w *redactingWriter) flush() {
 const Redacted = "[REDACTED]"
 
 // Redact replaces each known secret value in value with [Redacted].
-func Redact(value string, secrets []string) string { return redact(value, secrets) }
-
-func redact(value string, secrets []string) string {
+func Redact(value string, secrets []string) string {
 	ordered := append([]string{}, secrets...)
 	sort.Slice(ordered, func(i, j int) bool { return len(ordered[i]) > len(ordered[j]) })
 	for _, secret := range ordered {
