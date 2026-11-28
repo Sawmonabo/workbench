@@ -54,18 +54,18 @@ func (c Context) WorkbenchCommand() string {
 func (c Context) ShowPath(path string) string { return display.PathFrom(c.Home, path) }
 
 // ShellPath writes path as one word a POSIX shell reads back as path, for a
-// command a person pastes, from c.Home (see [ShellHomePath]).
+// command a person pastes: c.Home as ~, a path under it as ~/ and the rest,
+// any other path as it is, all but the ~ quoted where a shell would read a
+// character (see shellWord).
 func (c Context) ShellPath(path string) string { return shellPath(c.Home, path) }
 
-// ShellHomePath writes path as one word a POSIX shell reads back as path, for
-// a command a person pastes: the current user's home folder, as
-// [display.Home] finds it, as ~, a path under it as ~/ and the rest, any other
-// path as it is, all but the ~ quoted where a shell would read a character
-// (see shellWord). It is for a message made where no [Context] is at hand.
-func ShellHomePath(path string) string { return shellPath(display.Home(), path) }
+// shellHomePath is [Context.ShellPath] from the current user's home folder,
+// as [display.Home] finds it, for a message made where no [Context] is at
+// hand.
+func shellHomePath(path string) string { return shellPath(display.Home(), path) }
 
 // shellPath is path as one word a shell reads back, written from home as
-// [ShellHomePath] says. An empty home, or /, shortens nothing.
+// [Context.ShellPath] says. An empty home, or /, shortens nothing.
 func shellPath(home, path string) string {
 	if home != "" && filepath.Clean(home) != "/" && Within(home, path) {
 		if relative, err := filepath.Rel(home, path); err == nil {

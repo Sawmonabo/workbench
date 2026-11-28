@@ -13,7 +13,7 @@ const diffContext = 3
 // than this are shown as one replaced block: still correct, never slow.
 const maxEditScript = 1000
 
-// DiffLines is the line diff of two text bodies: how many lines were added and
+// diffLines is the line diff of two text bodies: how many lines were added and
 // removed, and the changes as unified-diff text ("@@" headers, then lines
 // prefixed " ", "-" or "+"). A line differs when its text or its line ending
 // does; carriage returns are dropped from the shown text only.
@@ -22,7 +22,7 @@ const maxEditScript = 1000
 // line where it landed, and counted as both: a merge that moves a rule from one
 // list or table to another changes what the file means, so the review must show
 // it.
-func DiffLines(before, after []byte) (added, removed int, lines []string) {
+func diffLines(before, after []byte) (added, removed int, lines []string) {
 	a, b := splitLines(before), splitLines(after)
 	start := 0
 	for start < len(a) && start < len(b) && a[start] == b[start] {
@@ -217,7 +217,7 @@ func span(start, count int) string {
 	return fmt.Sprintf("%d,%d", start, count)
 }
 
-// FileDiff is [DiffLines] for two target images: ok is false unless both are
+// FileDiff is [diffLines] for two target images: ok is false unless both are
 // regular text files or absent, so a link, a folder or binary content has no
 // line diff. A created or removed file is all added or all removed lines.
 func FileDiff(before, after Image) (added, removed int, lines []string, ok bool) {
@@ -226,6 +226,6 @@ func FileDiff(before, after Image) (added, removed int, lines []string, ok bool)
 			return 0, 0, nil, false
 		}
 	}
-	added, removed, lines = DiffLines(before.Data, after.Data)
+	added, removed, lines = diffLines(before.Data, after.Data)
 	return added, removed, lines, true
 }

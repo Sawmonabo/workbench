@@ -45,7 +45,7 @@ func ReadBundle(
 		if err != nil {
 			return Bundle{}, err
 		}
-		return Verify(bytes.NewReader(data), version, Target())
+		return verify(bytes.NewReader(data), version, Target())
 	}
 	if err = CheckBundleLocation(location); err != nil {
 		return Bundle{}, err
@@ -55,7 +55,7 @@ func ReadBundle(
 		return Bundle{}, err
 	}
 	defer func() { _ = file.Close() }()
-	return Verify(file, version, Target())
+	return verify(file, version, Target())
 }
 
 // StagePlan previews staging b, bound to its archive digest and current state.

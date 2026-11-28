@@ -69,11 +69,11 @@ func Member(name string) bool {
 		!strings.ContainsAny(name, "\\\x00\r\n")
 }
 
-// Verify reads the complete bounded archive before exposing any executable or
+// verify reads the complete bounded archive before exposing any executable or
 // extracting any member. Links, devices, duplicate entries and extra files fail.
 // Every member must match its SHA-256 in release.json, which catches a
 // truncated or corrupted download; it is not an authenticity check.
-func Verify(reader io.Reader, version, target string) (Bundle, error) {
+func verify(reader io.Reader, version, target string) (Bundle, error) {
 	raw, err := io.ReadAll(io.LimitReader(reader, MaxDownload+1))
 	if err != nil || int64(len(raw)) > MaxDownload {
 		return Bundle{}, integrity("Release download exceeds its bound or cannot be read")

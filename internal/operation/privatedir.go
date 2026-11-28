@@ -47,7 +47,7 @@ func privateDirectory(path string, create bool) error {
 	return owned(path, info)
 }
 
-// ensureRoot creates a missing runtime root 0700. [MakeParents] sets the modes
+// ensureRoot creates a missing runtime root 0700. [makeParents] sets the modes
 // of its missing parents.
 func ensureRoot(root string) error {
 	if err := safeParents(root); err != nil {
@@ -56,7 +56,7 @@ func ensureRoot(root string) error {
 	if err := privateFilesystem(root); err != nil {
 		return err
 	}
-	if err := MakeParents(root); err != nil {
+	if err := makeParents(root); err != nil {
 		return err
 	}
 	return ensurePrivateDirectory(root)
@@ -170,7 +170,7 @@ func PrivateTree(root, target string, create bool) error {
 		}
 	}
 	if create {
-		if err := MakeParents(root); err != nil {
+		if err := makeParents(root); err != nil {
 			return err
 		}
 		return os.MkdirAll(target, 0o700)
@@ -178,12 +178,12 @@ func PrivateTree(root, target string, create bool) error {
 	return nil
 }
 
-// MakeParents creates the missing folders above a runtime root. They get 0755,
+// makeParents creates the missing folders above a runtime root. They get 0755,
 // the mode the machine configuration gives its own folders such as ~/.local on
 // Linux, so applying it later changes nothing for a folder that holds Workbench
 // state. The exception is the XDG configuration home (~/.config): the
 // specification asks for 0700 and the configuration keeps it there.
-func MakeParents(root string) error {
+func makeParents(root string) error {
 	parent := filepath.Dir(root)
 	if config := configHome(); config != "" && Within(config, parent) {
 		if _, err := os.Lstat(config); errors.Is(err, fs.ErrNotExist) {
@@ -281,7 +281,7 @@ func safeParents(path string) error {
 					ExitInvalid,
 					"permissions",
 					display.Path(current)+" is writable by other users; run chmod go-w "+
-						ShellHomePath(current)+" and retry",
+						shellHomePath(current)+" and retry",
 				)
 			}
 		} else if !errors.Is(err, fs.ErrNotExist) {

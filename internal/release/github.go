@@ -13,8 +13,8 @@ import (
 	"github.com/Sawmonabo/workbench/internal/operation"
 )
 
-// Repository publishes Workbench releases; install.sh names the same one.
-const Repository = "Sawmonabo/workbench"
+// repository publishes Workbench releases; install.sh names the same one.
+const repository = "Sawmonabo/workbench"
 
 // Published is one published release.
 type Published struct {
@@ -93,7 +93,7 @@ func (r Remote) Bundle(ctx context.Context, progress func(done, total int64)) (B
 	if err != nil {
 		return Bundle{}, err
 	}
-	return Verify(bytes.NewReader(data), r.Tag, Target())
+	return verify(bytes.NewReader(data), r.Tag, Target())
 }
 
 // githubAPI reads one JSON answer from the repository's GitHub REST API. tag
@@ -101,7 +101,7 @@ func (r Remote) Bundle(ctx context.Context, progress func(done, total int64)) (B
 func githubAPI(ctx context.Context, token, path, tag string, answer any) error {
 	data, _, err := get(
 		ctx,
-		"https://api.github.com/repos/"+Repository+path,
+		"https://api.github.com/repos/"+repository+path,
 		4<<20,
 		request{accept: "application/vnd.github+json", token: token},
 	)

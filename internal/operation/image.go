@@ -801,7 +801,7 @@ func contentSummary(before, after Image) string {
 	case !isText(before.Data) || !isText(after.Data):
 		return fmt.Sprintf("binary, %d → %d bytes", len(before.Data), len(after.Data))
 	}
-	added, removed, _ := DiffLines(before.Data, after.Data)
+	added, removed, _ := diffLines(before.Data, after.Data)
 	return fmt.Sprintf("+%d −%d lines", added, removed)
 }
 

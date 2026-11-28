@@ -105,25 +105,26 @@ func tryFlock(f *os.File, how int) (held bool, err error) {
 // and the file is never removed: the lock ends when release is called or the
 // process dies. held is true, with no error, when another process has it.
 func TryLock(path string) (release func(), held bool, err error) {
-	f, held, err := TryLockFile(path)
+	f, held, err := tryLockFile(path)
 	if held || err != nil {
 		return nil, held, err
 	}
 	return func() { _ = f.Close() }, false, nil
 }
 
-// TryLockFile is [TryLock] giving the locked file, whose Close releases the
+// tryLockFile is [TryLock] giving the locked file, whose Close releases the
 // lock, for a holder that hands it to a child it starts (see [InheritLock]).
-func TryLockFile(path string) (f *os.File, held bool, err error) {
+func tryLockFile(path string) (f *os.File, held bool, err error) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return nil, false, err
 	}
 	return TryLockIn(path)
 }
 
-// TryLockIn is [TryLockFile] for a lock file whose folder must already
-// exist: it creates the file when missing but makes no folder, so a missing
-// folder, or a plain file in its place, fails it.
+// TryLockIn is [TryLock] giving the locked file, whose Close releases the
+// lock, for a lock file whose folder must already exist: it creates the file
+// when missing but makes no folder, so a missing folder, or a plain file in
+// its place, fails it.
 func TryLockIn(path string) (f *os.File, held bool, err error) {
 	return tryLockIn(path, syscall.LOCK_EX)
 }
@@ -179,8 +180,8 @@ func tryLockIn(path string, how int) (f *os.File, held bool, err error) {
 	return f, false, nil
 }
 
-// LockHeld reports whether another process holds the lock [TryLockFile]
-// takes on the file at path. flock(2) has no call that only asks, so it
+// LockHeld reports whether another process holds the lock [TryLock] takes
+// on the file at path. flock(2) has no call that only asks, so it
 // takes a shared lock without waiting, for an instant, and lets it go: a
 // shared lock is refused only while a process holds the exclusive one, and
 // any number of processes hold shared ones at once, so two that ask at the
@@ -224,7 +225,7 @@ func IsLockHeld(path string) bool {
 }
 
 // InheritLock takes on the lock on the file at path that a parent holding it
-// passed down as f (see [TryLockFile] and [Detached].Files). An flock lock
+// passed down as f (see [TakeLockIn] and [Detached].Files). An flock lock
 // belongs to the open file description, which a passed descriptor shares, and
 // is held until the last descriptor on it closes, so the lock is never free
 // while it passes from parent to child. f must be the file at path, and its

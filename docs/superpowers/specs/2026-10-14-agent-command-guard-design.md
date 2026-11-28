@@ -173,9 +173,9 @@ Not yet observed (section 10 step 1):
 The three parts are hidden subcommands of the one `workbench` CLI, in the
 `internal/agent/guard/` package, beside `workbench agent guard logs`, which shows the
 guard log (section 4.1); `internal/cli/` owns their flags. The guard reuses
-the owners the costs hook already uses: `operation.TryLock` for the
-one-watcher lock (`operation.TryLockFile` and `operation.InheritLock` when a
-watcher passes it on, section 6.5), `operation.StartDetached` to start the
+the owners the costs hook already uses: `operation.TakeLockIn` for the
+one-watcher lock (`operation.InheritLock` when a watcher passes it on,
+section 6.5), `operation.StartDetached` to start the
 watcher (from the command the hook ran as, `operation.Invoked`, resolving its
 links, and it opens the output file itself),
 `operation.AppendLog` for the capped log (and `operation.LogReader` to follow

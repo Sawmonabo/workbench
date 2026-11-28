@@ -34,7 +34,7 @@ func TestRejectEscapingExecutable(t *testing.T) {
 		if err := gz.Close(); err != nil {
 			t.Fatal(err)
 		}
-		bundle, err := Verify(bytes.NewReader(raw.Bytes()), "", Target())
+		bundle, err := verify(bytes.NewReader(raw.Bytes()), "", Target())
 		if err == nil || len(bundle.Files) != 0 || !strings.Contains(err.Error(), want) {
 			t.Fatalf("%s: want rejection containing %q, got %v", name, want, err)
 		}

@@ -396,7 +396,7 @@ func checkPrivateFile(path string) error {
 				"%s is open to other users (mode %04o); run chmod 600 %s and retry",
 				display.Path(path),
 				mode,
-				ShellHomePath(path),
+				shellHomePath(path),
 			),
 		)
 	}

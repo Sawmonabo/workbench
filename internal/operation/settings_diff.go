@@ -65,8 +65,8 @@ func SettingsDiff(
 	if !ok1 || !ok2 {
 		return changes, true, true
 	}
-	ra, rr, _ := DiffLines(before, after)
-	ca, cr, _ := DiffLines(canonicalBefore, canonicalAfter)
+	ra, rr, _ := diffLines(before, after)
+	ca, cr, _ := diffLines(canonicalBefore, canonicalAfter)
 	return changes, ra+rr > ca+cr, true
 }
 
