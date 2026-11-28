@@ -102,7 +102,7 @@ const projectApplyLong = "Plan Workbench's settings for the project at PATH: Ruf
 func projectApplyCommand(o *options) *cobra.Command {
 	command := &cobra.Command{
 		Use:   "apply [PATH]",
-		Short: "Preview and apply Workbench's settings to an existing uv Python project, Go module or Cargo package or workspace",
+		Short: "Preview and apply Workbench's settings to a uv Python project, Go module or Cargo package",
 		Long:  projectApplyLong,
 		Example: "  workbench project apply ./apps/api --language python --dry-run\n" +
 			"  workbench project apply . --language python --extensions --gitignore\n" +
@@ -129,7 +129,7 @@ func projectApplyCommand(o *options) *cobra.Command {
 	command.Flags().
 		Bool("hooks", false, "Write lefthook.yml, with checks before commit and tests before push, when the repository has none")
 	command.Flags().
-		Bool("dependabot", false, "GitHub only: write weekly Dependabot updates and a workflow that auto-merges their patch and minor pull requests")
+		Bool("dependabot", false, "GitHub only: write weekly Dependabot updates and auto-merge for their patch and minor pull requests")
 	o.localBuildFlag(command)
 	o.approveFlag(command)
 	command.RunE = o.action(
