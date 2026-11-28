@@ -4,7 +4,10 @@ package guard
 // processes and the graph of its memory over its whole run, kept in a SQLite
 // file in the guard folder; here its limits and schema, and its open, check
 // and close. Its rows are in historyrows.go, the time kept and the trim in
-// historytrim.go, and the copies of damaged histories in historydamaged.go.
+// historytrim.go, the copies of damaged histories in historydamaged.go, the
+// watcher's writer in historywriter.go, how the view and `agent guard
+// history` find and follow it in historyfollow.go, and what is said of it in
+// historymessages.go.
 // Command text may hold a token, so nothing in them logs it or puts it in an
 // error.
 
@@ -28,9 +31,9 @@ import (
 
 // The history's limits.
 const (
-	// historyKeepDefault is how long finished commands are kept while no time
+	// HistoryKeepDefault is how long finished commands are kept while no time
 	// is set.
-	historyKeepDefault = 24 * time.Hour
+	HistoryKeepDefault = 24 * time.Hour
 	// historyRows is the most finished commands kept; historyBytes is the
 	// most the pages in use may take.
 	historyRows  = 20000
@@ -39,8 +42,9 @@ const (
 	commandKept = 64 << 10
 	// processesKept is the most processes kept for one command.
 	processesKept = 10000
-	// graphBars is the most bars a command's graph has.
-	graphBars = 120
+	// GraphBars is the most bars a command's memory graph has, running or
+	// finished.
+	GraphBars = 120
 	// trimStep is the most commands one Trim step deletes, and trimProcesses
 	// and trimText the most process rows and bytes of command text it deletes
 	// after its first command: deleting those, and the vacuum that gives
@@ -49,8 +53,8 @@ const (
 	trimStep      = 200
 	trimProcesses = 2000
 	trimText      = 512 << 10
-	// summaryLength is how many characters of its command a Summary holds.
-	summaryLength = 300
+	// SummaryLength is how many characters of its command a [Summary] holds.
+	SummaryLength = 300
 )
 
 // historyVersion is the user_version of a history: the one layout there is.
@@ -176,11 +180,11 @@ type History struct {
 	sides      []os.FileInfo
 }
 
-// historyFile is the history in the guard folder root; damagedFile is where
+// HistoryFile is the history in the guard folder root; damagedFile is where
 // a history that cannot be used is moved, and olderDamagedFile where the copy
 // already there goes first (see [MoveDamaged]), numbered as logrotate numbers
 // the generations it keeps, the higher the older.
-func historyFile(root string) string      { return filepath.Join(root, "history.db") }
+func HistoryFile(root string) string      { return filepath.Join(root, "history.db") }
 func damagedFile(root string) string      { return filepath.Join(root, "history.damaged.db") }
 func olderDamagedFile(root string) string { return filepath.Join(root, "history.damaged.2.db") }
 
@@ -195,7 +199,7 @@ func olderDamagedFile(root string) string { return filepath.Join(root, "history.
 // since a command's text may hold a token. A file that is not a history of
 // version 1 fails with [ErrHistoryUnusable] and is left as it is.
 func OpenHistory(root string, write bool) (*History, error) {
-	h := &History{root: root, path: historyFile(root), write: write}
+	h := &History{root: root, path: HistoryFile(root), write: write}
 	if !write {
 		if _, err := os.Stat(h.path); err != nil {
 			return nil, operation.FileError(h.path, err)

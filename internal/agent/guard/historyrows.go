@@ -26,7 +26,7 @@ import (
 // harmless. It keeps at most commandKept bytes of the command's text, cut where
 // a character starts, and adds the bytes left out to f.Cut; at most
 // processesKept processes, the largest peaks, adding the rest to f.Unlisted;
-// and at most graphBars bars, merging neighbors by their larger value, so the
+// and at most GraphBars bars, merging neighbors by their larger value, so the
 // peak stays in the graph. f is not changed.
 func (h *History) Insert(ctx context.Context, f Finished) error {
 	command, cut := keptCommand(f.Command)
@@ -111,10 +111,10 @@ func keptProcesses(processes []ProcessPeak) ([]ProcessPeak, int) {
 	return processes[:processesKept], len(processes) - processesKept
 }
 
-// keptGraph is graph in at most graphBars bars: while it has more, each two
+// keptGraph is graph in at most GraphBars bars: while it has more, each two
 // neighbors merge into the larger (see mergeNeighbors). graph is not changed.
 func keptGraph(graph []uint64) []uint64 {
-	for len(graph) > graphBars {
+	for len(graph) > GraphBars {
 		graph = mergeNeighbors(make([]uint64, 0, (len(graph)+1)/2), graph)
 	}
 	return graph
@@ -124,7 +124,7 @@ func keptGraph(graph []uint64) []uint64 {
 // the larger, oldest first, the last bar alone when there is an odd number,
 // and gives the result: the one rule by which a running command's graph
 // (see usage.add) and a finished one's (see keptGraph) hold their whole run
-// in graphBars bars. into may be graph[:0]: each bar is written only after
+// in GraphBars bars. into may be graph[:0]: each bar is written only after
 // the two it merges were read, so graph is merged in place.
 func mergeNeighbors(into, graph []uint64) []uint64 {
 	for i := 0; i < len(graph); i += 2 {
@@ -169,12 +169,12 @@ const commandColumns = `id, kind, launched_by, agent, subagent, project, cwd, %s
   stopped_by, dry_run, started, ended, peak`
 
 // summaryQuery reads the commandColumns of the commands after a seq, with the
-// first summaryLength characters of each command; detailsQuery reads those of
+// first SummaryLength characters of each command; detailsQuery reads those of
 // one command, with all of it as kept.
 var (
 	summaryQuery = fmt.Sprintf(
 		"SELECT %s, seq FROM commands WHERE seq > ? ORDER BY seq",
-		fmt.Sprintf(commandColumns, "substr(command, 1, "+strconv.Itoa(summaryLength)+")"),
+		fmt.Sprintf(commandColumns, "substr(command, 1, "+strconv.Itoa(SummaryLength)+")"),
 	)
 	detailsQuery = fmt.Sprintf(
 		"SELECT %s, cut, unlisted FROM commands WHERE seq = ?",

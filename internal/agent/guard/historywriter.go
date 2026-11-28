@@ -261,7 +261,7 @@ func (h *historyWriter) fail(root string, err error) {
 	h.mu.Unlock()
 	h.lasts("history", slog.LevelError, EventError,
 		"cannot write the guard history; trying again every ten seconds",
-		"error", shown, "path", historyFile(root))
+		"error", shown, "path", HistoryFile(root))
 }
 
 // lastingRecord is the record of a condition that lasts, and logged, the time
@@ -336,7 +336,7 @@ func (h *historyWriter) relogLasting(since time.Time) {
 // MoveDamaged), so a watcher started since says it too; and each no more once
 // a trim deleted it.
 func (h *historyWriter) noteCopy(root string) {
-	copies := damagedCopies(root)
+	copies := HistoryDamagedCopies(root)
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	h.damaged = copies
@@ -529,8 +529,8 @@ func (r *writerRun) failed(err error) {
 func (r *writerRun) replace(cause error) error {
 	fresh := r.history != nil && r.readKeep() == nil
 	r.close()
-	from := historyFile(r.root)
-	to, replaced, err := MoveDamaged(r.root, time.Now().Add(-cmp.Or(r.keep, historyKeepDefault)))
+	from := HistoryFile(r.root)
+	to, replaced, err := MoveDamaged(r.root, time.Now().Add(-cmp.Or(r.keep, HistoryKeepDefault)))
 	gone := to == "" && errors.Is(err, fs.ErrNotExist)
 	if to == "" && !gone {
 		return fmt.Errorf("cannot move the guard history that cannot be used aside: %w", err)
@@ -558,7 +558,7 @@ func (r *writerRun) replace(cause error) error {
 			"it keeps finished commands %s, the time kept the old one had when last read, at %s",
 			KeepText(r.keep), r.keptAt.Local().Format(display.DayTimeSeconds))
 	}
-	if r.keep != 0 && r.keep != historyKeepDefault {
+	if r.keep != 0 && r.keep != HistoryKeepDefault {
 		if err := history.SetKeep(context.Background(), r.keep); err != nil {
 			_ = history.Close()
 			return err

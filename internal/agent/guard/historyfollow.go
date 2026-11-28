@@ -1,12 +1,10 @@
 package guard
 
-// This file is what the view and `agent guard history` need of the history
-// beyond its store (history.go and the files it names): where it and the
-// copies of damaged ones are, the guard folder made for the command that sets
-// the time kept, the time kept while none is set, how much of a command a
-// summary holds, and what is said of a history that cannot be written, was
-// damaged or cannot be read, which the watcher's snapshot and the view, with
-// or without a watcher, say in the same words.
+// This file is how the view and `agent guard history` find the history: the
+// guard folder that holds it, looked for again where it is now when it moved
+// meanwhile, and made for the command that sets the time kept; and the
+// history the view follows from one read to the next, opened again when the
+// file at its path is another one or the folder moved.
 
 import (
 	"errors"
@@ -15,10 +13,6 @@ import (
 
 	"github.com/Sawmonabo/workbench/internal/operation"
 )
-
-// HistoryKeepDefault is how long finished commands are kept while no time is
-// set.
-const HistoryKeepDefault = historyKeepDefault
 
 // HistoryRoot is the guard folder where Root says, which holds the history,
 // once it passes the checks every entry applies to it (see folders.check).
@@ -117,12 +111,12 @@ func followHistory(held *History) (found FollowedHistory, root string, err error
 	found.Other = true
 	root, err = HistoryRoot()
 	if root != "" {
-		found.Path = historyFile(root)
+		found.Path = HistoryFile(root)
 	}
 	if err != nil {
 		return found, root, err
 	}
-	found.Damaged = damagedCopies(root)
+	found.Damaged = HistoryDamagedCopies(root)
 	file, err := os.Stat(found.Path)
 	switch {
 	case errors.Is(err, fs.ErrNotExist):
@@ -170,18 +164,3 @@ func HistoryFolderMoved(root string) bool {
 	state, err := stateFolder()
 	return err == nil && root == oldRoot(state) && !operation.IsFolder(root)
 }
-
-// HistoryFile is the history's path in the guard folder root.
-func HistoryFile(root string) string { return historyFile(root) }
-
-// SummaryLength is how many characters of a command a [Summary] holds.
-const SummaryLength = summaryLength
-
-// GraphBars is the most bars a command's memory graph has, running or
-// finished.
-const GraphBars = graphBars
-
-// HistoryDamagedCopies are the copies the guard folder root keeps of
-// histories that could not be used, the newest first, each with the time it
-// was set aside (see [MoveDamaged]).
-func HistoryDamagedCopies(root string) []DamagedCopy { return damagedCopies(root) }

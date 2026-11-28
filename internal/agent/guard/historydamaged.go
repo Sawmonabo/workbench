@@ -22,9 +22,11 @@ type DamagedCopy struct {
 	At   time.Time
 }
 
-// damagedCopies are the copies the guard folder root keeps, the newest first:
-// history.damaged.db, then history.damaged.2.db.
-func damagedCopies(root string) []DamagedCopy {
+// HistoryDamagedCopies are the copies the guard folder root keeps of
+// histories that could not be used, the newest first (history.damaged.db,
+// then history.damaged.2.db), each with the time it was set aside (see
+// [MoveDamaged]).
+func HistoryDamagedCopies(root string) []DamagedCopy {
 	var copies []DamagedCopy
 	for _, path := range []string{damagedFile(root), olderDamagedFile(root)} {
 		if info, err := os.Lstat(path); err == nil {
@@ -84,7 +86,7 @@ func removeCopyBefore(copied string, since time.Time) {
 // new copy's files are then marked as written now, so it is kept for the
 // time kept from the moment it was set aside. The history must not be open.
 func MoveDamaged(root string, since time.Time) (to string, replaced time.Time, err error) {
-	from, to := historyFile(root), damagedFile(root)
+	from, to := HistoryFile(root), damagedFile(root)
 	if _, err := os.Lstat(from); err != nil {
 		return "", time.Time{}, err
 	}

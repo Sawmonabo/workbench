@@ -1,5 +1,11 @@
 package guard
 
+// This file is what is said of the history: the time kept in words, the paths
+// in the guard folder named from the home folder, and the warnings of a
+// history that cannot be written, that was damaged and started again, or that
+// cannot be read, which the watcher's snapshot, the view and `agent guard
+// history` say in the same words.
+
 import (
 	"strings"
 	"time"

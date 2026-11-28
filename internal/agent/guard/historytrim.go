@@ -20,7 +20,7 @@ import (
 const keepSetting = "keep"
 
 // Keep is how long finished commands are kept: the settings row, or
-// historyKeepDefault while it is missing. A row that is not a positive number
+// HistoryKeepDefault while it is missing. A row that is not a positive number
 // of seconds fails, and is left as it is.
 func (h *History) Keep(ctx context.Context) (time.Duration, error) {
 	var value string
@@ -28,7 +28,7 @@ func (h *History) Keep(ctx context.Context) (time.Duration, error) {
 		ctx, "SELECT value FROM settings WHERE key = ?", keepSetting,
 	).Scan(&value)
 	if errors.Is(err, sql.ErrNoRows) {
-		return historyKeepDefault, nil
+		return HistoryKeepDefault, nil
 	}
 	if err != nil {
 		return 0, h.fail(err)

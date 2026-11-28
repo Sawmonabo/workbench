@@ -86,7 +86,7 @@ type MemoryView struct {
 // unmatched or stopped), who stopped it (guard or you), whether its note is a
 // dry run, when it was noted and when it ended, its memory now and at its
 // peak in bytes, the graph of its memory over its whole run in bytes per bar,
-// oldest first, at most graphBars bars, each the largest of the readings it
+// oldest first, at most GraphBars bars, each the largest of the readings it
 // covers (see usage), and its process tree with each process's memory. Kind
 // is empty for a command, else detached for a program that detached from a
 // command; PID is a detached program's first root that runs, and LaunchedBy

@@ -12,7 +12,7 @@ import (
 
 // usage is a tracked command's memory, measured each tick over the processes
 // a stop would signal, kept for as long as it is tracked and handed over as it
-// is: the graph of its whole run in at most graphBars buckets, oldest first,
+// is: the graph of its whole run in at most GraphBars buckets, oldest first,
 // each the largest of Per readings (Filled of them in the newest bucket so
 // far), the latest reading, the largest it has had, which is always in the
 // graph, and when it was first tracked. Processes are the processes it has
@@ -36,7 +36,7 @@ type usage struct {
 }
 
 // add records one reading: in the newest bucket until it holds Per readings,
-// else in a new one. When graphBars buckets are full, neighbors merge into
+// else in a new one. When GraphBars buckets are full, neighbors merge into
 // the larger first (see mergeNeighbors) and Per doubles, so the graph covers
 // the whole run.
 func (u *usage) add(size uint64) {
@@ -47,7 +47,7 @@ func (u *usage) add(size uint64) {
 		u.Filled++
 		return
 	}
-	if len(u.Buckets) >= graphBars {
+	if len(u.Buckets) >= GraphBars {
 		u.Buckets, per = mergeNeighbors(u.Buckets[:0], u.Buckets), per*2
 	}
 	u.Per, u.Filled = per, 1
