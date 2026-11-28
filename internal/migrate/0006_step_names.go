@@ -30,16 +30,19 @@ var stepNames = Migration{
 		"step still applies to it. A list that already names agent-costs-ingest only loses " +
 		"costs-ingest. Nothing else in the file changes.",
 	Recovery: "nothing is lost: the choice is the same one under the step's name",
-	Check: func(l Locations) (Status, string, error) {
+	Check: func(l Locations) Found {
 		config, err := readMachine(l)
 		if err != nil {
-			return Pending, "", err
+			return Found{Status: Pending, Refusal: err}
 		}
 		if !renameChoices(config) {
-			return Done, "", nil
+			return Found{Status: Done}
 		}
-		return Pending, "renames costs-ingest to agent-costs-ingest in the saved choices of " +
-			display.PathFrom(l.Home, l.Runtime.MachineConfig()), nil
+		return Found{
+			Status: Pending,
+			Headline: "renames costs-ingest to agent-costs-ingest in the saved choices of " +
+				display.PathFrom(l.Home, l.Runtime.MachineConfig()),
+		}
 	},
 	Run: func(_ context.Context, l Locations) ([]string, error) {
 		operation.RemoveStaleWrites(l.Runtime.Config)

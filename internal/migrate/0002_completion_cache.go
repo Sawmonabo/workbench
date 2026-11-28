@@ -29,7 +29,7 @@ var completionCache = Migration{
 		"is named.",
 	Recovery: "nothing to undo: the deleted file is a cache the next shell rebuilds in " +
 		"Workbench's cache folder",
-	Check: func(l Locations) (Status, string, error) {
+	Check: func(l Locations) Found {
 		ours, other, unread := oldCompletions(l)
 		var text []string
 		if len(ours) > 0 {
@@ -38,13 +38,14 @@ var completionCache = Migration{
 		if len(other) > 0 {
 			text = append(text, keeps(other))
 		}
-		if len(unread) > 0 {
-			return Pending, strings.Join(text, " and "), errors.New(strings.Join(unread, " and "))
+		found := Found{Status: Pending, Headline: strings.Join(text, " and ")}
+		switch {
+		case len(unread) > 0:
+			found.Refusal = errors.New(strings.Join(unread, " and "))
+		case len(ours) == 0:
+			found.Status = Done
 		}
-		if len(ours) == 0 {
-			return Done, strings.Join(text, " and "), nil
-		}
-		return Pending, strings.Join(text, " and "), nil
+		return found
 	},
 	Run: func(_ context.Context, l Locations) ([]string, error) {
 		var kept []string

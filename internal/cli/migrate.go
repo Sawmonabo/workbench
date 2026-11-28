@@ -108,33 +108,35 @@ func migrateList(cmd *cobra.Command, c operation.Context) (operation.Result, err
 	result.Warnings = append(result.Warnings, operation.WarnAll(locations.Notes...)...)
 	for _, f := range findings {
 		component := operation.Component{Name: f.ID, Title: f.ID + " " + f.Title}
+		run := operation.Explain(operation.Fix("workbench", "migrate"))
+		component.Body = f.Body
 		switch f.Status {
 		case migrate.Done:
 			component.Status, component.Message = operation.StatusUnchanged, "nothing to do"
 			if at := migrate.DoneAt(locations, f.ID); at != "" {
 				component.Message = "done " + at
 			}
-			if f.Detail != "" {
-				component.Message += ", " + f.Detail
+			if f.Headline != "" {
+				component.Message += ", " + f.Headline
 			}
 		case migrate.Conflict:
-			component.Status, component.Message = operation.StatusConflict, f.Detail
+			component.Status, component.Message = operation.StatusConflict, f.Headline
 		case migrate.Unfinished:
 			component.Status = operation.StatusPending
-			component.Message = "unfinished: " + f.Detail
-			component.Body = operation.Explain(operation.Fix("workbench", "migrate"))
+			component.Message = "unfinished: " + f.Headline
+			component.Body = f.With(run)
 		default:
 			component.Status = operation.StatusPending
-			component.Message = f.Detail
-			component.Body = operation.Explain(operation.Fix("workbench", "migrate"))
+			component.Message = f.Headline
+			component.Body = f.With(run)
 			if f.Refusal != nil {
 				// A run refuses it the same way, so the line says the
 				// refusal and its fix, not that a run does it.
 				component.Status = operation.StatusBlocked
 				component.Message, component.Body = operation.Explained(f.Refusal)
-				if f.Detail != "" {
+				if also := f.Sentence(f.Headline); also != "" {
 					component.Body = operation.Explain(
-						operation.Line{Label: "would also", Text: f.Detail},
+						operation.Line{Label: "would also", Text: also},
 					).With(component.Body)
 				}
 			}
@@ -228,17 +230,20 @@ func migrateShown(
 		err = operation.Fail(
 			operation.ExitConflict,
 			"migrate",
-			"A migration needs you: deal with each file the warnings name as they say",
+			"A migration needs you",
+			operation.FixText("deal with each file the warnings name as they say"),
 		)
 	}
 	result.Results = append(result.Results, component)
 	for _, f := range findings {
-		if f.ID == migrate.AgentFolders.ID && f.Status == migrate.Done && f.Detail != "" {
+		if f.ID == migrate.AgentFolders.ID && f.Status == migrate.Done &&
+			(f.Headline != "" || !f.Empty()) {
 			result.Results = append(result.Results, operation.Component{
 				Name:    f.ID,
 				Title:   f.ID + " " + f.Title,
 				Status:  operation.StatusUnchanged,
-				Message: f.Detail,
+				Message: f.Headline,
+				Body:    f.Body,
 			})
 		}
 	}

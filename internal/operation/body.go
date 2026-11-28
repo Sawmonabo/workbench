@@ -94,9 +94,10 @@ func (b Body) With(more Body) Body {
 func (b Body) Empty() bool { return len(b.Lines) == 0 && len(b.Fix) == 0 }
 
 // Sentence is headline and b in one line, for a log, an error that wraps
-// another, and a filter's one line on standard error: the headline, then
-// after a colon each line (a cause by its text alone, any other line after
-// its label), then "fix:" and the fix lines, each part set off by "; ".
+// another, a filter's one line on standard error and a probe line: the
+// headline, then after a colon each line (a cause by its text alone, any
+// other line after its label), then "fix:" and the fix lines, each part set
+// off by "; ". With no headline the lines stand alone.
 func (b Body) Sentence(headline string) string {
 	var said []string
 	for _, line := range b.Lines {
@@ -109,8 +110,11 @@ func (b Body) Sentence(headline string) string {
 	if len(b.Fix) > 0 {
 		said = append(said, "fix: "+strings.Join(b.Fix, "; "))
 	}
-	if len(said) == 0 {
+	switch {
+	case len(said) == 0:
 		return headline
+	case headline == "":
+		return strings.Join(said, "; ")
 	}
 	return headline + ": " + strings.Join(said, "; ")
 }

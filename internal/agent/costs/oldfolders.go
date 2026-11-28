@@ -30,13 +30,17 @@ const (
 // or an old folder can't be read, Conflict when only conflicts are left. Ledger
 // is the ledger's own, which alone decides whether the import may open the new
 // ledger. Data is State with the empty old folders left out: they hold
-// nothing, so only the migration waits for them. Text names the paths,
-// home-relative, and never holds "; ". Kept names, home-relative, the files in
-// the old claude-costs folders that Workbench didn't write, once nothing else
-// is left.
+// nothing, so only the migration waits for them. Text is what a run does
+// and each old folder it can't read, one clause naming the paths,
+// home-relative ("moves …, deletes …"), "" when nothing; Problems is what
+// keeps the move from finishing, a line for each pair of files that hold
+// different data and each link, then the fix of each kind. Kept names, home-relative, the files
+// in the old claude-costs folders that Workbench didn't write, once nothing
+// else is left.
 type FolderCheck struct {
 	State, Ledger, Data FolderState
 	Text                string
+	Problems            operation.Body
 	Kept                []string
 }
 
@@ -58,31 +62,67 @@ func CheckOwnFolders(p Paths) error {
 	return nil
 }
 
+// conflictLabel labels each problem [CheckFolders] finds.
+const conflictLabel = "conflict"
+
+// The fixes of the problems [CheckFolders] finds.
+var (
+	fixDiffers = operation.FixText("move one of them aside")
+	fixLink    = operation.FixText("put the file each link names in its place, or remove the link")
+)
+
+// Said is the check as a headline and its body: Text and the problems, or,
+// when a run has nothing to do, the one problem as the headline with its
+// cause and fix, or "the costs files can't all move" above several.
+func (c FolderCheck) Said() (string, operation.Body) {
+	lines := c.Problems.Lines
+	conflicts := 0
+	for _, line := range lines {
+		if line.Label == conflictLabel {
+			conflicts++
+		}
+	}
+	switch {
+	case c.Text != "" || conflicts == 0:
+		return c.Text, c.Problems
+	case conflicts == 1:
+		return lines[0].Text, operation.Body{Lines: lines[1:], Fix: c.Problems.Fix}
+	}
+	return "the costs files can't all move", c.Problems
+}
+
 // CheckFolders says what is left of the costs move. It looks at which paths
 // exist (Lstat) and lists the old claude-costs folders, to find one that is
 // empty, one it can't read, and the files it keeps there. It never opens the
 // ledger, locks or changes anything.
 func CheckFolders(old OldPaths, p Paths) FolderCheck {
 	old = old.apart(p)
-	var moved, deleted, conflicts []string
+	var moved, deleted []string
+	var problems []operation.Part
+	var differs, links bool
 	conflict := func(from, to string) {
-		conflicts = append(
-			conflicts,
-			"leaves "+display.PathFrom(p.Home, from)+" and "+display.PathFrom(p.Home, to)+
-				", which hold different data (remove one)",
-		)
+		problems = append(problems, differsLine(p.Home, from, to))
+		differs = true
 	}
 	link := func(from string) {
-		conflicts = append(conflicts, "leaves "+display.PathFrom(p.Home, from)+
-			", a link (put the file it names in its place, or remove it)")
+		problems = append(problems, operation.Line{
+			Label: conflictLabel,
+			Text:  display.PathFrom(p.Home, from) + " is a link",
+		})
+		links = true
 	}
 	check := FolderCheck{Ledger: ledgerState(old, p)}
 	switch check.Ledger {
 	case FoldersConflict:
 		switch {
 		case old.Ledger == "":
-			conflicts = append(conflicts, "can't find the old ledger because "+old.Unresolved+
-				" (make it absolute, or unset it)")
+			// old.Unresolved names the variable: "CLAUDE_COSTS_LEDGER is
+			// relative (…)".
+			variable, _, _ := strings.Cut(old.Unresolved, " ")
+			problems = append(problems,
+				operation.Line{Label: conflictLabel, Text: "the old ledger can't be found"},
+				operation.Cause(old.Unresolved),
+				operation.FixText("make "+variable+" absolute, or unset it"))
 		case linked(old.Ledger):
 			link(old.Ledger)
 		case exists(old.Ledger + ".moved"):
@@ -124,10 +164,16 @@ func CheckFolders(old OldPaths, p Paths) FolderCheck {
 		text = append(text, "removes the empty folder "+folder)
 	}
 	text = append(text, folders.unreadable...)
-	text = append(text, conflicts...)
+	if differs {
+		problems = append(problems, fixDiffers)
+	}
+	if links {
+		problems = append(problems, fixLink)
+	}
+	check.Problems = operation.Explain(problems...)
 	check.settle(
 		len(moved) > 0 || len(deleted) > 0 || len(folders.unreadable) > 0,
-		len(conflicts) > 0,
+		len(check.Problems.Lines) > 0,
 		folders,
 	)
 	check.Text = strings.Join(text, " and ")
@@ -200,15 +246,38 @@ func busy(why string) error {
 	)
 }
 
-// conflictError is the error of a move that would leave text, such as a
-// [FolderCheck]'s Text, with what it leaves as its cause and fix after it.
-func conflictError(text string, fix ...operation.Part) error {
-	return operation.Fail(
+// conflictError is the error of a move that check leaves in conflict: its
+// problems, and what a run would still do once they are dealt with.
+func conflictError(check FolderCheck) error {
+	return operation.FailWith(
 		operation.ExitConflict,
 		"conflict",
 		"The costs files can't all move",
-		append([]operation.Part{operation.Cause("it " + text)}, fix...)...,
+		check.left(),
 	)
+}
+
+// differsLine is the problem of the files at a and b, which hold different
+// data.
+func differsLine(home, a, b string) operation.Line {
+	return operation.Line{
+		Label: conflictLabel,
+		Text: display.PathFrom(
+			home,
+			a,
+		) + " and " + display.PathFrom(
+			home,
+			b,
+		) + " hold different data",
+	}
+}
+
+// left is check's problems, after what a run would still do.
+func (c FolderCheck) left() operation.Body {
+	if c.Text == "" {
+		return c.Problems
+	}
+	return operation.Explain(operation.Line{Label: "would also", Text: c.Text}).With(c.Problems)
 }
 
 // MoveFolders moves the costs files from old into p's folders, the price
@@ -242,7 +311,7 @@ func moveFolders(ctx context.Context, old OldPaths, p Paths) (left []string, err
 	case FoldersDone:
 		return nil, nil
 	case FoldersConflict:
-		return nil, conflictError(check.Text)
+		return nil, conflictError(check)
 	default:
 	}
 	release, err := lockImports(old, p)
@@ -288,12 +357,13 @@ func moveFolders(ctx context.Context, old OldPaths, p Paths) (left []string, err
 	switch {
 	case after.State == FoldersConflict, after.Ledger == FoldersConflict:
 		// The text names the ledger's conflict, so ledgerErr would repeat it.
-		return folders.kept, conflictError(after.Text)
+		return folders.kept, conflictError(after)
 	case len(folders.unreadable) > 0:
-		return folders.kept, errors.Join(ledgerErr, operation.Fail(
+		return folders.kept, errors.Join(ledgerErr, operation.FailWith(
 			operation.ExitFailed,
 			"migrate",
-			"The costs files can't all move: it "+after.Text,
+			"The costs files can't all move",
+			after.left(),
 		))
 	}
 	// A ledger error, or a copy that differs from its set-aside original, never
@@ -456,7 +526,7 @@ func gate(ctx context.Context, paths Paths, move bool) (Paths, error) {
 	case !move && check.Data == FoldersConflict && check.Ledger == FoldersDone:
 		return paths, nil
 	case !move && check.Data == FoldersConflict:
-		return paths, conflictError(check.Text)
+		return paths, conflictError(check)
 	case !move:
 		return paths, operation.Fail(
 			operation.ExitBlocked,
@@ -485,7 +555,7 @@ func gate(ctx context.Context, paths Paths, move bool) (Paths, error) {
 		if moveErr != nil {
 			return paths, moveErr
 		}
-		return paths, conflictError(after.Text)
+		return paths, conflictError(after)
 	}
 	if moveErr != nil {
 		writeLog(paths, "the ledger moved, but not every costs file: "+moveErr.Error())

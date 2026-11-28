@@ -33,16 +33,16 @@ var priceLists = Migration{
 		"keeps every list.",
 	Recovery: "nothing to undo: the prices are in the ledger, and the import downloads a " +
 		"list again once it is a week old",
-	Check: func(l Locations) (Status, string, error) {
+	Check: func(l Locations) Found {
 		p := costs.LocationsIn(l.Home, l.Runtime)
 		lists := priceListFiles(p.Ledger)
 		// 0001, which runs first, moves there the lists of the claude-costs
 		// folders, so the same run deletes them once the ledger has their prices.
-		if status, _, _ := costsFolders.Check(l); status == Pending || status == Unfinished {
+		if status := costsFolders.Check(l).Status; status == Pending || status == Unfinished {
 			lists = append(lists, costs.PriceListsMoving(l.OldCosts, p)...)
 		}
 		if len(lists) == 0 {
-			return Done, "", nil
+			return Found{Status: Done}
 		}
 		// 0007, which runs first, moves a data folder it can move under
 		// agent/, where the run then deletes them.
@@ -55,8 +55,20 @@ var priceLists = Migration{
 			}
 			shown[i] = display.PathFrom(l.Home, path)
 		}
-		return Pending, "deletes " + strings.Join(shown, ", ") +
-			" once the ledger holds their prices, and each folder they leave empty", nil
+		leave := "they leave"
+		if len(shown) == 1 {
+			leave = "it leaves"
+		}
+		return Found{
+			Status: Pending,
+			Headline: "deletes " + strings.Join(
+				shown,
+				", ",
+			) + " and each folder " + leave + " empty",
+			Body: operation.Explain(
+				operation.Line{Label: "after", Text: "the ledger takes in their prices"},
+			),
+		}
 	},
 	Run: func(ctx context.Context, l Locations) ([]string, error) {
 		ledger, err := costs.LocationsIn(l.Home, l.Runtime).OpenExisting(ctx)

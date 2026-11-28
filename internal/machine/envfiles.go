@@ -94,8 +94,7 @@ func workTokensWaiting() bool {
 	if err != nil {
 		return true
 	}
-	status, _, _ := migrate.WorkTokens.Check(l)
-	return status != migrate.Done
+	return migrate.WorkTokens.Check(l).Status != migrate.Done
 }
 
 // EnvFilesRun creates each env file the machine's roles use that is missing,

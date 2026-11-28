@@ -22,25 +22,28 @@ var costsFolders = Migration{
 		"it doesn't know stays, with its folder.",
 	Recovery: "moves keep every ledger row and every other file's bytes, so moving the " +
 		"files back by hand restores the old layout",
-	Check: func(l Locations) (Status, string, error) {
+	Check: func(l Locations) Found {
 		check := costs.CheckFolders(l.OldCosts, l.Costs)
 		if check.State != costs.FoldersDone {
 			// What it found is read in the costs folders, so a folder
 			// refused there is said instead.
 			if err := costs.CheckOwnFolders(l.Costs); err != nil {
-				return Pending, "", err
+				return Found{Status: Pending, Refusal: err}
 			}
 		}
+		headline, body := check.Said()
+		found := Found{Headline: headline, Body: body}
 		switch check.State {
 		case costs.FoldersPending:
-			return Pending, check.Text, nil
+			found.Status = Pending
 		case costs.FoldersUnfinished:
-			return Unfinished, check.Text, nil
+			found.Status = Unfinished
 		case costs.FoldersConflict:
-			return Conflict, check.Text, nil
+			found.Status = Conflict
 		default:
-			return Done, keeps(check.Kept), nil
+			return Found{Status: Done, Headline: keeps(check.Kept)}
 		}
+		return found
 	},
 	Run: func(ctx context.Context, l Locations) ([]string, error) {
 		return costs.MoveFolders(ctx, l.OldCosts, l.Costs)

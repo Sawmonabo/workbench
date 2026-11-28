@@ -489,11 +489,13 @@ happens:
 - `--yes` with `--approve-plan` is refused (exit 2): both approve. So are
   `--dry-run`, `--yes` and `--approve-plan` without `--apply`.
 - When only conflicts are left, it names them as warnings and exits 4
-  (`ExitConflict`) with "A migration needs you: deal with each file the
-  warnings name as they say"; it never says "Nothing to migrate" then.
+  (`ExitConflict`) with "A migration needs you" and the fix line "deal with
+  each file the warnings name as they say"; it never says "Nothing to
+  migrate" then.
 - **Exit codes of a run** (`migrate run`, `migrate --apply`): a conflict, found
   by the check or met during the run, exits 4 and says the migration "can't
-  finish until you deal with each file named above as it says". Unlike exit 4
+  finish", with the fix line "deal with each file named above as it says".
+  Unlike exit 4
   elsewhere, it comes after the run has finished every move that doesn't
   conflict, and the other migrations, and has named what it left. Anything
   else that stops a migration (a lock another run holds, a lock that can't be
@@ -623,8 +625,8 @@ folder or single-link file (a name differing only in case, say).
 
 **A link is never moved or read through.** A link at an old file's path (the
 ledger or a price cache) that doesn't name the new file is a
-conflict, "leaves X, a link (put the file it names in its place, or remove
-it)", whether or not a ledger is at the new path. Moving it could leave a
+conflict, "X is a link", with the fix line "put the file each link names in
+its place, or remove the link", whether or not a ledger is at the new path. Moving it could leave a
 relative link pointing nowhere, and the file it names isn't one Workbench
 placed there. An old `claude-costs` folder that is a link is never removed:
 it is named as a file Workbench didn't write.

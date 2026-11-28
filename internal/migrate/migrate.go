@@ -63,10 +63,11 @@ type Locations struct {
 	Notes                    []string
 }
 
-// Migration is one numbered migration. Check changes nothing; its text says
-// what a run would do, or, for a Done migration, what it found and leaves. A
-// path it can't inspect counts as there, so nothing is called done that
-// isn't: Check returns why as its error, and the run refuses the same way. Run finishes whatever is left, and
+// Migration is one numbered migration. Check changes nothing; what it found
+// (see [Found]) says what a run would do, or, for a Done migration, what it
+// found and leaves. A path it can't inspect counts as there, so nothing is
+// called done that isn't: Check gives why as its refusal, and the run
+// refuses the same way. Run finishes whatever is left, and
 // running it twice only completes the remaining moves. Run returns the files,
 // home-relative, it found and left because Workbench didn't write them, or,
 // for a migration with Leaves, what Leaves turns into the text naming what it
@@ -77,7 +78,7 @@ type Migration struct {
 	Doing    string // "moving the costs files into Workbench's folders"
 	What     string // one paragraph naming every path it touches
 	Recovery string // how to undo it, for the plan
-	Check    func(Locations) (Status, string, error)
+	Check    func(Locations) Found
 	Run      func(context.Context, Locations) ([]string, error)
 	Leaves   func(left []string) string // nil: Run's files are named with keeps
 }
@@ -145,30 +146,42 @@ func (l *Locations) shellDefault(name, fallback string) string {
 	return path
 }
 
-// Finding is one migration with what its Check found: Detail, what a run
-// would do or what it found, and, for a Pending one that reads a file it is
-// refused or cannot read, Refusal, which a run gives the same way.
-type Finding struct {
-	Migration
-	Status  Status
-	Detail  string
+// Found is what a migration's Check found: its status; Headline, one clause
+// saying what a run would do, what it found and leaves, or what is wrong
+// ("" for nothing); the body under it, what a headline of what is wrong or
+// what stays needs said apart (why, and what to do); and, for a Pending one
+// that reads a file it is refused or cannot read, Refusal, which a run gives
+// the same way. The plan's warning, the migrate --dry-run line and a run's
+// refusal draw the headline and the body; a probe line and a run's progress
+// line say them in one line (see [Finding.Said]).
+type Found struct {
+	Status   Status
+	Headline string
+	operation.Body
 	Refusal error
 }
 
-// Said is Detail and the refusal, in one line.
+// Finding is one migration with what its Check found.
+type Finding struct {
+	Migration
+	Found
+}
+
+// Said is the finding in one line: the headline and body (see
+// [operation.Body.Sentence]), then the refusal.
 func (f Finding) Said() string {
+	said := f.Sentence(f.Headline)
 	if f.Refusal == nil {
-		return f.Detail
+		return said
 	}
-	return strings.TrimPrefix(f.Detail+"; "+f.Refusal.Error(), "; ")
+	return strings.TrimPrefix(said+"; "+f.Refusal.Error(), "; ")
 }
 
 // Check runs every migration's Check, in number order.
 func Check(l Locations) []Finding {
 	findings := make([]Finding, len(registry))
 	for i, m := range registry {
-		status, detail, refusal := m.Check(l)
-		findings[i] = Finding{m, status, detail, refusal}
+		findings[i] = Finding{m, m.Check(l)}
 	}
 	return findings
 }
@@ -208,7 +221,8 @@ func Run(ctx context.Context, l Locations, wanted []string, say func(string)) er
 		}
 		if held {
 			failed := conflicts(findings, say)
-			say("another migration run is moving files, and the next apply tries again")
+			say("another migration run is moving files")
+			say("the next apply tries again")
 			if len(failed) > 0 {
 				return unfinished(failed, operation.ExitConflict)
 			}
@@ -300,11 +314,12 @@ func runOne(ctx context.Context, l Locations, f Finding, say func(string)) error
 func unfinished(ids []string, exit operation.Exit) error {
 	names := strings.Join(ids, ", ")
 	if exit == operation.ExitConflict {
-		return operation.Fail(exit, "conflict", names+
-			" can't finish until you deal with each file named above as it says")
+		return operation.Fail(exit, "conflict", names+" can't finish",
+			operation.FixText("deal with each file named above as it says"))
 	}
-	return operation.Fail(exit, "migrate", names+
-		" didn't finish (the output above says why), and the next apply tries again")
+	return operation.Fail(exit, "migrate", names+" didn't finish",
+		operation.Cause("the output above says why"),
+		operation.Line{Label: "next run", Text: "the next apply tries again"})
 }
 
 // needsNewer is what is said of a migration the installed binary doesn't know.
@@ -404,7 +419,10 @@ func Plan(scope operation.Scope, l Locations, findings []Finding) operation.Plan
 				Checked:     true,
 			})
 		case f.Status == Conflict:
-			plan.Warnings = append(plan.Warnings, operation.Warn(f.ID+": "+f.Detail))
+			plan.Warnings = append(plan.Warnings, operation.Warning{
+				Message: f.ID + ": " + f.Headline,
+				Body:    f.Body,
+			})
 		}
 	}
 	return plan

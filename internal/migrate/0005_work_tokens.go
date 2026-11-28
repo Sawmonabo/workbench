@@ -34,15 +34,12 @@ var WorkTokens = Migration{
 		"they are. Without the work role it changes nothing.",
 	Recovery: "nothing is lost: work.env holds the tokens, so copying them back into " +
 		"machine.toml by hand restores the old answers",
-	Check: func(l Locations) (Status, string, error) {
+	Check: func(l Locations) Found {
 		found := findWorkTokens(l)
 		if found.status == Pending && found.err != nil {
-			return Pending, "", found.err
+			return Found{Status: Pending, Refusal: found.err}
 		}
-		if found.byHand != "" {
-			return found.status, found.text + ", so " + found.byHand, nil
-		}
-		return found.status, found.text, nil
+		return Found{Status: found.status, Headline: found.headline, Body: found.body}
 	},
 	Run: func(_ context.Context, l Locations) ([]string, error) {
 		operation.RemoveStaleWrites(l.Runtime.Config)
@@ -62,11 +59,12 @@ var WorkTokens = Migration{
 			}
 		case Unfinished:
 		default:
-			var fix []operation.Part
-			if found.byHand != "" {
-				fix = append(fix, operation.FixText(found.byHand))
-			}
-			return nil, operation.Fail(operation.ExitConflict, "conflict", found.text, fix...)
+			return nil, operation.FailWith(
+				operation.ExitConflict,
+				"conflict",
+				found.headline,
+				found.body,
+			)
 		}
 		for _, key := range envfile.TokenAnswers {
 			delete(found.data, key[0])
@@ -79,28 +77,29 @@ var WorkTokens = Migration{
 	},
 }
 
-// tokensFound is where 0005 stands: its status and text, the whole of
+// tokensFound is where 0005 stands: its status, its headline and the body
+// under it (the config folder that holds machine.toml and work.env, why, and
+// the fix of a conflict: what to copy and delete by hand), the whole of
 // machine.toml as read with its [data] table, and the work.env values to
 // write.
 type tokensFound struct {
-	status Status
-	text   string
-	byHand string // the fix of a conflict: what to copy and delete by hand
-	err    error
-	config map[string]any
-	data   map[string]any
-	values map[string]string
+	status   Status
+	headline string
+	body     operation.Body
+	err      error
+	config   map[string]any
+	data     map[string]any
+	values   map[string]string
 }
 
 // findWorkTokens reads machine.toml and work.env and says where 0005 stands.
-// Its text names files and keys, never a value.
+// What it says names files and keys, never a value.
 func findWorkTokens(l Locations) tokensFound {
-	machine := display.PathFrom(l.Home, l.Runtime.MachineConfig())
-	env := display.PathFrom(l.Home, envfile.Path(l.Runtime.Config, "work"))
 	config, err := readMachine(l)
 	if err != nil {
-		return tokensFound{status: Pending, text: err.Error(), err: err}
+		return tokensFound{status: Pending, err: err}
 	}
+	folder := operation.Line{Label: "folder", Text: display.PathFrom(l.Home, l.Runtime.Config)}
 	data, _ := config["data"].(map[string]any)
 	var keys []string
 	for _, key := range envfile.TokenAnswers {
@@ -111,21 +110,28 @@ func findWorkTokens(l Locations) tokensFound {
 	if len(keys) == 0 {
 		return tokensFound{status: Done}
 	}
-	named := strings.Join(keys, " and ")
+	named, them := strings.Join(keys, " and "), "them"
+	if len(keys) == 1 {
+		them = "it"
+	}
 	if role := data["machine_role"]; role != "work" && role != "both" {
 		return tokensFound{
-			status: Done,
-			text:   machine + " holds " + named + " without the work role: delete them",
+			status:   Done,
+			headline: "machine.toml holds " + named + " without the work role",
+			body:     operation.Explain(folder, operation.FixText("delete "+them+" by hand")),
 		}
 	}
-	byHand := "copy " + named + " from " + machine + " into " + env +
-		" by hand and delete them from " + machine
+	byHand := operation.Explain(
+		folder,
+		operation.FixText("copy "+named+" from machine.toml into work.env by hand"),
+		operation.FixText("then delete "+them+" from machine.toml"),
+	)
 	values, bad := envfile.WorkValues(data)
 	if bad != "" {
 		return tokensFound{
-			status: Conflict,
-			text:   bad + " in " + machine + " isn't one line of text",
-			byHand: byHand,
+			status:   Conflict,
+			headline: bad + " in machine.toml isn't one line of text",
+			body:     byHand,
 		}
 	}
 	found := tokensFound{config: config, data: data, values: values}
@@ -135,25 +141,30 @@ func findWorkTokens(l Locations) tokensFound {
 		"work.env",
 	)
 	if !there {
-		found.status, found.text = Pending, "moves "+named+" from "+machine+" into a new "+env
+		found.status = Pending
+		found.headline = "moves " + named + " from machine.toml into a new work.env"
+		found.body = operation.Explain(folder)
 		return found
 	}
 	if err != nil {
 		// The read's refusal names work.env and what is wrong with it, never
 		// what it holds; once work.env can be read, the next run goes on.
-		return tokensFound{status: Conflict, text: err.Error()}
+		headline, body := operation.Explained(err)
+		return tokensFound{status: Conflict, headline: headline, body: body}
 	}
 	saved := envfile.Assignments(held)
 	for _, key := range envfile.TokenAnswers {
 		if _, ok := data[key[0]]; ok && saved[key[1]] != values[key[1]] {
 			return tokensFound{
-				status: Conflict,
-				text:   env + " already holds other values",
-				byHand: byHand,
+				status:   Conflict,
+				headline: "work.env already holds other values",
+				body:     byHand,
 			}
 		}
 	}
-	found.status, found.text = Unfinished, "deletes "+named+" from "+machine+", which "+env+" already holds"
+	found.status = Unfinished
+	found.headline = "deletes " + named + " from machine.toml"
+	found.body = operation.Explain(operation.Cause("work.env already holds "+them), folder)
 	return found
 }
 

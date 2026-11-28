@@ -36,7 +36,7 @@ var oldGuardLog = Migration{
 		"it holds such lines. A log without them is left alone.",
 	Recovery: "nothing to undo: the removed lines are in an old format nothing reads, and " +
 		"the guard's records stay",
-	Check: func(l Locations) (Status, string, error) {
+	Check: func(l Locations) Found {
 		var todo, other, unread []string
 		for _, path := range guardLogPaths(l) {
 			shown := display.PathFrom(l.Home, path)
@@ -57,13 +57,14 @@ var oldGuardLog = Migration{
 		if len(other) > 0 {
 			text = append(text, keeps(other))
 		}
-		if len(unread) > 0 {
-			return Pending, strings.Join(text, " and "), errors.New(strings.Join(unread, " and "))
+		found := Found{Status: Pending, Headline: strings.Join(text, " and ")}
+		switch {
+		case len(unread) > 0:
+			found.Refusal = errors.New(strings.Join(unread, " and "))
+		case len(todo) == 0:
+			found.Status = Done
 		}
-		if len(todo) == 0 {
-			return Done, strings.Join(text, " and "), nil
-		}
-		return Pending, strings.Join(text, " and "), nil
+		return found
 	},
 	Run: func(_ context.Context, l Locations) ([]string, error) {
 		var kept []string

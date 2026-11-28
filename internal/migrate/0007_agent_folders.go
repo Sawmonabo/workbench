@@ -45,23 +45,27 @@ var AgentFolders = Migration{
 	Recovery: "nothing is lost: each folder moves whole with every file in it, and the " +
 		"logs, locks, sockets and price lists deleted from an old folder beside one in use " +
 		"are made again",
-	Check: func(l Locations) (Status, string, error) {
-		status := Done
-		var text []string
-		var refusal error
+	Check: func(l Locations) Found {
+		found := Found{Status: Done}
+		var actions []string
 		for _, s := range inspectAgentFolders(l) {
 			if s.due() {
-				status = Pending
+				found.Status = Pending
 			}
-			if s.standing == refused && refusal == nil {
+			if s.standing == refused && found.Refusal == nil {
 				// The first folder refused is said as its refusal, with its
-				// fix; any other is named in the text.
-				refusal = s.err
-			} else if t := s.text(l.Home); t != "" {
-				text = append(text, t)
+				// cause and fix; any other is named in its lines.
+				found.Refusal = s.err
+				continue
 			}
+			action, lines := s.said(l.Home)
+			if action != "" {
+				actions = append(actions, action)
+			}
+			found.Lines = append(found.Lines, lines...)
 		}
-		return status, strings.Join(text, " and "), refusal
+		found.Headline = strings.Join(actions, " and ")
+		return found
 	},
 	Run: func(_ context.Context, l Locations) ([]string, error) {
 		// A move whose only failure is a file system that can't swap two
@@ -109,36 +113,41 @@ var AgentFolders = Migration{
 				errs = append(errs, operation.Fail(
 					operation.ExitBlocked,
 					"busy",
-					display.PathFrom(
-						l.Home,
-						s.old,
-					)+" didn't move, and the next apply tries again",
+					display.PathFrom(l.Home, s.old)+" didn't move",
+					operation.Line{Label: "next run", Text: "the next apply tries again"},
 				))
 			case s.standing != movable:
-				if t := s.text(l.Home); t != "" {
+				action, lines := s.said(l.Home)
+				if t := (operation.Body{Lines: lines}).Sentence(action); t != "" {
 					left = append(left, t)
 				}
 			}
 		}
 		return left, errors.Join(errs...)
 	},
-	Leaves: func(left []string) string { return strings.Join(left, " and ") },
+	Leaves: func(left []string) string { return strings.Join(left, "; ") },
 }
 
 // AgentFoldersLeft is doctor's line for 0007: the old folders that stay, each
-// named as Check names it, "" when none does, and the line's status: pending
-// while a run has something to do, conflict when an old folder keeps files
-// beside the folder in use, and skipped when a watcher or an import works in
-// one or its file system can't swap two names, which needs nothing done.
-func AgentFoldersLeft(l Locations) (operation.Status, string) {
+// named as Check names it, as a headline of what a run does with them and
+// the lines that say what stays and why, both empty when none does, and the
+// line's status: pending while a run has something to do, conflict when an
+// old folder keeps files beside the folder in use, and skipped when a watcher
+// or an import works in one or its file system can't swap two names, which
+// needs nothing done.
+func AgentFoldersLeft(l Locations) (operation.Status, string, operation.Body) {
 	status := operation.StatusSkipped
-	var text []string
+	var actions []string
+	var body operation.Body
 	for _, s := range inspectAgentFolders(l) {
-		t := s.text(l.Home)
-		if t == "" {
+		action, lines := s.said(l.Home)
+		if action == "" && len(lines) == 0 {
 			continue
 		}
-		text = append(text, t)
+		if action != "" {
+			actions = append(actions, action)
+		}
+		body.Lines = append(body.Lines, lines...)
 		switch {
 		case s.due():
 			status = operation.StatusPending
@@ -146,7 +155,7 @@ func AgentFoldersLeft(l Locations) (operation.Status, string) {
 			status = operation.StatusConflict
 		}
 	}
-	return status, strings.Join(text, " and ")
+	return status, strings.Join(actions, " and "), body
 }
 
 // agentFolder is one folder 0007 moves: its old path, its path under agent/,
@@ -254,42 +263,57 @@ func (s folderState) due() bool {
 	return false
 }
 
-// text is what Check says of the folder: what a run does with it, or why it
-// stays, home-relative; "" once it has moved.
-func (s folderState) text(home string) string {
+// said is what Check says of the folder, home-relative: what a run does
+// with it, one action of the headline, or the lines that say what stays and
+// why; both empty once it has moved.
+func (s folderState) said(home string) (string, []operation.Line) {
 	old, root := display.PathFrom(home, s.old), display.PathFrom(home, s.new)
-	who := "an import"
-	if s.guard {
-		who = "a watcher"
-	}
+	leaves := func(text string) operation.Line { return operation.Line{Label: "leaves", Text: text} }
 	switch s.standing {
 	case movable:
-		return "moves " + old + " to " + root
+		return "moves " + old + " to " + root, nil
 	case unread:
-		return operation.Unread(home, s.old, s.err)
+		return operation.Unread(home, s.old, s.err), nil
 	case refused:
 		headline, _ := operation.Explained(s.err)
-		return "leaves " + old + " where it is, as " + headline
+		return "", []operation.Line{leaves(old + " where it is"), operation.Cause(headline)}
 	case noSwap:
-		return "leaves " + old + " in use where it is, since its file system can't swap two names"
+		return "", []operation.Line{
+			leaves(old + " in use where it is (its file system can't swap two names)"),
+		}
 	case inUse:
+		who := "an import"
+		if s.guard {
+			who = "a watcher"
+		}
 		switch {
 		case operation.IsFolder(s.new):
-			return "leaves " + old + ", beside " + root + ", while " + who + " works in it"
+			return "", []operation.Line{
+				leaves(old + " beside " + root + " while " + who + " works in it"),
+			}
 		case s.guard:
-			return "leaves " + old + " to the watcher running in it, and once that watcher has " +
-				"ended, the next watcher, guard hook or migrate run moves it to " + root
+			return "", []operation.Line{
+				leaves(old + " to the watcher running in it"),
+				{
+					Label: "then",
+					Text:  "once it ends, the next watcher, guard hook or migrate run moves it to " + root,
+				},
+			}
 		}
-		return "leaves " + old + " to the import running in it, and the next import moves it to " + root
+		return "", []operation.Line{
+			leaves(old + " to the import running in it"),
+			{Label: "then", Text: "the next import moves it to " + root},
+		}
 	case besideNew:
 		return s.sorted(old, root)
 	case moved:
 	}
-	return ""
+	return "", nil
 }
 
-// sorted is the text for an old folder beside the one in use.
-func (s folderState) sorted(old, root string) string {
+// sorted is what Check says of an old folder beside the one in use: what a
+// run deletes from it, and the lines naming what it keeps there and why.
+func (s folderState) sorted(old, root string) (string, []operation.Line) {
 	var parts []string
 	if s.due() {
 		var names []string
@@ -309,15 +333,17 @@ func (s folderState) sorted(old, root string) string {
 			parts = append(parts, "removes "+old+" once it is empty")
 		}
 	}
+	var lines []operation.Line
 	if len(s.stays) > 0 {
 		kept := make([]string, len(s.stays))
 		for i, path := range s.stays {
 			kept[i] = s.inside(path)
 		}
-		parts = append(parts, "keeps "+strings.Join(kept, ", ")+" in "+old+" beside "+root+
-			", which is in use, since nothing is merged into it")
+		lines = append(lines,
+			operation.Line{Label: "keeps", Text: strings.Join(kept, ", ") + " in " + old},
+			operation.Cause("nothing is merged into "+root+", the folder in use"))
 	}
-	return strings.Join(parts, " and ")
+	return strings.Join(parts, " and "), lines
 }
 
 // inside is path relative to the old folder.

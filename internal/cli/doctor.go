@@ -245,15 +245,22 @@ func guardWatcher(ctx context.Context) operation.Component {
 // why it stays (see [migrate.AgentFoldersLeft]). There is no line once every
 // folder has moved.
 func oldAgentFolders(c operation.Context) []operation.Component {
-	status, text := migrate.AgentFoldersLeft(migrate.Locations{Home: c.Home, Runtime: c.Paths})
-	if text == "" {
+	status, headline, body := migrate.AgentFoldersLeft(
+		migrate.Locations{Home: c.Home, Runtime: c.Paths},
+	)
+	if headline == "" && body.Empty() {
 		return nil
 	}
-	line := operation.Component{Name: "agent-folders", Status: status, Message: text}
+	line := operation.Component{
+		Name:    "agent-folders",
+		Status:  status,
+		Message: headline,
+		Body:    body,
+	}
 	if status == operation.StatusPending {
 		// The next apply's migrations step does it too, or says why a folder
 		// stays.
-		line.Body = operation.Explain(operation.Fix("workbench", "migrate"))
+		line.Body = body.With(operation.Explain(operation.Fix("workbench", "migrate")))
 	}
 	return []operation.Component{line}
 }

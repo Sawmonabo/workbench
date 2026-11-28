@@ -73,9 +73,9 @@ func moveLedger(ctx context.Context, home, from, to string, alwaysCopy bool) err
 // ledgerConflict is the error of two ledgers that both stay, whether the old
 // and the new or a new ledger and the set-aside original.
 func ledgerConflict(home, a, b string) error {
-	return conflictError("leaves "+display.PathFrom(home, a)+" and "+
-		display.PathFrom(home, b)+", which hold different data",
-		operation.FixText("remove one of them"))
+	return conflictError(
+		FolderCheck{Problems: operation.Explain(differsLine(home, a, b), fixDiffers)},
+	)
 }
 
 // resumeCopy finishes or undoes what a stopped copy left. The marks are

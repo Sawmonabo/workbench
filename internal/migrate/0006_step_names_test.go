@@ -30,7 +30,7 @@ skip = ['costs-ingest', 'runtimes']
 		t.Fatal("a missing list became an empty one, which reads as decided")
 	}
 	l := tokenLocations(t, machine)
-	if status, _, _ := stepNames.Check(l); status != Pending {
+	if status := stepNames.Check(l).Status; status != Pending {
 		t.Fatalf("Check = %v, want pending", status)
 	}
 	runAll(t, l)
@@ -47,7 +47,7 @@ skip = ['costs-ingest', 'runtimes']
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("machine.toml is %v, want only the step name changed: %v", got, want)
 	}
-	if status, _, _ := stepNames.Check(l); status != Done {
+	if status := stepNames.Check(l).Status; status != Done {
 		t.Errorf("Check after the run = %v, want done", status)
 	}
 }
