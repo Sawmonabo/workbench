@@ -66,3 +66,6 @@ func chmodFolderAt(
 
 // othersMayWrite is -1: the mode's group bits hold the ACL's mask.
 func othersMayWrite(int, string) (int, error) { return -1, nil }
+
+// othersMaySearch is -1: the mode's group bits hold the ACL's mask.
+func othersMaySearch(int, string) (int, error) { return -1, nil }

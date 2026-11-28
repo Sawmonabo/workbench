@@ -97,3 +97,48 @@ func TestRunsFromItsFoldersOnlyYourOwnPrograms(t *testing.T) {
 		t.Fatalf("a system program outside Workbench's folders must run: %v", err)
 	}
 }
+
+// Prevent unauthorized execution: a tool's program runs what lies beside it
+// (python3 imports its library and runs the .pth files of its site
+// folder), so a file or folder of the tool that other users can change could
+// run their code as this user even when the program itself is safe. The
+// tool's whole folder must hold nothing others can change.
+func TestRunsAToolOnlyWhenNoOtherUserCanChangeItsFiles(t *testing.T) {
+	data := t.TempDir()
+	folder := filepath.Join(data, "tools", "tool", "1")
+	library := filepath.Join(folder, "lib", "site")
+	if err := os.MkdirAll(library, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	module := filepath.Join(library, "module.pth")
+	for path, mode := range map[string]os.FileMode{
+		filepath.Join(folder, "tool"): 0o700,
+		module:                        0o600,
+	} {
+		if err := os.WriteFile(path, []byte("#!/bin/sh\n"), mode); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := CheckToolFolder(data, folder); err != nil {
+		t.Fatalf("a tool only you can change must run: %v", err)
+	}
+	for _, changed := range []struct {
+		path string
+		mode os.FileMode
+	}{{library, 0o777}, {module, 0o666}} {
+		if err := os.Chmod(changed.path, changed.mode); err != nil {
+			t.Fatal(err)
+		}
+		if err := CheckToolFolder(data, folder); err == nil {
+			t.Fatalf("a tool must not run while others can change %s (mode %04o)",
+				changed.path, changed.mode)
+		}
+		restore := os.FileMode(0o700)
+		if changed.path == module {
+			restore = 0o600
+		}
+		if err := os.Chmod(changed.path, restore); err != nil {
+			t.Fatal(err)
+		}
+	}
+}

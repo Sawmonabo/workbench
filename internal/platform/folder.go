@@ -74,6 +74,18 @@ func ChmodFolderAt(
 // ErrUnsupportedACL for an ACL whose layout FileSecurity does not recognize.
 func OthersMayWrite(fd int, path string) (entry int, err error) { return othersMayWrite(fd, path) }
 
+// OthersMaySearch is [OthersMayWrite] for the right to search a folder: the
+// index of the first entry of the ACL of the folder fd, or of path itself,
+// that allows a user or group other than this process's user to search it,
+// and -1 when there is none: on macOS a KAUTH_ACE_PERMIT entry with
+// KAUTH_VNODE_SEARCH, KAUTH_ACE_GENERIC_EXECUTE or KAUTH_ACE_GENERIC_ALL
+// whose applicable GUID is not the user's own. On Linux it is always -1: the
+// mode's group bits hold the ACL's mask, so they say whether a named entry
+// lets anyone but the owner search it.
+func OthersMaySearch(fd int, path string) (entry int, err error) {
+	return othersMaySearch(fd, path)
+}
+
 // sameFolder reports whether stat, as fstatat(2) read it, is of the folder
 // judged describes: a folder with its device and inode.
 func sameFolder(judged os.FileInfo, stat *unix.Stat_t) bool {

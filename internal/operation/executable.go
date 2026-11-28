@@ -110,6 +110,176 @@ func ownProgramRefusal(path, canonical, folder string, info os.FileInfo) error {
 	)
 }
 
+// CheckToolFolder refuses folder, the folder of one version of a tool in
+// root, Workbench's data folder (tools/NAME/VERSION), when what it holds could
+// run another user's code as this user: Workbench runs the tool's program,
+// and the program reads what lies beside it (python3 imports its library and
+// runs the .pth files of its site-packages). Each entry below folder, read
+// with lstat and never followed, must be this user's, and no file or folder
+// there may be one other users can change, by its mode or by an ACL entry
+// (see [platform.OthersMayWrite]). Workbench installs every tool as this user,
+// so another user's entry is not Workbench's, and a file others can change
+// while they can reach it (each folder from root down to it lets another
+// user search it, see [othersReach]) may hold their code already: either is
+// refused with the move of the whole folder aside, then install, the lines
+// the caller gives, since what else of it they changed cannot be told. What
+// others can change but cannot reach is refused with the commands that close
+// it to them. folder itself and the folders above it are the caller's to
+// judge (see [CheckPrivateDirectory]). A missing folder holds nothing to
+// refuse.
+func CheckToolFolder(root, folder string, install ...Part) error {
+	reach := map[string]bool{folder: othersReach(root, folder)}
+	var exposed, closable *toolEntry
+	err := filepath.WalkDir(folder, func(path string, entry fs.DirEntry, walkErr error) error {
+		switch {
+		case walkErr != nil && path == folder && errors.Is(walkErr, fs.ErrNotExist):
+			return filepath.SkipAll
+		case walkErr != nil:
+			return toolUnreadRefusal(path, entry != nil && entry.IsDir(), walkErr)
+		case path == folder:
+			return nil
+		}
+		info, err := entry.Info()
+		if err != nil {
+			return toolUnreadRefusal(path, entry.IsDir(), err)
+		}
+		if !ownedByUser(info) {
+			return foreignToolRefusal(folder, path, info, install)
+		}
+		if info.Mode()&os.ModeSymlink != 0 {
+			return nil
+		}
+		found, err := othersChange(path, info)
+		if err != nil {
+			return err
+		}
+		if info.IsDir() {
+			reach[path] = reach[filepath.Dir(path)] && othersSearch(path, info)
+		}
+		switch {
+		case found == nil:
+		case !info.IsDir() && reach[filepath.Dir(path)]:
+			if exposed == nil {
+				exposed = found
+			}
+		case closable == nil:
+			closable = found
+		}
+		return nil
+	})
+	switch {
+	case err != nil:
+		return err
+	case exposed != nil:
+		return Fail(ExitBlocked, "tool", exposed.headline,
+			Cause("another user may have changed it, so Workbench does not run this tool"),
+			moveToolAside(folder, install))
+	case closable != nil:
+		var fixes fixLines
+		if closable.acl {
+			removal := platform.ACLRemoval()
+			fixes = append(
+				fixes,
+				FixPath(folder, append([]string{removal[0], "-R"}, removal[1:]...)...),
+			)
+		}
+		return Fail(ExitBlocked, "tool", closable.headline,
+			Cause("Workbench runs a tool only from files and folders no other user can change"),
+			append(fixes, FixPath(folder, "chmod", "-R", "go-w")))
+	}
+	return nil
+}
+
+// toolEntry is a file or folder of a tool's folder that other users may
+// change: the headline that says so, and whether its ACL is why.
+type toolEntry struct {
+	headline string
+	acl      bool
+}
+
+// othersChange is the [toolEntry] of path, which info describes, when other
+// users may change it, by its mode or its ACL, or nil when they may not.
+func othersChange(path string, info os.FileInfo) (*toolEntry, error) {
+	if mode := info.Mode(); mode.Perm()&0o022 != 0 {
+		return &toolEntry{headline: fmt.Sprintf("%s can be changed by other users (mode %04o)",
+			display.Path(path), platform.ModeBits(mode))}, nil
+	}
+	entry, err := platform.OthersMayWrite(-1, path)
+	switch {
+	case err != nil:
+		return nil, Fail(ExitBlocked, "tool", "Cannot read the ACL of "+display.Path(path),
+			Cause(err.Error()), FixPath(path, platform.ACLRemoval()...))
+	case entry >= 0:
+		return &toolEntry{
+			headline: display.Path(path) + " has an ACL that lets other users change it",
+			acl:      true,
+		}, nil
+	}
+	return nil, nil
+}
+
+// othersSearch reports whether a user other than this one may search the
+// folder at path, which info describes, by its mode or its ACL (see
+// [platform.OthersMaySearch]); an ACL it cannot read counts as one that lets
+// them.
+func othersSearch(path string, info os.FileInfo) bool {
+	if info.Mode().Perm()&0o011 != 0 {
+		return true
+	}
+	entry, err := platform.OthersMaySearch(-1, path)
+	return err != nil || entry >= 0
+}
+
+// othersReach reports whether a user other than this one may reach folder:
+// whether they may search each folder from root down to it (see
+// [othersSearch]). One that is missing reaches nothing.
+func othersReach(root, folder string) bool {
+	for current := folder; ; current = filepath.Dir(current) {
+		info, err := os.Lstat(current)
+		if err != nil || !othersSearch(current, info) {
+			return false
+		}
+		if current == root || current == filepath.Dir(current) {
+			return true
+		}
+	}
+}
+
+// foreignToolRefusal refuses the tool at folder for path, an entry in it of
+// another user, which info describes.
+func foreignToolRefusal(folder, path string, info os.FileInfo, install []Part) error {
+	owner := "another user"
+	if stat, ok := info.Sys().(*syscall.Stat_t); ok {
+		owner = userName(stat.Uid)
+	}
+	return Fail(ExitBlocked, "tool", display.Path(path)+" belongs to "+owner+", not to you",
+		Cause("Workbench runs a tool only when every file of it is yours"),
+		moveToolAside(folder, install))
+}
+
+// moveToolAside is the fix lines of a tool at folder that may hold another
+// user's code: the move of the whole folder aside, to a name beside it, then
+// install, the lines that install the tool again.
+func moveToolAside(folder string, install []Part) Part {
+	return append(
+		fixLines{FixText("mv -n " + shellHomePath(folder) + " " + shellHomePath(folder+".moved"))},
+		install...)
+}
+
+// toolUnreadRefusal refuses a tool for path in its folder, a folder when
+// folder is set, which it failed with err to read (see [unreachable]).
+func toolUnreadRefusal(path string, folder bool, err error) error {
+	what := ""
+	if folder {
+		what = "the folder "
+	}
+	parts := unreachable(path, folder, err)
+	if parts == nil {
+		parts = []Part{Cause(FileReason(path, err).Error())}
+	}
+	return Fail(ExitBlocked, "tool", "Cannot read "+what+display.Path(path), parts...)
+}
+
 // programRefusal is why Workbench does not run the program at path, which
 // info describes, or nil when it does: it runs only a file marked
 // executable that no user but its owner can change.

@@ -56,20 +56,31 @@ const (
 	acePermit      uint32 = 1
 )
 
-// othersMayWrite reads the ACL as FileSecurity does and compares the
-// applicable GUID of each allow entry with such rights, the first 16 bytes of
-// its kauth_ace, with the user's own from mbr_uid_to_uuid, which it asks for
-// only when there is such an entry: the deny entries macOS puts on the home
-// folder and the folders of ~/Library never need it.
+// othersMayWrite is othersAllowed with the rights that change who may write
+// in a folder.
 func othersMayWrite(fd int, path string) (int, error) {
+	return othersAllowed(fd, path, childRights|securityRights|genericRights)
+}
+
+// othersMaySearch is othersAllowed with the right to search and the generic
+// rights that hold it.
+func othersMaySearch(fd int, path string) (int, error) {
+	return othersAllowed(fd, path, searchRight|genericHolding(searchRight))
+}
+
+// othersAllowed reads the ACL as FileSecurity does and compares the
+// applicable GUID of each allow entry with one of rights, the first 16 bytes
+// of its kauth_ace, with the user's own from mbr_uid_to_uuid, which it asks
+// for only when there is such an entry: the deny entries macOS puts on the
+// home folder and the folders of ~/Library never need it.
+func othersAllowed(fd int, path string, rights uint32) (int, error) {
 	acl, err := fileSecurity(fd, path)
 	if err != nil {
 		return -1, err
 	}
 	var own *[16]byte
 	for i, entry := range acl.Entries {
-		if entry.Flags&aceKind != acePermit ||
-			entry.Rights&(childRights|securityRights|genericRights) == 0 {
+		if entry.Flags&aceKind != acePermit || entry.Rights&rights == 0 {
 			continue
 		}
 		if own == nil {

@@ -140,14 +140,29 @@ func resolveDependencies(
 // that is only read (see [operation.CheckPrivateDirectory]) before the
 // program is looked at: one its owner may not read or search gets 0700, and
 // one others can write in is refused, since a program another user put there
-// would run as this user. A program elsewhere has only the checks
+// would run as this user. For a program in the folder of one version of a
+// tool (tools/NAME/VERSION) the whole folder is then walked (see
+// [operation.CheckToolFolder]), since the program runs what lies beside it,
+// and a refusal that moves the folder aside ends with the command that
+// installs the tool again. A program elsewhere has only the checks
 // [operation.FindExecutable] gives it.
 func ownToolFolder(c operation.Context, path string) error {
 	name, err := filepath.Rel(c.Paths.Data, filepath.Dir(path))
 	if err != nil || !filepath.IsLocal(name) {
 		return nil
 	}
-	return operation.CheckPrivateDirectory(c.Paths.Data, name)
+	if err = operation.CheckPrivateDirectory(c.Paths.Data, name); err != nil {
+		return err
+	}
+	parts := strings.Split(filepath.ToSlash(name), "/")
+	if len(parts) < 3 || parts[0] != "tools" {
+		return nil
+	}
+	return operation.CheckToolFolder(
+		c.Paths.Data,
+		filepath.Join(c.Paths.Data, "tools", parts[1], parts[2]),
+		InstallFix(c)...,
+	)
 }
 
 // probeRefusal is the message and body of a tool's line whose candidate
