@@ -92,12 +92,7 @@ func resolveDependencies(
 			}
 			version, err := probeVersion(ctx, c, name, candidate.Path)
 			if err != nil {
-				component.Message, component.Body = operation.Explained(err)
-				if operation.Category(err) == "dependency" &&
-					operation.ExitCode(err) == operation.ExitBlocked {
-					// No program is there any more: installing it puts one there.
-					component.Body = component.Body.With(operation.Explain(InstallFix(c)...))
-				}
+				component.Message, component.Body = probeRefusal(c, err)
 				if refusal == nil && operation.Category(err) == "tool" {
 					refusal = err
 				}
@@ -153,6 +148,17 @@ func ownToolFolder(c operation.Context, path string) error {
 		return nil
 	}
 	return operation.CheckPrivateDirectory(c.Paths.Data, name)
+}
+
+// probeRefusal is the message and body of a tool's line whose candidate
+// probeVersion refused with err: one that finds no program there any more
+// also gets the command that installs the tool.
+func probeRefusal(c operation.Context, err error) (string, operation.Body) {
+	message, body := operation.Explained(err)
+	if operation.Category(err) == "dependency" && operation.ExitCode(err) == operation.ExitBlocked {
+		body = body.With(operation.Explain(InstallFix(c)...))
+	}
+	return message, body
 }
 
 // probeVersion runs a bounded version probe of the tool at path and returns
