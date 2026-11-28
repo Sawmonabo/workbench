@@ -53,10 +53,12 @@ using.
   (the hooks, the watcher, the view, `agent guard history` and `agent guard
   logs`) checks the guard folder where that function says it is, at either
   path, as private: it, its notes, killed and agents folders and the state
-  folder above them must be real folders, not links, of mode 0700, the
-  user's, on the machine's own file system, and one that is not is refused
-  in the same words at both paths; at the old path the checks make nothing,
-  and a folder the release before made there passes them. Every entry that asks
+  folder above them must be real folders, not links, the user's, that
+  neither the group nor other users may write in, on the machine's own file
+  system, and one that is not is refused in the same words at both paths;
+  an entry that writes at the new path sets such a folder to 0700 when it is
+  not, at the old path the checks make and change nothing, and a folder the
+  release before made there passes them. Every entry that asks
   whether a watcher or an import holds a lock (that function, a pre hook,
   `workbench migrate` and `doctor`, `agent costs status`) asks with a shared
   lock taken without waiting for an instant: only an exclusive lock refuses

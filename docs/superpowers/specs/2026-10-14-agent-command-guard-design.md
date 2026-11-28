@@ -213,7 +213,9 @@ An `agent/guard/` folder inside Workbench's own state folder, the one
   (`$XDG_STATE_HOME/workbench/` or `WORKBENCH_STATE_DIR` when set)
 
 It is made and checked by the operation layer's private-directory owner:
-`0700`, owned by the user, no symlinked parents. It is not in a shared temp
+made `0700`, owned by the user, no symlinked parents, refused when its group
+or other users may write in it, and set to `0700` by an entry that writes
+there when its mode is another. It is not in a shared temp
 folder: those have predictable names other users could create first, and the
 macOS temp folder is pruned of files older than three days.
 

@@ -328,10 +328,15 @@ until that watcher or import has ended, and the next entry to take its lock
 moves it. Wherever the guard folder is, the hooks, the watcher, `agent guard`,
 `agent guard history` and `agent guard logs` use it only while it, its
 `notes/`, `killed/` and `agents/` folders and the state folder above are
-real folders (not links) of mode 0700, yours, on the machine's own file
-system, and refuse it otherwise in the same words, such as `…/notes has mode
-0755, and Workbench keeps its own files only in a folder with mode 0700; run
-chmod 700 …/notes and retry`. An entry asks whether a watcher or an import works in a folder with a
+real folders (not links), yours, that neither your group nor other users can
+write in, on the machine's own file system, and refuse it otherwise in the
+same words, such as `…/notes has mode 0775, so other users can write in it
+and what it holds may not be Workbench's; move aside what find …/notes -not
+-user NAME lists, then run chmod 700 …/notes and retry`. An entry that
+writes there (the hooks, the watcher, `agent guard history --keep`) sets
+such a folder to 0700 when it is not; the view, `agent guard history` and
+`agent guard logs`, which only read, and every entry at the old path leave
+its mode as it is. An entry asks whether a watcher or an import works in a folder with a
 shared lock on that folder's lock file, which only an exclusive lock
 refuses: the watcher's or the import's own, or, for an instant, that of an
 entry moving the folder, which takes it only when the folder can move. So

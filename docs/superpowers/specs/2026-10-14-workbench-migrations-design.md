@@ -53,9 +53,10 @@ Every path below was traced to the code or template that writes it.
   1. `WORKBENCH_<NAME>_DIR`, which must be absolute.
   2. `$XDG_<NAME>_HOME/workbench`, when that variable is absolute.
   3. The default above.
-- **Each folder that exists must be owned by the user,** and the config, data,
-  state and cache folders private, with no group or other permissions
-  (`context.go` `runtimePaths`). Workbench makes them `0700`.
+- **Each folder that exists must be owned by the user,** and neither the group
+  nor other users may write in the config, data, state and cache folders
+  (`context.go` `runtimePaths`). Workbench makes them `0700`, and sets one
+  that is not to `0700` when it writes there.
 - **What writes there:** every write through `c.Paths.*` in
   `internal/machine`, `internal/release` and `internal/operation`.
 - **No history to migrate:** the defaults are unchanged since `3d4f6c4`, which
@@ -791,8 +792,10 @@ _workbench_completion=$_workbench_cache/completion.zsh
   bash uses `$(dirname "$_workbench_cache")`). `-m` applies only to the last
   folder with both BSD and GNU `mkdir`, and only when `mkdir` creates it: an
   existing folder keeps its mode. The shell uses an existing folder as it is and
-  doesn't change it; a `0755` runtime folder makes every Workbench command
-  refuse to start (`context.go:236-252`), which reports it.
+  doesn't change it; a runtime folder its group or other users can write in
+  makes every Workbench command refuse to start (`context.go` `runtimePaths`),
+  which reports it, and Workbench sets a `0755` one to `0700` the first time
+  it writes there.
 - **The file is written in the same subshell under `umask 077`,** so it's
   `0600`, to `completion.<shell>.$$`, and renamed into place only when the
   marker line and `workbench completion` both succeed; otherwise the
